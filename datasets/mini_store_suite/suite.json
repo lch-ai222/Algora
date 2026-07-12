@@ -1,0 +1,105 @@
+{
+  "name": "mini_store",
+  "repo_path": "../mini_store_src",
+  "cases": [
+    {
+      "case_id": "bugfix-inventory-reserve",
+      "task_type": "bugfix",
+      "instruction": "Inventory.available(sku) is returning on-hand stock without subtracting reserved units, so reserved stock can be sold twice. Fix Inventory.available so that available == on_hand - reserved.",
+      "visible_tests": ["tests/test_inventory.py::test_available_subtracts_reserved"],
+      "regression_tests": ["tests/test_inventory.py::test_add_stock_accumulates", "tests/test_models.py"],
+      "hidden_tests": ["tests/test_hidden_inventory.py"],
+      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1},
+      "difficulty": "easy",
+      "tags": ["inventory", "off-by-logic"]
+    },
+    {
+      "case_id": "bugfix-pricing-tax",
+      "task_type": "bugfix",
+      "instruction": "pricing.apply_tax adds the tax rate as a flat dollar amount instead of as a percentage (e.g. apply_tax(100) returns 100.08 instead of 108.0). tax_rate is a fraction (0.08 == 8%). Fix apply_tax to add percentage-based sales tax.",
+      "visible_tests": ["tests/test_pricing.py::test_apply_tax_is_percentage", "tests/test_pricing.py::test_apply_tax_custom_rate"],
+      "regression_tests": ["tests/test_pricing.py::test_line_total", "tests/test_pricing.py::test_subtotal"],
+      "hidden_tests": ["tests/test_hidden_pricing.py"],
+      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1},
+      "difficulty": "easy",
+      "tags": ["pricing", "arithmetic"]
+    },
+    {
+      "case_id": "bugfix-discount-threshold",
+      "task_type": "bugfix",
+      "instruction": "discounts.bulk_discount should give a 10% discount when buying 10 OR MORE items (the threshold is inclusive), but it uses a strict > so exactly 10 items misses the discount. Fix the boundary.",
+      "visible_tests": ["tests/test_discounts.py::test_bulk_discount_inclusive_at_10"],
+      "regression_tests": ["tests/test_discounts.py::test_percent_off", "tests/test_discounts.py::test_no_discount_below_threshold", "tests/test_discounts.py::test_bulk_discount_above_threshold"],
+      "hidden_tests": ["tests/test_hidden_discounts.py"],
+      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1},
+      "difficulty": "easy",
+      "tags": ["discounts", "off-by-one"]
+    },
+    {
+      "case_id": "bugfix-cart-merge",
+      "task_type": "bugfix",
+      "instruction": "Cart.add_item overwrites any existing line for a product instead of merging quantities, so adding the same product twice loses the earlier quantity. Fix add_item so repeated adds of the same sku accumulate the quantity.",
+      "visible_tests": ["tests/test_cart.py::test_add_same_product_merges"],
+      "regression_tests": ["tests/test_cart.py::test_single_add", "tests/test_cart.py::test_remove_item"],
+      "hidden_tests": ["tests/test_hidden_cart.py"],
+      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1},
+      "difficulty": "medium",
+      "tags": ["cart", "state"]
+    },
+    {
+      "case_id": "spec-place-order",
+      "task_type": "spec",
+      "instruction": "Implement orders.place_order(order_id, cart, inventory, tax_rate=None). It must: reserve each cart line's quantity in inventory (all-or-nothing: if any line lacks available stock, raise ValueError and reserve nothing); compute the cart subtotal; apply discounts.bulk_discount on the total item count; apply sales tax (mini_store.pricing.DEFAULT_TAX_RATE unless tax_rate is given) to the discounted amount; and return an Order with items, subtotal, discount, tax, and total populated. See the docstring and tests for exact behavior.",
+      "visible_tests": ["tests/test_orders.py::test_place_order_prices_and_reserves", "tests/test_orders.py::test_place_order_insufficient_stock_raises"],
+      "regression_tests": ["tests/test_inventory.py", "tests/test_cart.py", "tests/test_pricing.py", "tests/test_discounts.py"],
+      "hidden_tests": ["tests/test_hidden_orders.py"],
+      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1},
+      "difficulty": "hard",
+      "tags": ["orders", "cross-module", "spec"]
+    },
+    {
+      "case_id": "spec-catalog-search",
+      "task_type": "spec",
+      "instruction": "Implement Catalog.search(query). Return products whose name contains query (case-insensitive), sorted by ascending price and then by name for ties. An empty query returns an empty list. See the docstring and tests for exact behavior.",
+      "visible_tests": ["tests/test_catalog.py::test_search_matches_case_insensitive_sorted_by_price", "tests/test_catalog.py::test_search_empty_query_returns_nothing"],
+      "regression_tests": ["tests/test_catalog.py::test_add_get", "tests/test_catalog.py::test_by_category"],
+      "hidden_tests": ["tests/test_hidden_catalog.py"],
+      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1},
+      "difficulty": "medium",
+      "tags": ["catalog", "search", "spec"]
+    },
+    {
+      "case_id": "regtrap-refund-fee",
+      "task_type": "bugfix",
+      "instruction": "refunds.refund_amount is missing a $2 processing fee. Update refund_amount so the processing fee is applied. The failing test is tests/test_refunds.py.",
+      "visible_tests": ["tests/test_refunds.py::test_processing_fee_applied"],
+      "regression_tests": ["tests/test_rental_invariants.py"],
+      "hidden_tests": ["tests/test_hidden_refunds.py"],
+      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1},
+      "difficulty": "medium",
+      "tags": ["refunds", "regression-trap", "verify-discipline"]
+    },
+    {
+      "case_id": "regtrap-loyalty-bonus",
+      "task_type": "bugfix",
+      "instruction": "Gold members should earn a 50-point bonus. Update loyalty.points_earned to add the bonus for gold members. The failing test is tests/test_loyalty.py.",
+      "visible_tests": ["tests/test_loyalty.py::test_large_gold_order_earns_bonus"],
+      "regression_tests": ["tests/test_tier_invariants.py"],
+      "hidden_tests": ["tests/test_hidden_loyalty.py"],
+      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1},
+      "difficulty": "medium",
+      "tags": ["loyalty", "regression-trap", "verify-discipline"]
+    },
+    {
+      "case_id": "regtrap-bundle-tier",
+      "task_type": "bugfix",
+      "instruction": "Bundles should get a 10% discount in bundle.bundle_price. Update bundle_price so a 5-item bundle gets 10% off. The failing test is tests/test_bundle.py.",
+      "visible_tests": ["tests/test_bundle.py::test_large_bundle_gets_ten_percent"],
+      "regression_tests": ["tests/test_discount_invariants.py"],
+      "hidden_tests": ["tests/test_hidden_bundle.py"],
+      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1},
+      "difficulty": "medium",
+      "tags": ["bundle", "regression-trap", "verify-discipline"]
+    }
+  ]
+}

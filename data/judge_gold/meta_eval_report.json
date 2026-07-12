@@ -1,0 +1,37 @@
+{
+  "rubric_version": "judge_meta_eval_v1",
+  "gold_version": "judge_gold_v1",
+  "llm_used": true,
+  "dimensions": [
+    {
+      "dimension": "CORRECTNESS",
+      "sample_count": 6,
+      "agreement_rate": 1.0,
+      "cohen_kappa": 1.0,
+      "min_kappa": 0.6,
+      "min_agreement": 0.8,
+      "trusted": true,
+      "downgrade_reason": null
+    },
+    {
+      "dimension": "EDGE_CASES",
+      "sample_count": 5,
+      "agreement_rate": 1.0,
+      "cohen_kappa": 1.0,
+      "min_kappa": 0.6,
+      "min_agreement": 0.8,
+      "trusted": true,
+      "downgrade_reason": null
+    },
+    {
+      "dimension": "READABILITY",
+      "sample_count": 5,
+      "agreement_rate": 0.8,
+      "cohen_kappa": 0.6153846153846155,
+      "min_kappa": 0.6,
+      "min_agreement": 0.8,
+      "trusted": true,
+      "downgrade_reason": null
+    }
+  ]
+}
