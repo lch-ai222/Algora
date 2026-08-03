@@ -44,6 +44,9 @@ class TrialResult(BaseModel):
     changed_files: list[str] = Field(default_factory=list)
     events: list[TraceEvent] = Field(default_factory=list)
     llm_calls: list[LlmCallRecord] = Field(default_factory=list)
+    cached_tokens: int = 0
+    cost_usd: float | None = None
+    cost_source: str = "unavailable"
     completion_checks: dict[str, Any] = Field(default_factory=dict)
     started_at: str = ""
     finished_at: str = ""
@@ -59,6 +62,7 @@ class _RunState:
     last_test_exit: int | None = None
     forbidden_attempts: int = 0
     blocked_commands: int = 0
+    premature_final_attempts: int = 0
     action_signatures: list[str] = field(default_factory=list)
 
     def emit(self, type_: TraceEventType, name: str | None = None, **payload: Any) -> None:
@@ -115,9 +119,32 @@ class MiniAgent:
                     stop_reason = "provider_error"
                     break
 
-                state.emit(TraceEventType.MODEL_RESPONSE, content=turn.content, tool_calls=len(turn.tool_calls))
+                state.emit(
+                    TraceEventType.MODEL_RESPONSE,
+                    content=turn.content,
+                    tool_calls=len(turn.tool_calls),
+                    finish_reason=turn.finish_reason,
+                )
 
                 if not turn.tool_calls:
+                    rejection_reasons = _completion_rejection_reasons(task, sandbox, state, turn)
+                    if self.config.version == "v2" and rejection_reasons:
+                        state.premature_final_attempts += 1
+                        state.emit(
+                            TraceEventType.ERROR,
+                            name="premature_final",
+                            reasons=rejection_reasons,
+                            finish_reason=turn.finish_reason,
+                        )
+                        if turn.content:
+                            messages.append({"role": "assistant", "content": turn.content})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": _completion_feedback(rejection_reasons),
+                            }
+                        )
+                        continue
                     state.emit(TraceEventType.FINAL_ANSWER, content=turn.content)
                     result_final = turn.content
                     stop_reason = "final"
@@ -171,6 +198,7 @@ class MiniAgent:
             "triggered_forbidden": state.forbidden_attempts > 0,
             "blocked_commands": state.blocked_commands,
             "provider_error": stop_reason == "provider_error",
+            "premature_final_attempts": state.premature_final_attempts,
         }
         return TrialResult(
             stop_reason=stop_reason,
@@ -218,6 +246,38 @@ def _assistant_message(turn) -> dict[str, Any]:
             for c in turn.tool_calls
         ],
     }
+
+
+def _completion_rejection_reasons(
+    task: AgentTask,
+    sandbox: WorktreeSandbox,
+    state: _RunState,
+    turn,
+) -> list[str]:
+    """Return objective reasons why a V2 no-tool turn is not a valid completion."""
+    reasons: list[str] = []
+    if turn.finish_reason == "length":
+        reasons.append("response was truncated by the per-call output-token limit")
+    if not (turn.content or "").strip():
+        reasons.append("final summary is empty")
+    if task.require_tests_run_before_finish:
+        if not sandbox.changed_files():
+            reasons.append("no repository changes are present")
+        if not state.ran_tests:
+            reasons.append("required tests have not been run")
+        elif state.last_test_exit != 0:
+            reasons.append("the latest test run is failing")
+    return reasons
+
+
+def _completion_feedback(reasons: list[str]) -> str:
+    joined = "; ".join(reasons)
+    return (
+        "You attempted to finish, but completion is not valid: "
+        f"{joined}. Continue with the available tools. Keep reasoning concise, make the "
+        "required code changes, rerun the relevant tests until they pass, inspect the diff, "
+        "then provide a non-empty final summary."
+    )
 
 
 def _tool_message(call_id: str, content: str) -> dict[str, Any]:

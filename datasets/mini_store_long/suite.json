@@ -1,0 +1,153 @@
+{
+  "name": "mini_store_long",
+  "repo_path": "repo_src",
+  "cases": [
+    {
+      "case_id": "long-refactor-pricing-api",
+      "task_type": "refactor",
+      "instruction": "Complete the repository-wide pricing API migration. Introduce tax_amount(amount, *, tax_rate=...) and taxed_total(amount, *, tax_rate=...) in mini_store.pricing with validation that amount is non-negative and tax_rate is a fraction in [0, 1]. Keep apply_tax as a backwards-compatible wrapper, but migrate every production call site in orders, checkout, invoices, quotes, shipping, subscriptions, fees, gift_cards, marketplace, payments, and promotions to taxed_total using the keyword-only tax_rate argument. Preserve rounding and existing behavior. Do not edit tests or add dependencies. Run the focused migration tests, then the complete test suite, and inspect git diff before finishing.",
+      "visible_tests": [
+        "tests/test_pricing_migration.py"
+      ],
+      "regression_tests": [
+        "tests/test_pricing.py",
+        "tests/test_orders.py",
+        "tests/test_cart.py"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_pricing_migration.py"
+      ],
+      "constraints": {
+        "forbidden_paths": ["tests/*"],
+        "max_changed_files": 12,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": true
+      },
+      "max_steps": 45,
+      "timeout_seconds": 600,
+      "difficulty": "hard",
+      "tags": ["long-horizon", "refactor", "pricing-api", "multi-file", "instruction-following"],
+      "horizon": "long",
+      "expected_steps": 12,
+      "expected_tool_calls": 25,
+      "canary": {
+        "constraint_id": "pricing-no-new-dependencies",
+        "description": "Do not introduce any new third-party dependency.",
+        "checker": "no_new_dependencies"
+      }
+    },
+    {
+      "case_id": "long-crossmodule-returns",
+      "task_type": "spec",
+      "instruction": "Implement the return workflow across the domain. Add immutable ReturnItem and ReturnReceipt records; retain the order tax_rate used at purchase; add Inventory.restock with positive-quantity validation; add loyalty.points_to_reverse; and implement a stateful ReturnService that supports partial returns, apportions order-level discounts before refunding tax, reverses loyalty points, rejects unknown/invalid/cumulative over-return quantities, and validates the entire request before mutating inventory or service state. Do not edit tests or add dependencies. Run the return tests, then the complete suite, and inspect git diff before finishing.",
+      "visible_tests": [
+        "tests/test_returns_contracts.py",
+        "tests/test_returns_workflow.py"
+      ],
+      "regression_tests": [
+        "tests/test_models.py",
+        "tests/test_inventory.py",
+        "tests/test_loyalty.py",
+        "tests/test_orders.py"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_returns.py"
+      ],
+      "constraints": {
+        "forbidden_paths": ["tests/*"],
+        "max_changed_files": 5,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": true
+      },
+      "max_steps": 50,
+      "timeout_seconds": 700,
+      "difficulty": "hard",
+      "tags": ["long-horizon", "cross-module", "spec", "atomicity", "state"],
+      "horizon": "long",
+      "expected_steps": 12,
+      "expected_tool_calls": 25,
+      "canary": {
+        "constraint_id": "returns-public-type-hints",
+        "description": "Every newly added or changed public function must retain complete parameter and return type hints.",
+        "checker": "public_type_hints"
+      }
+    },
+    {
+      "case_id": "long-cascade-reservation",
+      "task_type": "bugfix",
+      "instruction": "Several order, fulfillment, transfer, backorder, kit, and warehouse-allocation flows report negative available stock or partial reservations after a rejected batch. Reproduce the failures across the affected workflows, identify their shared root cause, and implement one scoped fix that preserves successful batch behavior, accepts general iterables, and leaves inventory unchanged whenever any line is invalid or the combined request cannot be fulfilled. Do not special-case individual callers, edit tests, or add dependencies. Run the focused failing tests, then the complete suite, and inspect git diff before finishing.",
+      "visible_tests": [
+        "tests/test_inventory_batch.py",
+        "tests/test_fulfillment.py",
+        "tests/test_transfers.py",
+        "tests/test_orders_batch.py",
+        "tests/test_reservation_invariants.py",
+        "tests/test_backorders.py",
+        "tests/test_kits.py",
+        "tests/test_warehouse.py"
+      ],
+      "regression_tests": [
+        "tests/test_inventory.py",
+        "tests/test_orders.py",
+        "tests/test_returns_workflow.py"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_reservation.py"
+      ],
+      "constraints": {
+        "forbidden_paths": ["tests/*"],
+        "max_changed_files": 1,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": true
+      },
+      "max_steps": 40,
+      "timeout_seconds": 600,
+      "difficulty": "hard",
+      "tags": ["long-horizon", "cascade", "root-cause", "atomicity", "iterable"],
+      "horizon": "long",
+      "expected_steps": 12,
+      "expected_tool_calls": 25,
+      "canary": {
+        "constraint_id": "reservation-root-cause-only",
+        "description": "Keep the functional fix confined to mini_store/inventory.py.",
+        "checker": "allowed_files"
+      }
+    },
+    {
+      "case_id": "long-build-and-cli",
+      "task_type": "build",
+      "instruction": "Restore the complete packaging and CLI delivery path while preserving the published distribution name mini-store-long. The project must build offline with python -m pip wheel --no-deps --no-build-isolation ., discover the mini_store package from the repository root, expose the mini-store = mini_store.cli:main console script, and support python -m mini_store. Use mini_store.version as the single 0.2.0 version source for both package code and build metadata; make quote apply bulk discount before fractional sales tax and support stable JSON output; make version and doctor report the installed version and a healthy package status. Fix source and pyproject configuration only; do not edit tests or add dependencies. Verify all focused CLI tests, perform an actual local wheel build, run the full suite, and inspect git diff before finishing.",
+      "visible_tests": [
+        "tests/test_cli.py"
+      ],
+      "regression_tests": [
+        "tests/test_discounts.py",
+        "tests/test_pricing.py"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_build.py"
+      ],
+      "constraints": {
+        "forbidden_paths": ["tests/*"],
+        "max_changed_files": 7,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": true
+      },
+      "max_steps": 45,
+      "timeout_seconds": 700,
+      "difficulty": "hard",
+      "tags": ["long-horizon", "build", "packaging", "cli", "toolchain"],
+      "horizon": "long",
+      "expected_steps": 12,
+      "expected_tool_calls": 25,
+      "canary": {
+        "constraint_id": "build-no-new-dependencies",
+        "description": "Do not introduce any runtime or build dependency beyond the existing setuptools backend.",
+        "checker": "no_new_dependencies"
+      },
+      "build_checks": [
+        "python -m pip wheel --no-deps --no-build-isolation ."
+      ]
+    }
+  ]
+}

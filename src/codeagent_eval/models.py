@@ -65,10 +65,13 @@ class AgentTask(BaseModel):
 
     instruction: str
     workspace_path: str
+    case_id: str | None = None
     max_steps: int = 20
     timeout_seconds: int = 300
     allowed_tools: list[str] | None = None
     project_instructions: str | None = None  # e.g. injected AGENTS.md content (V2)
+    harness_version: str | None = None
+    require_tests_run_before_finish: bool = False
 
 
 class TraceEventType(StrEnum):

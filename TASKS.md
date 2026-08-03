@@ -22,6 +22,38 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | B4 | Terminal-Bench/Harbor Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
 | B5 | OctoBench Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
 | G1 | 私有 Golden Dataset 类型扩充 | P0/P1/P2 | ⬜ 方案完成，待开发 |
+| V3 W1-1 | `mini_store_long` 长程 suite | P0 | ✅ 完成 |
+| V3 W1-2 | AgentAdapter + MiniAgentAdapter + runner 接入 | P0 | ✅ 完成 |
+| V3 W1-3 | ClaudeCodeAdapter | P0 | ⬜ 下一项 |
+
+---
+
+## V3 Week 1 · 地基
+
+### W1-1 · `mini_store_long` ✅
+
+- [x] 独立 `repo_src` 快照，避免修改历史短程基线；干净仓库 53 tests。
+- [x] 4 个 hard case：12 文件 API 迁移、5 模块退货功能、单根因级联 bug、7 文件 build/CLI 交付链。
+- [x] `Horizon`、`CanarySpec`、`expected_steps`、`expected_tool_calls`、build/multi-turn task type 等 schema。
+- [x] short 9/9、long 4/4 selfcheck；reference=1.0、none=0.0。
+- [x] 正式校准 `v2-20260803T191808Z`：Task/Strict 1.00，动作中位数 30，模型轮次 13.5，测试循环 3，infra 0/4。
+- **边界**：每 case 仅 1 次，数字只证明轨迹长度和闭环可执行，不代表稳定能力估计。
+
+### W1-2 · Adapter 地基 ✅
+
+- [x] `AgentAdapter` Protocol、`AgentRunResult`、`BudgetContract`、`Capability`、probe 与 registry。
+- [x] `MiniAgentAdapter` 归一化 patch/trace/token/cost/stop reason/environment manifest；不支持的硬预算明确报错。
+- [x] runner 保留 legacy `--agent`，新增 `--adapter mini_agent --harness v2`、`agent-result.json` 和显式 `--max-completion-tokens`。
+- [x] provider/网络错误作为 infra-invalid 排除出能力分母；compare 拒绝基础设施无效 run。
+- [x] V2 拒绝截断、空回复、无改动、未测试和末次测试失败的假完成；V1 行为不变。
+- [x] 成本费率缺失时记录 `cost_usd=null`、`cost_source=unavailable`，不伪造零成本。
+- **验收**：94 passed/1 skipped，Ruff 全绿；scripted adapter round-trip 与 legacy/default CLI 兼容有单测覆盖。
+
+### W1-3 · ClaudeCodeAdapter ⬜
+
+- [ ] probe 实际 CLI/version/capabilities，不依赖文档猜测。
+- [ ] headless stream-json 解析并保留 native trajectory；归一化为 `AgentRunResult`。
+- [ ] 在 3 条短程 case 跑通 patch/grade/成本；外部 Agent 无法执行的预算必须显式标注。
 
 ---
 
@@ -74,7 +106,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] 兼容样本 `datasets/swebench_compat/`：gold resolved 1/1；**MiniAgent(V2) 真跑 resolved 1/1**；标注 "Compatibility Sample"。
 - [x] Docker：`docker/sandbox.Dockerfile` + `docs/swebench_and_docker.md`（设计验证；本机无 daemon 未 build）。
 - [x] 真实 SWE-bench Lite 接入路径写清（clone + env 复现；`materialize_instance` 留 NotImplementedError + 指引）。
-- 只讲（不建）：Terminal-Bench/Harbor、PostgreSQL、外部 agent adapter、成本看板全量 —— 见 `docs/swebench_and_docker.md` §3。
+- 仍只讲（不建）：Terminal-Bench/Harbor、PostgreSQL、成本看板全量；通用 adapter 契约与 MiniAgentAdapter 已在 V3 W1-2 落地，外部实现从 W1-3 开始。
 
 ## DOC · 长期文档 ✅
 - [x] 根 `AGENTS.md`
@@ -121,9 +153,9 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [ ] 选择少量官方 OctoBench 环境，验证 Task/Strict 分离和持续约束。
 - **验收**：分别完成 protocol-conformant smoke slice；不作为全量 leaderboard 结果。
 
-## G1 · 私有 Golden Dataset 扩充 ⬜（分级）
+## G1 · 私有 Golden Dataset 扩充 🟨（长程地基已完成）
 
-- [ ] P0：普通逻辑/缓存/异常恢复 bugfix；单/跨模块和适度欠定义 spec；instruction following；行为保持/API 迁移 refactor。
+- [x] P0（部分）：长程跨模块 spec、行为保持/API 迁移 refactor、级联 bugfix、build/CLI case 已落地；短程 instruction-following 仍待补。
 - [ ] P1：带证据的 code review；以缺陷检出率/mutation score 评分的 test generation；performance；security；并发/资源泄漏/事务一致性。
 - [ ] P2：multi-turn 需求澄清、需求变化与跨轮状态；先设计用户模拟器、多轮 oracle、稳定性与泄漏防护。
 - [ ] 所有 case 补齐来源、标签、难度、语言、reference/oracle、污染/flaky/捷径检查、版本和修订记录。
@@ -132,10 +164,9 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ## 当前推荐执行顺序
 
-原 7 个里程碑（M0–M5 + C）已完成；公开 benchmark 后续不追求高成本全量榜单，而按标准协议做少量官方实例：
+V3 W1-1/W1-2 已完成，当前按 [`docs/iteration_plan_v3.md`](docs/iteration_plan_v3.md) 推进：
 
-1. B2 SWE-bench 官方实例 Smoke Slice。
-2. B3 P0 统计增强。
-3. B4/B5 先文档、后 Terminal-Bench 与 OctoBench Smoke Slice。
-4. G1 按 P0→P2 扩充私有 Golden Dataset。
-5. 面试演示彩排（8–10 分钟脚本见 `coding_agent_eval_plan_v2.md` §15）。
+1. W1-3 ClaudeCodeAdapter。
+2. W1-4 planner + v3 prompt；W1-5 CI + Docker 真实 build。
+3. W1-6 并行/checkpoint；W1-7 GLM provider 与成本表。
+4. B2 SWE-bench 官方实例 Smoke Slice与 B3 统计增强继续保留，但不抢占 adapter 主线。

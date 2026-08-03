@@ -56,6 +56,7 @@ class LlmToolTurn(BaseModel):
 
     content: str | None = None
     tool_calls: list[LlmToolCall] = Field(default_factory=list)
+    finish_reason: str | None = None
 
 
 class LlmProvider:
@@ -163,7 +164,8 @@ class LlmProvider:
                 **kwargs,
             )
             self.last_usage = _usage_dict(response)
-            message = response.choices[0].message
+            choice = response.choices[0]
+            message = choice.message
             self.last_raw_content = message.content
             tool_calls: list[LlmToolCall] = []
             for raw_call in message.tool_calls or []:
@@ -186,7 +188,11 @@ class LlmProvider:
                     )
                 )
             status = "SUCCESS"
-            return LlmToolTurn(content=message.content, tool_calls=tool_calls)
+            return LlmToolTurn(
+                content=message.content,
+                tool_calls=tool_calls,
+                finish_reason=getattr(choice, "finish_reason", None),
+            )
         except Exception as exc:
             self.last_error = f"LLM tool call failed: {_compact_error(_exception_label(exc))}"
             return None

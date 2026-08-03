@@ -10,20 +10,21 @@ from __future__ import annotations
 import re
 import shlex
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from codeagent_eval.sandbox.worktree import WorktreeSandbox
 
 # e.g. "tests/test_x.py::test_y PASSED [ 33%]"
 _RESULT_LINE = re.compile(r"^(?P<node>\S+::\S+|\S+\.py)\s+(?P<status>PASSED|FAILED|ERROR|SKIPPED)")
+_COLLECTION_ERROR_LINE = re.compile(r"^ERROR collecting (?P<node>\S+)")
 
 
 class PytestOutcome(BaseModel):
     node_ids: list[str]
-    passed: list[str] = []
-    failed: list[str] = []
-    errors: list[str] = []
-    skipped: list[str] = []
+    passed: list[str] = Field(default_factory=list)
+    failed: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
     collected: int = 0
     exit_code: int | None = None
     timed_out: bool = False
@@ -35,7 +36,7 @@ class PytestOutcome(BaseModel):
         """True only if pytest ran, nothing failed/errored, and at least one test ran."""
         if self.timed_out or self.blocked or self.exit_code is None:
             return False
-        return not self.failed and not self.errors and self.collected > 0
+        return self.exit_code == 0 and not self.failed and not self.errors and self.collected > 0
 
     @property
     def pass_rate(self) -> float:
@@ -59,7 +60,12 @@ def run_pytest(sandbox: WorktreeSandbox, node_ids: list[str], timeout: int = 120
         return outcome
 
     for line in (result.stdout or "").splitlines():
-        m = _RESULT_LINE.match(line.strip())
+        stripped = line.strip()
+        collection_error = _COLLECTION_ERROR_LINE.match(stripped)
+        if collection_error:
+            outcome.errors.append(f"{collection_error.group('node')}::collection")
+            continue
+        m = _RESULT_LINE.match(stripped)
         if not m:
             continue
         node, status = m.group("node"), m.group("status")
@@ -67,4 +73,7 @@ def run_pytest(sandbox: WorktreeSandbox, node_ids: list[str], timeout: int = 120
          "ERROR": outcome.errors, "SKIPPED": outcome.skipped}[status].append(node)
     outcome.collected = len(outcome.passed) + len(outcome.failed) + len(outcome.errors) + len(outcome.skipped)
     outcome.raw_tail = "\n".join((result.stdout or "").splitlines()[-15:])
+    if outcome.exit_code not in (0, None) and not outcome.failed and not outcome.errors:
+        outcome.errors.append(f"pytest exited with code {outcome.exit_code}; see raw_tail")
+        outcome.collected += 1
     return outcome

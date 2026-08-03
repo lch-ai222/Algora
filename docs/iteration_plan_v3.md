@@ -6,6 +6,13 @@
 - 状态文档：[`PROJECT_STATE.md`](../PROJECT_STATE.md)、[`TASKS.md`](../TASKS.md)
 - 本文定位：**规划**。所有"预期结果"均为**预注册假设（pre-registered hypothesis）**，不是已得结论。执行后须以真实数据回填，并保留与假设相反的结果。
 
+### 执行进度（2026-08-04）
+
+- **W1-1 已完成**：`mini_store_long` 4/4 selfcheck，reference/none=1.0/0.0；正式 V2 校准 `v2-20260803T191808Z` 为 Task/Strict 1.00、工具动作中位数 30、模型轮次 13.5、测试运行 3。该数据是 n=1/case 的难度校准，不是稳定成功率结论。
+- **W1-2 已完成**：AgentAdapter/MiniAgentAdapter、预算契约、能力探测、环境清单、归一化结果、runner adapter 路由和 infra-invalid 口径已落地；94 passed/1 skipped。
+- 校准发现并修复 V2 将 token 截断空回复误判为 final 的缺陷；默认 2048 保留，长程校准显式使用 4096 并写入溯源。成本费率未配置，因此正式产物为 `null/unavailable`。
+- **下一项是 W1-3**；Claude Code 等外部 Agent 尚未接入，不能宣称已具备横向评测结果。
+
 ---
 
 ## 0. 一句话目标
@@ -33,7 +40,7 @@
 | **框架开发经验** | MiniAgent（254 行 loop + 沙箱 + 6 工具） | + context/memory/planner/multi-turn 四个子系统 | 从"能跑"升到"有架构" |
 | **深度用户视角**（1 年+ AI 编程工具） | 隐含（本项目自身用 Agent 开发，有 AGENTS.md/.claude/） | 显式产出：Claude Code 失败模式观察报告 | E3 |
 | **Python + 系统级语言** | Python ✅；TypeScript ⚠️（前端仅 ~430 行） | TS 加厚：报告生成 + 跨 Agent 对比视图 | D4；不建议为打勾现学 Go |
-| **软件工程素养**（设计模式、规范、自动化测试） | 79 测试 + ruff ✅，但**无 CI** | CI 门禁 + adapter 用 Protocol/策略模式 + 检测器插件化 | A5 |
+| **软件工程素养**（设计模式、规范、自动化测试） | 94 测试 + ruff ✅；adapter Protocol 已落地；仍**无 CI** | CI 门禁 + 检测器插件化 | A5 |
 | **评测与数据思维** | 方法论文档 ✅、kappa meta-eval ✅ | + 置信区间、配对检验、分层统计、预注册假设 | D1 |
 | 加分：**开源经历** | ❌ 未公开 | 清理后 public，含架构图与对比报告 | E4 |
 | 加分：**平台工程** | ⚠️ | 并行调度 + checkpoint + 环境清单 + CI | A4, A5 |
@@ -69,14 +76,14 @@
 
 | ID | 差距 | 严重度 | 根因 |
 |---|---|---|---|
-| G1 | 无任何外部 Agent 接入能力，`runner.py` 硬依赖 `MiniAgent.run()` | 🔴 致命 | 缺 adapter 抽象层 |
+| G1 | Adapter 抽象与 MiniAgentAdapter 已落地；尚无外部 Agent adapter | 🟠 高 | W1-2 已消除硬耦合，W1-3 待接首个外部 Agent |
 | G2 | 无 context/memory/plan/multi-turn 四项能力 | 🔴 致命 | JD 职责 1 逐字要求 |
-| G3 | **case 太短**（5–15 步），长程能力在其上不可测 | 🔴 致命 | 上述能力的**前置条件**，缺了整条线归零 |
+| G3 | `mini_store_long` 已落地并达到动作中位数 30；尚未用于 context/memory/plan 消融 | 🟠 高 | 数据前置完成，能力实验待 W1-4/W2 |
 | G4 | 三类失败模式（指令偏移/上下文遗忘/测试投机）无检测器 | 🟠 高 | JD 职责 4 逐字要求 |
 | G5 | 测试文件是**禁止修改**而非**允许并检测** | 🟠 高 | 设计取向问题：禁止后永远测不到该维度 |
 | G6 | 无 CI、Docker 从未 build、runner 串行 | 🟠 高 | 三个加分项同时缺失 |
 | G7 | SWE-bench 仅自建兼容样例，无官方实例 | 🟠 高 | 面试判断近似二值 |
-| G8 | 无构建/部署环节的 case（JD 明写"完整工具链"） | 🟡 中 | 只有 pytest 一种 oracle |
+| G8 | 已有离线 wheel + CLI 交付 case；仍无部署类 case | 🟡 中 | build 已覆盖，deploy 仍缺 |
 | G9 | 强模型下 8/9 case 饱和，V1→V2 仅 +0.02 | 🟡 中 | 系统维度太少（仅 2 个 harness、1 个模型） |
 | G10 | 无置信区间/配对检验/分层统计 | 🟡 中 | B3 已设计未实施 |
 | G11 | 未开源；命名不统一（Algora vs CodeAgent Eval Lab） | 🟡 中 | 简历表面 |
@@ -283,7 +290,7 @@ class EvalCase(BaseModel):
 | Suite | 现状 | V3 目标 | 用途 |
 |---|---|---|---|
 | `mini_store_suite`（短程） | 9 case | 13 case（+2 instruction-following、+1 refactor、+1 build） | 基础回归；模型阶梯的区分度底座 |
-| `mini_store_long`（长程） 🆕 | — | 4 case，`expected_steps` 25–45 | **解锁 context/memory/plan 的测量**；三方横向对比主战场 |
+| `mini_store_long`（长程） ✅ | 4 case；动作中位数 30、模型轮次 13.5 | 保持 oracle 与 canary，后续用于消融/横向评测 | **解锁 context/memory/plan 的测量**；三方横向对比主战场 |
 | `mini_store_multiturn` 🆕 | — | 3 case（复用短程 case + FeedbackDriver） | 失败恢复率；多轮后约束是否漂移 |
 | `mini_store_hackbait` 🆕 | — | 3 case，`allow_test_edits=True` 且欠定义/偏难 | 测试投机检出率 |
 | `swebench_official` 🆕 | 兼容样例 1 条 | 3–5 条官方 Verified 实例 | 证据等级从 Compatibility 升到 Smoke Slice |
@@ -293,10 +300,10 @@ class EvalCase(BaseModel):
 
 | case | 形态 | 为什么能撑到 30+ 步 | 主要考察 |
 |---|---|---|---|
-| `long-refactor-pricing-api` | 把 `pricing.py` 的接口迁移到新签名，8 个调用点分布在 6 个模块 | 每个调用点都要读→改→跑测试 | 规划、上下文保持 |
-| `long-crossmodule-feature` | 新增一个跨 `inventory/orders/loyalty` 的功能，含 12 条验收测试 | 需求分解 + 多模块协同 | 规划、记忆 |
-| `long-cascade-bugfix` | 一个缺陷触发 5 个测试失败，但根因只有 1 个，另有 2 个是误导性表象 | 反复定位与验证 | 上下文遗忘、过早终止 |
-| `long-build-and-fix` | 依赖/打包配置损坏 + 一个逻辑 bug；须先修好 `pip install -e .` 才能跑测试 | 构建链路 + 修复 | **完整工具链**（JD 职责 2） |
+| `long-refactor-pricing-api` | 新签名迁移到 12 个生产文件 | 跨调用点搜索、修改、回归 | 规划、上下文保持 |
+| `long-crossmodule-returns` | 5 模块退货工作流，含原子性/折扣/税/积分/不可变记录 | 需求分解 + 多模块协同 | 规划、记忆 |
+| `long-cascade-reservation` | 一个库存根因经 8 条工作流暴露，正确修复仍只改 1 文件 | 区分根因定位与表象修补 | 上下文遗忘、过早终止 |
+| `long-build-and-cli` | 7 文件打包、版本、CLI、doctor、JSON 输出和离线 wheel 链路 | 构建链路 + 业务修复 | **完整工具链**（JD 职责 2） |
 
 四条都挂 `CanarySpec`（例如"本次改动不得引入新的第三方依赖，且所有新增公共函数必须带 type hints"），用于测量约束在长轨迹上的存活。
 
@@ -310,8 +317,8 @@ class EvalCase(BaseModel):
 
 | ID | 任务 | 线 | 依赖 | 工时 | 验收标准 |
 |---|---|---|---|---|---|
-| **W1-1** | 长程 suite `mini_store_long`（4 case） | 🟣 | — | 1.5d | `selfcheck.py` 4/4 valid；reference 全过、none 全败；**MiniAgent v2 实测中位步数 ≥ 25** |
-| **W1-2** | `AgentAdapter` 抽象 + `MiniAgentAdapter` + runner 改造 | 🔵 | — | 1d | 现有 79 测试全绿（零回归）；`--adapter mini_agent` 复现 V2 历史结果，Task/Strict 逐 case 一致 |
+| **W1-1 ✅** | 长程 suite `mini_store_long`（4 case） | 🟣 | — | 1.5d | 4/4 valid；reference/none=1/0；实测动作中位数 30、模型轮次 13.5、测试循环 3（目标分别 ≥25/≥12/≥2） |
+| **W1-2 ✅** | `AgentAdapter` 抽象 + `MiniAgentAdapter` + runner 改造 | 🔵 | — | 1d | 94 tests 全绿；adapter round-trip、legacy/default CLI、规范化产物与 infra-invalid 口径有离线回归覆盖 |
 | **W1-3** | `ClaudeCodeAdapter`（headless + stream-json 归一化） | 🔵 | W1-2 | 1.5d | 在 3 条短程 case 上跑通；patch 可导出；`total_cost_usd` 入库；原始轨迹留档 |
 | **W1-4** | `planner.py` + `update_plan` 工具 + v3 prompt 初版 | 🟠 | W1-1 | 1d | 长程 case 上 plan 事件入 trace；`plan_adherence` 可计算 |
 | **W1-5** | GitHub Actions CI（ruff + pytest + Docker build + selfcheck） | ⚫ | — | 0.5d | CI 绿；**`docker/sandbox.Dockerfile` 首次真实 build 成功**（消除"本机无 daemon"硬伤） |

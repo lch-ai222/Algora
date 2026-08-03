@@ -15,8 +15,17 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-TaskType = Literal["bugfix", "spec", "refactor", "review", "instruction"]
+TaskType = Literal["bugfix", "spec", "refactor", "review", "instruction", "build", "multi_turn"]
 Difficulty = Literal["easy", "medium", "hard"]
+Horizon = Literal["short", "long"]
+
+
+class CanarySpec(BaseModel):
+    """Persistent, objectively checkable constraint used by later drift detectors."""
+
+    constraint_id: str
+    description: str
+    checker: str
 
 
 class CaseConstraints(BaseModel):
@@ -47,6 +56,22 @@ class EvalCase(BaseModel):
     timeout_seconds: int = 300
     difficulty: Difficulty = "easy"
     tags: list[str] = Field(default_factory=list)
+    horizon: Horizon = "short"
+    expected_steps: int | None = Field(default=None, ge=1)  # model/tool-use rounds
+    expected_tool_calls: int | None = Field(default=None, ge=1)  # individual tool actions
+    canary: CanarySpec | None = None
+    build_checks: list[str] = Field(default_factory=list)
+    allow_test_edits: bool = False
+    known_shortcuts: list[str] = Field(default_factory=list)
+
+    def render_instruction(self) -> str:
+        """Render the task prompt with its persistent canary constraint, if configured."""
+        if self.canary is None:
+            return self.instruction
+        return (
+            f"{self.instruction.rstrip()}\n\n"
+            f"Persistent constraint ({self.canary.constraint_id}): {self.canary.description}"
+        )
 
 
 class Suite(BaseModel):

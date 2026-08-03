@@ -43,14 +43,14 @@ class FailureAttribution(BaseModel):
     tags: list[FailureTag] = []
 
 
-def _saw_failing_test_then_finished(trial: TrialResult) -> bool:
-    """A test_result with a non-zero exit appears, and the trial still ends with a final answer."""
+def _last_observed_test_failed(trial: TrialResult) -> bool:
+    """Whether the final test result visible to an otherwise-finished agent was failing."""
     if trial.stop_reason != "final":
         return False
-    for ev in trial.events:
-        if ev.type == TraceEventType.TEST_RESULT and ev.payload.get("exit_code") not in (0, None):
-            return True
-    return False
+    test_events = [ev for ev in trial.events if ev.type == TraceEventType.TEST_RESULT]
+    if not test_events:
+        return False
+    return test_events[-1].payload.get("exit_code") not in (0, None)
 
 
 def _read_any_source(trial: TrialResult) -> bool:
@@ -63,13 +63,17 @@ def attribute_failure(case: EvalCase, trial: TrialResult, grade: GradeResult) ->
 
     tags: list[FailureTag] = []
 
+    # A provider failure happens before the Agent can meaningfully retrieve or edit code. Do not
+    # append downstream capability tags such as EDIT/CODE_RETRIEVAL; they would misstate cause.
+    if trial.stop_reason == "provider_error":
+        tag = FailureTag(tag=ENVIRONMENT, reason="LLM provider call failed")
+        return FailureAttribution(case_id=case.case_id, failed=True, primary=tag.tag, tags=[tag])
+
     # Terminal/mechanical causes first.
     if trial.stop_reason == "timeout":
         tags.append(FailureTag(tag=TIMEOUT, reason="trial exceeded the wall-clock budget"))
     if trial.stop_reason == "repeated_action":
         tags.append(FailureTag(tag=REPEATED_ACTION, reason="same action repeated past the guard limit"))
-    if trial.stop_reason == "provider_error":
-        tags.append(FailureTag(tag=ENVIRONMENT, reason="LLM provider call failed"))
     if trial.stop_reason == "max_steps":
         tags.append(FailureTag(tag=PLANNING, reason="ran out of steps before finishing"))
 
@@ -84,8 +88,13 @@ def attribute_failure(case: EvalCase, trial: TrialResult, grade: GradeResult) ->
     # The signature regression-trap failure: target passed but regression/hidden failed and the
     # agent stopped — an incomplete fix shipped without full verification.
     if grade.test.target_passed and not (grade.test.regression_passed and grade.test.hidden_passed):
-        if _saw_failing_test_then_finished(trial):
-            tags.append(FailureTag(tag=RECOVERY, reason="a test was failing but the trial stopped anyway"))
+        if _last_observed_test_failed(trial):
+            tags.append(FailureTag(tag=RECOVERY, reason="the last observed test was failing but the trial stopped"))
+        elif grade.test.regression_passed and not grade.test.hidden_passed:
+            tags.append(FailureTag(
+                tag=TASK_UNDERSTANDING,
+                reason="visible verification passed but the implementation missed a hidden requirement",
+            ))
         else:
             tags.append(FailureTag(
                 tag=PREMATURE_TERMINATION,

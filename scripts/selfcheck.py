@@ -48,7 +48,8 @@ def check_case(suite_dir: Path, clean_repo: Path, case, build_root: Path) -> boo
 
     # (1) + (2) + (3): base commit behavior
     with WorktreeSandbox(repo) as sb:
-        hidden_absent = all(not (sb.root / t).exists() for t in case.hidden_tests)
+        hidden_paths = {node_id.split("::", 1)[0] for node_id in case.hidden_tests}
+        hidden_absent = all(not (sb.root / path).exists() for path in hidden_paths)
         passed &= _ok(hidden_absent, "hidden tests absent in fresh workspace")
 
         base_target = run_pytest(sb, case.visible_tests)

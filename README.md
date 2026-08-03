@@ -20,10 +20,22 @@ tested* under identical conditions.
 
 ## Status
 
-**All 7 original milestones (M0–M5 + C) plus B1 complete.** Verification (current): `79 passed, 1 skipped` (the
+**All 7 original milestones (M0–M5 + C), B1, and V3 foundation W1-1/W1-2 complete.** Verification (current): `94 passed, 1 skipped` (the
 skip is an `RUN_LLM_SMOKE`-gated real-model test) · `ruff` clean · `selfcheck` 9/9 · HumanEval
 canonical 10/10. Per-milestone test/case counts below are cumulative snapshots — the numbers in
 this line and in [PROJECT_STATE.md](PROJECT_STATE.md) are authoritative.
+
+- **V3 W1-1 — long-horizon private suite** ✅ — an independent `mini_store_long` snapshot with
+  four hard refactor/spec/cascade/build cases, persistent canaries, hidden tests, and 53 clean-repo
+  tests. Both deterministic anchors hold (reference 1.0, none 0.0); `selfcheck` is 4/4. The formal
+  DeepSeek V2 calibration (`v2-20260803T191808Z`, one trial per case) reached Task/Strict 1.00,
+  median 30 tool actions, 13.5 model rounds, and 3 test runs. This is horizon calibration, not a
+  statistically stable capability score.
+- **V3 W1-2 — AgentAdapter foundation** ✅ — a typed `AgentAdapter` protocol, normalized
+  `AgentRunResult`, enforceable `BudgetContract`, capability probing, `MiniAgentAdapter`, registry,
+  and runner support for `--adapter mini_agent --harness v2`. Provider failures are excluded from
+  capability denominators, per-turn output limits are explicit, and unavailable pricing is stored
+  as `null` with `cost_source=unavailable` rather than a false zero.
 
 - **M0 — scaffold + reused LLM provider** ✅ (`src/codeagent_eval/{settings,models,llm,observability}.py`,
   offline-tested tool-call parsing in `tests/test_llm_provider.py`).
@@ -107,6 +119,9 @@ python -m codeagent_eval.runner --agent reference        # upper bound (no LLM)
 python -m codeagent_eval.runner --agent none             # lower bound (no LLM)
 python -m codeagent_eval.runner --agent v1 --repeats 5   # minimal baseline (needs API key in .env)
 python -m codeagent_eval.runner --agent v2 --repeats 5   # disciplined harness
+python scripts/selfcheck.py datasets/mini_store_long     # hard gate: all 4 long cases valid
+python -m codeagent_eval.runner --adapter mini_agent --harness v2 \
+  --suite datasets/mini_store_long --max-completion-tokens 4096
 python scripts/compare_runs.py <v1_run_dir> <v2_run_dir> # Version Compare (improved/regressed/stable)
 ```
 

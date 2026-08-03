@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mini-store-long"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+mini-store = "mini_store.cli:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mini_store*"]

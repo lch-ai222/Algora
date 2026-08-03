@@ -27,6 +27,12 @@ def _status(baseline_rate: float, candidate_rate: float) -> str:
 def compare_experiments(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     """Compare two run summaries (as written to summary.json). Keyed on Task Success rate,
     with Strict Success and cost/tooling deltas alongside."""
+    for label, summary in (("baseline", baseline), ("candidate", candidate)):
+        if summary.get("infra_failures", 0):
+            raise ValueError(f"cannot compare {label} with infrastructure-invalid trials")
+        if summary.get("suite_task_success") is None or summary.get("suite_strict_success") is None:
+            raise ValueError(f"cannot compare {label} without valid success metrics")
+
     b_cases, c_cases = _by_case(baseline), _by_case(candidate)
     shared = [cid for cid in b_cases if cid in c_cases]
 

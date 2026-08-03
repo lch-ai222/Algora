@@ -20,22 +20,22 @@
 1. `materialize_case(suite_dir, clean_repo, case)` → 现构一个 git 仓库：拷贝干净源 → 覆盖该 case 的 `defect/` 文件 → `git init && commit`。**单缺陷、历史无解**。
 2. `WorktreeSandbox(repo)` → 从该 commit 拉一个临时 worktree。
 3. agent 分支：
-   - `v1`/`v2`：`MiniAgent(provider, AgentConfig(version)).run(task, sandbox)`，loop 用工具改仓库。
+   - `v1`/`v2`：runner 通过 registry 构造 `MiniAgentAdapter`，执行 `prepare → run → cleanup`；adapter 内部调用 MiniAgent，并归一化为 `AgentRunResult`。
    - `reference`：`apply_reference_fix`（拷回干净版），上界。
    - `none`：不动，下界。
 4. **在注入 hidden 前**捕获 `patch` 与 `changed_files`（否则 hidden 文件污染 diff）。
 5. `inject_hidden_tests` → 把 case 的 hidden 测试拷进 worktree `tests/`。
 6. 评分：`grade_tests`（target/regression/hidden）→ `grade_constraints` → `grade_patch` → `combine`（Task/Strict）。
-7. `attribute_failure`（失败归因）→ `_persist_trial`（config/trajectory/patch/grader/failure-tags）。`config.json` 记录运行溯源：`agent/provider/model/temperature/complexity/max_tokens/max_steps/timeout_seconds`（`summary.json` 顶层 `run_config` 同）——用于审计 V1/V2 同配置归因纪律。
+7. `attribute_failure`（失败归因）→ `_persist_trial`（config/trajectory/patch/grader/failure-tags；adapter 路径另写 `agent-result.json`）。`config.json` 记录运行溯源：`adapter/adapter_version/harness/provider/model/temperature/complexity/max_tokens/max_steps/timeout_seconds`（`summary.json` 顶层 `run_config` 同）。
 8. 清理 worktree 与现构仓库。
 
-`run_experiment` 在其上做 cases×repeats、聚合（mean+方差、pass@k/pass^k、failure_tags）、写 `summary.json/csv`。
+`run_experiment` 在其上做 cases×repeats、聚合（mean+方差、pass@k/pass^k、failure_tags、动作/模型轮次/测试次数中位数）、写 `summary.json/csv`。provider/网络错误是 infra-invalid，不进入成功率分母；进程退出码 3 表示实验含基础设施失败。
 
 ## 3. LLM Provider（`llm.py`）
 
 拷改自 ft_diag。要点：
 - OpenAI 兼容，`LLM_PROVIDER` 选 deepseek/openai；client 带 timeout + retries。
-- `tool_completion(system, messages, tools, ...) -> LlmToolTurn`：单轮 tool-use；解析 `tool_calls` 成 `LlmToolCall`（含 `arguments_error`）。**多轮 loop 在 agent 层**。
+- `tool_completion(system, messages, tools, ...) -> LlmToolTurn`：单轮 tool-use；解析 `tool_calls` 成 `LlmToolCall`（含 `arguments_error`），并保留 `finish_reason` 供 loop 区分正常结束和 token 截断。**多轮 loop 在 agent 层**。
 - `json_completion(..., response_model)`：结构化 JSON，供 M5 的 Judge。
 - `llm_trace_scope(case_id, node_name)`：contextvar 收集本 trial 的 `LlmCallRecord`（token/cost/latency）。
 - 失败返回 `None` + `last_error`，**不抛进 trial**。
@@ -61,12 +61,20 @@
 ## 6. Agent Loop（`agent/`）
 
 `loop.py` · `MiniAgent.run(task, sandbox)`：
-- 组初始 user message → 循环：`tool_completion` → 记 MODEL_REQUEST/RESPONSE → 无 tool_calls 则 FINAL 停 → 执行每个 tool_call、回灌 role=tool 消息 → 记专有事件（TEST_RESULT/COMMAND_FINISH/FILE_WRITE/FILE_READ）。
+- 组初始 user message → 循环：`tool_completion` → 记 MODEL_REQUEST/RESPONSE → 执行 tool_calls、回灌 role=tool 消息 → 记专有事件（TEST_RESULT/COMMAND_FINISH/FILE_WRITE/FILE_READ）。
+- V2 对无 tool_calls 的响应做完成门禁：`finish_reason=length`、空 summary，以及 case 要求完成前测试时的无改动/未测试/末次测试失败，都会发 `premature_final` 事件和客观反馈并继续；V1 仍接受首个 final，保持刻意薄基线。
 - 停因：`final / max_steps / timeout / provider_error / repeated_action`。
-- `completion_checks`：has_changes / ran_tests / last_test_passed / over_steps / over_timeout / triggered_forbidden / blocked_commands。
+- `completion_checks`：has_changes / ran_tests / last_test_passed / over_steps / over_timeout / triggered_forbidden / blocked_commands / provider_error / premature_final_attempts。
 - `AgentConfig`：V1/V2 差异 = prompt + `detect_repeated_actions`（V2 开）。runner 里 V2 还注入 `AGENTS.md`（benchmark 仓库那份）。
 
 `prompts.py`：**V1 是刻意最小的基线**（“做最小改动、确认命名的那个失败测试过就结束、不必跑全套”）；**V2 是纪律化**（reproduce-first、完成前跑 target+全套+git_diff、失败重规划、不改测试、避免重复动作、结构化完成报告）。V1/V2 只差 harness，同模型同预算。
+
+### 6.1 Agent Adapter（`adapters/`）
+
+- `base.py`：runtime-checkable `AgentAdapter` Protocol；不可变 `BudgetContract`；`AgentRunResult` 是跨 Agent 的 patch/轨迹/token/cost/停止原因/环境清单契约；`UnsupportedCapability` 禁止静默降级。
+- `mini_agent.py`：包装 in-process MiniAgent。当前能硬执行 wall-clock/step 预算；对总 token/USD 硬预算会明确拒绝。每回合输出上限是单独的 harness 参数，不等同于总 token 预算。
+- `registry.py`：显式名称→构造器，不依赖全局 provider。当前只有 `mini_agent`；首个外部实现是 W1-3 ClaudeCodeAdapter。
+- 成本：仅在 provider 费率大于 0 时计算 `derived` USD；否则必须是 `cost_usd=null`、`cost_source=unavailable`。外部 Agent 后续可标 `native`。
 
 ## 7. Benchmark（`benchmark/`）
 
@@ -75,7 +83,7 @@
 自建 Compatibility Sample，尚无正式公开排行榜结果。完整方法、能力矩阵和实施等级见
 [`benchmark_methodology_and_roadmap.md`](benchmark_methodology_and_roadmap.md)。
 
-`case.py` · `EvalCase`：case_id / task_type / instruction / visible_tests / regression_tests / hidden_tests / constraints(forbidden_paths,max_changed_files…) / max_steps / timeout / tags。`load_suite` 读 `suite.json`。
+`case.py` · `EvalCase`：除基本测试/约束/预算外，V3 增加 `horizon`、`expected_steps`（模型轮次）、`expected_tool_calls`（动作数）、`CanarySpec`、`build_checks`、`allow_test_edits`、`known_shortcuts`，并支持 build/multi_turn task type。`load_suite` 读 `suite.json`。
 
 `materialize.py`：
 - `materialize_case`：干净源 + `cases/<id>/defect/` 覆盖 → 单 commit 仓库（**fix 不在历史**，防 `git checkout` 取解）。
@@ -83,6 +91,8 @@
 - `apply_reference_fix`：拷回干净版（=已知正确解），供 selfcheck 与 reference 档。
 
 隔离设计要点：每 case 只引入自己的缺陷，其余模块正确 → regression 在 base 通过；对抗 case 把“正确修复所需的不变量”放在**分离的可见测试文件**里（V2 跑全套能发现，V1 只跑命名测试发现不了）。
+
+`datasets/mini_store_long/` 使用独立 `repo_src` 快照，避免为了长任务改坏短程历史基线。4 个 hard case 覆盖 12 文件 API 迁移、5 模块退货功能、单根因级联 bug 与 7 文件 build/CLI/offline-wheel 链路；每条带 canary。质量门禁是干净仓库 53 tests + long selfcheck 4/4 + reference/none 1.0/0.0。
 
 ## 8. Graders（`graders/`）
 
@@ -96,7 +106,7 @@
 
 ## 9. 失败归因（`failure_taxonomy.py`）
 
-只对失败 trial 打标，确定性规则、可解释：timeout/repeated_action/provider_error/max_steps(PLANNING)、改测试/禁止路径(INSTRUCTION_VIOLATION)、无改动(EDIT)、**target 过但 regression/hidden 挂且已结束(PREMATURE_TERMINATION，或跑过失败测试仍停=RECOVERY)**、没读源就改(CODE_RETRIEVAL)、否则 UNKNOWN。返回有序 tags，首个为 primary。
+只对失败 trial 打标，确定性规则、可解释：timeout/repeated_action/provider_error/max_steps(PLANNING)、改测试/禁止路径(INSTRUCTION_VIOLATION)、无改动(EDIT)、target 过但 regression/hidden 挂且已结束。只有**最后一个可见测试仍失败**才是 RECOVERY；可见 target/regression 已过但 hidden 漏项归 TASK_UNDERSTANDING；未充分验证则 PREMATURE_TERMINATION。没读源就改为 CODE_RETRIEVAL，否则 UNKNOWN。
 
 ## 10. 版本对比（`compare.py`）
 
@@ -104,7 +114,16 @@
 
 ## 11. Runner（`runner.py`）
 
-CLI：`--agent v1|v2|reference|none --suite <dir> --repeats k --cases <ids> --out <dir>`。v1/v2 需 provider 可用（`.env`）。产物落 `artifacts/runs/<experiment_id>/<case_id>/rep<k>/`。
+CLI 保留 legacy `--agent v1|v2|reference|none`，新接入路径为 `--adapter mini_agent --harness v1|v2`；通用参数含 `--suite/--repeats/--cases/--out`，MiniAgent 另有 `--max-completion-tokens`（每回合输出上限，默认 2048）。v1/v2 需 provider 可用（`.env`）。产物落 `artifacts/runs/<experiment_id>/<case_id>/rep<k>/`。
+
+长程复现命令：
+
+```bash
+.venv/bin/python -m codeagent_eval.runner --adapter mini_agent --harness v2 \
+  --suite datasets/mini_store_long --max-completion-tokens 4096
+```
+
+正式校准 `v2-20260803T191808Z` 的动作/模型轮次/测试运行中位数为 30/13.5/3，Task/Strict=1.0，infra=0。它是 n=1/case 的 horizon gate，不是带统计置信度的能力结论。
 
 ## 12. 控制台（`backend/` + `frontend/`）
 
@@ -157,11 +176,11 @@ macOS 当前配置 `EVALPLUS_MAX_MEMORY_BYTES=-1` 规避 rlimit 兼容错误，�
 
 ## 15. 启动与测试
 
-见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（全绿，当前计数见 [`../PROJECT_STATE.md`](../PROJECT_STATE.md)）+ `ruff check` + `scripts/selfcheck.py`（9/9）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
+见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（全绿，当前计数见 [`../PROJECT_STATE.md`](../PROJECT_STATE.md)）+ `ruff check` + `scripts/selfcheck.py`（短程 9/9）+ `scripts/selfcheck.py datasets/mini_store_long`（长程 4/4）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
 
 ## 16. 测试覆盖现状
 
-- `test_llm_provider`（provider 解析/trace）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch，25）、`test_tools`（6 工具 + 守卫）、`test_agent_loop`（scripted 端到端 + 停因 + V2 守卫）、`test_pipeline`（reference 上界/none 下界/区分度/grader 守卫）、`test_compare`、`test_failure_taxonomy`、`test_api`（后端）。
+- `test_llm_provider`（provider 解析/finish_reason/trace）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch，25）、`test_tools`（6 工具 + 守卫）、`test_agent_loop`（scripted 端到端 + 停因 + V2 完成门禁/V1 对照）、`test_adapters`（协议/预算/round-trip/infra-invalid）、`test_long_suite`（schema/isolation/reference/none）、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`、`test_api`。
 
 ## 17. 新任务类型与 Oracle 要求
 

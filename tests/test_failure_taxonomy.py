@@ -6,8 +6,10 @@ from codeagent_eval.agent.loop import TrialResult
 from codeagent_eval.benchmark.case import EvalCase
 from codeagent_eval.failure_taxonomy import (
     CODE_RETRIEVAL,
+    ENVIRONMENT,
     PREMATURE_TERMINATION,
     RECOVERY,
+    TASK_UNDERSTANDING,
     TIMEOUT,
     attribute_failure,
 )
@@ -70,6 +72,19 @@ def test_saw_failing_test_then_stopped_is_recovery():
     assert attr.primary == RECOVERY
 
 
+def test_earlier_failure_recovered_but_hidden_miss_is_task_understanding():
+    trial = TrialResult(
+        stop_reason="final",
+        completion_checks={"has_changes": True},
+        events=[
+            TraceEvent(type=TraceEventType.TEST_RESULT, name="pytest", payload={"exit_code": 1}),
+            TraceEvent(type=TraceEventType.TEST_RESULT, name="pytest", payload={"exit_code": 0}),
+        ],
+    )
+    attr = attribute_failure(_case(), trial, _grade(target=True, regression=True, hidden=False))
+    assert attr.primary == TASK_UNDERSTANDING
+
+
 def test_timeout_is_flagged():
     trial = TrialResult(stop_reason="timeout", completion_checks={"has_changes": True})
     attr = attribute_failure(_case(), trial, _grade(target=False))
@@ -80,3 +95,10 @@ def test_no_read_no_target_is_code_retrieval():
     trial = TrialResult(stop_reason="final", completion_checks={"has_changes": True}, events=[])
     attr = attribute_failure(_case(), trial, _grade(target=False))
     assert any(t.tag == CODE_RETRIEVAL for t in attr.tags)
+
+
+def test_provider_error_has_only_environment_tag():
+    trial = TrialResult(stop_reason="provider_error", completion_checks={"has_changes": False})
+    attr = attribute_failure(_case(), trial, _grade(target=False))
+    assert attr.primary == ENVIRONMENT
+    assert [tag.tag for tag in attr.tags] == [ENVIRONMENT]

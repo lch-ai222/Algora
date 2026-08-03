@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from codeagent_eval.compare import compare_experiments
 
 
@@ -48,3 +50,11 @@ def test_compare_flags_regression():
     cmp = compare_experiments(v1, v2)
     assert cmp["regressed"] == ["a"]
     assert cmp["suite_task_delta"] == -1.0
+
+
+def test_compare_rejects_infrastructure_invalid_run():
+    baseline = _summary("v1", 1.0, 1.0, [_case("a", 1.0, 1.0)])
+    candidate = _summary("v2", 0.0, 0.0, [_case("a", 0.0, 0.0)])
+    candidate["infra_failures"] = 1
+    with pytest.raises(ValueError, match="infrastructure-invalid"):
+        compare_experiments(baseline, candidate)

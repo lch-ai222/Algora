@@ -24,7 +24,7 @@ class _FakeCompletions:
 
     def create(self, **kwargs):  # noqa: ARG002 - mimics openai signature
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=self._message)],
+            choices=[SimpleNamespace(message=self._message, finish_reason="tool_calls")],
             usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7, total_tokens=18),
         )
 
@@ -58,6 +58,7 @@ def test_tool_completion_parses_structured_tool_calls(monkeypatch):
         )
 
     assert turn is not None
+    assert turn.finish_reason == "tool_calls"
     assert len(turn.tool_calls) == 1
     call = turn.tool_calls[0]
     assert call.name == "read_file"

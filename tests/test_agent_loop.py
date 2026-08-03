@@ -100,6 +100,50 @@ def test_agent_stops_on_max_steps(git_repo: Path):
     assert result.completion_checks["over_steps"] is True
 
 
+def test_v2_rejects_truncated_or_premature_final_and_recovers(git_repo: Path):
+    provider = ScriptedProvider(
+        [
+            LlmToolTurn(content="", tool_calls=[], finish_reason="length"),
+            *_fix_bug_script(),
+        ]
+    )
+    agent = MiniAgent(provider, AgentConfig(version="v2"))
+    task = AgentTask(
+        instruction="fix add and verify it",
+        workspace_path="",
+        max_steps=8,
+        require_tests_run_before_finish=True,
+    )
+
+    with WorktreeSandbox(git_repo) as sb:
+        result = agent.run(task, sb)
+
+    assert result.stop_reason == "final"
+    assert result.steps == 5
+    assert result.completion_checks["premature_final_attempts"] == 1
+    rejected = [e for e in result.events if e.type == TraceEventType.ERROR]
+    assert rejected[0].name == "premature_final"
+    assert "truncated" in " ".join(rejected[0].payload["reasons"])
+    assert result.completion_checks["last_test_passed"] is True
+
+
+def test_v1_preserves_thin_baseline_and_accepts_empty_final(git_repo: Path):
+    provider = ScriptedProvider([LlmToolTurn(content="", tool_calls=[], finish_reason="length")])
+    agent = MiniAgent(provider, AgentConfig(version="v1"))
+    task = AgentTask(
+        instruction="fix add and verify it",
+        workspace_path="",
+        require_tests_run_before_finish=True,
+    )
+
+    with WorktreeSandbox(git_repo) as sb:
+        result = agent.run(task, sb)
+
+    assert result.stop_reason == "final"
+    assert result.steps == 1
+    assert result.completion_checks["premature_final_attempts"] == 0
+
+
 def test_provider_failure_is_contained(git_repo: Path):
     class Broken:
         last_error = "boom"

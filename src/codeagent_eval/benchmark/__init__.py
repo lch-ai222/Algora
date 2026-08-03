@@ -1,6 +1,6 @@
 """Internal SWE-style benchmark: case schema, per-case materialization, hidden-test injection."""
 
-from codeagent_eval.benchmark.case import CaseConstraints, EvalCase, Suite, case_dir, load_suite
+from codeagent_eval.benchmark.case import CanarySpec, CaseConstraints, EvalCase, Suite, case_dir, load_suite
 from codeagent_eval.benchmark.materialize import (
     apply_reference_fix,
     defect_files,
@@ -10,6 +10,7 @@ from codeagent_eval.benchmark.materialize import (
 
 __all__ = [
     "CaseConstraints",
+    "CanarySpec",
     "EvalCase",
     "Suite",
     "load_suite",
