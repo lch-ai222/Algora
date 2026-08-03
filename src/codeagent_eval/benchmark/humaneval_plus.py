@@ -1,12 +1,13 @@
-"""HumanEval+ adapter — a real, function-level public benchmark (no per-task Docker).
+"""Legacy EvalPlus-schema subset adapter (not the official HumanEval+ benchmark).
 
 Purpose (per plan §6.2): calibrate the base model's raw ability and check whether the harness
 hurts simple tasks; NOT the headline result. Each problem: prompt the model for a complete
 function, then execute it against BASE tests and the stricter PLUS tests (EvalPlus-style extra
 edge cases) in a temp dir with a timeout. Metrics: Pass@1 (base), base/plus pass rate.
 
-The bundled dataset is a curated HumanEval-style subset (`datasets/humaneval_plus/problems.jsonl`)
-so it runs offline; the schema matches EvalPlus so real data drops in unchanged.
+The bundled dataset is a curated/self-built HumanEval-style subset
+(`datasets/humaneval_plus/problems.jsonl`) kept for offline provider/executor
+regression. Official data and scoring live in `evalplus_official.py`.
 """
 
 from __future__ import annotations

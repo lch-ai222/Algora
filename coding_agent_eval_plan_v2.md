@@ -11,7 +11,7 @@
 1. **范围砍到"能走通闭环的最小竖切片"**：面试价值 = 闭环是真的，不是页面多/benchmark 多。
 2. **Docker 后置**：MVP 用"临时 git worktree + 子进程 + timeout + 命令/路径白名单"做隔离；Docker 当设计讲、时间富余再上。
 3. **SWE-bench 降级**：只写 adapter 接口 + 讲设计，最多接 1 条；真接全量极易吃掉数天。
-4. **HumanEval+ 保留为"便宜的真公开 benchmark"**：函数级、无需每题 Docker，几小时可接，拿"真接入过公开 benchmark"的可信度。
+4. **HumanEval+ 保留为公开协议学习入口**：函数级、环境成本相对可控；先用少量官方实例完整走数据、执行、base/plus 与报告协议，不把子集验证包装成完整公开成绩。
 5. **LLM-Judge + judge meta-eval（kappa）上调优先级**：网易 JD 点名要"LLM-as-Judge / 对抗性测试 / 人机混合"，且这是我现成的差异化（ft_diag_agent 已实现），必须进 demo，不留 P2。
 6. **大量复用 ft_diag_agent 的评测基建**（见 §13），只把有限时间砸在真正全新的三块：agent 本体、沙箱、coding 专属 grader。
 
@@ -27,7 +27,7 @@
 
 1. **闭环 > 广度**：可执行任务 → 可复现运行 → 可验证结果 → 可定位失败 → 可驱动优化 → 可回归确认。
 2. **确定性优先的分级评分**：程序验证 > 静态规则 > LLM-Judge > 人工。能程序判的绝不用模型。
-3. **Task Success vs Strict Success 双指标**：揭示"功能完成但工程不合规"（对应 OctoCodingBench 的 check-level vs instance-level）。
+3. **Task Success vs Strict Success 双指标**：揭示"功能完成但工程不合规"（与 OctoBench 的 task solving / scaffold-aware compliance 分离方向相呼应；JD 中的 OctoCodingBench 命名以实际官方版本为准）。
 4. **私有数据集 = 无污染**：自建 mini_store 天然规避 contamination——真实 benchmark 最头疼的问题，这是卖点，要主动说。
 5. **诚实标注**：SWE-bench 样本明确标"compatibility sample，非正式排行榜"。
 
@@ -62,7 +62,7 @@ Storage：SQLite（结构化）+ 本地 artifacts（trace/patch/log）  [建/抄
 - **V1 → V2 同配置回归 + Version Compare**（哪怕先是对比表）。
 
 ### B. 换成"便宜的真 benchmark"
-- **HumanEval+**（EvalPlus，20–30 条）：拿公开 benchmark 可信度。
+- **HumanEval+**（EvalPlus）：先做少量官方实例的 protocol-conformant smoke slice，掌握 base/plus、隔离执行和 pass@k；不追求高成本全量榜单。
 - **最小 LLM-Judge**（只跑 1 条 Code Review case）+ **复用 ft_diag_agent 的 judge meta-eval / kappa 叙事**。
 
 ### C. 只讲不建（能画架构、说清取舍即可）
@@ -90,9 +90,9 @@ Storage：SQLite（结构化）+ 本地 artifacts（trace/patch/log）  [建/抄
 - case 结构：`case_id / task_type / instruction / base_commit / visible_tests / hidden_tests / regression_tests / constraints / forbidden_paths / max_steps / timeout / difficulty / tags`。
 - **核心指标**：Task Success / Strict Success / Hidden Pass Rate / Regression Pass Rate / Patch Apply / Constraint Pass / Forbidden Action Rate / 工具调用数 / Token / 时延 / 重复运行成功率。
 
-### 6.2 HumanEval+（便宜的真公开集）
-- 20–30 条；指标 Pass@1、Base/Plus Pass Rate、时延、Token、异常率、超时率。
-- 用途：校准底层模型基础能力 + harness 对简单任务是否有负作用；不作主要成果。
+### 6.2 HumanEval+（公开协议 Smoke Slice）
+- 先选少量官方实例，固定 EvalPlus 版本、筛选规则和执行协议；指标 Pass@1、Base/Plus Pass Rate、时延、Token、异常率、超时率。
+- 用途：校准底层模型基础能力 + 理解严格测试对脆弱解的识别；不作完整排行榜或主要成果。
 
 ### 6.3 SWE-bench（仅接口 + 讲设计）
 - 写 `SWEBenchAdapter`，能读官方格式、生成兼容 patch；真跑最多 1 条 Lite。
@@ -178,11 +178,11 @@ SQLite（`datasets/dataset_versions/eval_cases/agents/agent_versions/experiments
 - 分析 V1 失败轨迹 → 定 Failure Taxonomy → 取前 3 类主因 → 改 prompt/工具/完成策略成 V2 → 同配置跑 → Version Compare。
 - 验收：一次明确迭代；每项改动对应哪类失败说得清；V1/V2 同环境；展示总体提升 + 局部回归（improved/regressed），不只单一总分。
 
-### M5 · 网易加分：真公开 benchmark + LLM-Judge + kappa [建 + 抄]
-- HumanEvalPlusAdapter（20–30 条，Base/Plus、Pass@1）。
+### M5 · 网易加分：EvalPlus 协议学习 + LLM-Judge + kappa [建 + 抄]
+- HumanEvalPlusAdapter（先完成 schema 子集，再增量到少量官方实例 Smoke Slice；Base/Plus、Pass@1）。
 - 最小 LLM-Judge grader（跑 1 条 Code Review case）：结构化输出 + 强制引用 + swap 平均 + temperature=0。
 - 复用 `judge_meta_eval.py`：给 judge 结果配 kappa 与"不达标降级"叙事。
-- 验收：跑出一个真公开 benchmark 数字；judge 每条判定带引用、能说清偏差处理；能展示 judge 的 kappa。
+- 验收：少量官方实例按正式协议可复现，结果明确标注样本规模和不可外推边界；judge 每条判定带引用、能说清偏差处理；能展示 judge 的 kappa。
 
 ### 只讲不建（准备口述 + 架构图）
 - Docker 全量沙箱；SWE-bench 全量（留 adapter 接口 + 可选 1 条 Lite）；Terminal-Bench/Harbor；PostgreSQL；成本看板全量。
@@ -205,6 +205,49 @@ SQLite（`datasets/dataset_versions/eval_cases/agents/agent_versions/experiments
 
 ## 16. 简历/口述表述
 
-**简历**：构建仓库级 Coding Agent 与自动化评测平台，支持代码搜索、文件修改、Shell 执行、测试反馈与多轮错误恢复；设计 SWE-bench 风格无污染内部 Golden Dataset，接入 HumanEval+；建立覆盖功能正确性、隐藏/回归测试、工具轨迹、指令合规、成本与稳定性的多维指标，含 LLM-as-Judge 与 judge meta-eval（kappa）；通过失败归因与同配置版本回归驱动 Agent Harness 迭代。
+**简历**：构建仓库级 Coding Agent 与自动化评测平台，支持代码搜索、文件修改、Shell 执行、测试反馈与多轮错误恢复；设计 SWE-bench 风格无污染内部 Golden Dataset，实现 EvalPlus-schema 子集与 SWE-bench 协议兼容验证；建立覆盖功能正确性、隐藏/回归测试、工具轨迹、指令合规、成本与稳定性的多维指标，含 LLM-as-Judge 与 judge meta-eval（kappa）；通过失败归因与同配置版本回归驱动 Agent Harness 迭代。
 
 **口述**：重点不是复刻 Claude Code，而是走通 Coding Agent 从执行到评测再到优化的闭环。评测系统我做成确定性 pipeline 而非又一个评测 agent，隔离环境跑任务、采集轨迹与 patch，再结合隐藏/回归测试、约束检查与可选 Judge 出多维结果；judge 本身用人工 gold 集量 kappa、不达标降级。之后基于 V1 失败轨迹调工具/prompt/完成条件，用相同数据集完成 V2 回归验证。
+
+---
+
+## 17. 公开 Benchmark 学习目标与实施等级（2026-07 补充）
+
+本项目不以有限资源复刻商业级 Coding Agent 或全量公开排行榜为目标，而以**掌握并实操主流评测的标准数据、环境、执行、oracle、评分、统计和报告协议**为目标。采用三级口径：
+
+1. Protocol Study：研究并文档化官方方法。
+2. Compatibility/Smoke Slice：少量官方实例、完整官方流程，用于验证会不会正确评。
+3. Benchmark Evaluation：按官方规模与规则运行，才可报告正式 benchmark 结果。
+
+当前事实口径：mini_store 是 9 case 的私有 Golden Dataset；HumanEval 部分是 10 题
+EvalPlus-schema 自建/精选子集；SWE-bench 部分是官方 schema + 自建 Compatibility Sample。
+三者都不能包装成完整公开排行榜成绩。
+
+实施顺序：
+
+- P0：HumanEval+/EvalPlus 少量官方实例 Smoke Slice。
+- P0：SWE-bench 少量真实官方实例 Smoke Slice。
+- P1：先完成 Terminal-Bench/Harbor 与 OctoBench 的 Protocol Study 文档。
+- P1：前两项完成后，再分别实现少量官方任务/环境的 Smoke Slice。
+
+详见 [`docs/benchmark_methodology_and_roadmap.md`](docs/benchmark_methodology_and_roadmap.md)。
+
+进展（2026-07-12）：HumanEval+/EvalPlus B1 已完成。固定 EvalPlus 0.3.1 和 seed `20260712`，
+5 个官方任务 canonical oracle Base/Plus=1.00；DeepSeek v4-flash Base=1.00、Plus=0.80。
+该结果只证明协议实操与严格测试的区分作用，不作为完整 benchmark 分数。
+
+## 18. 统计增强路线
+
+- P0：case-level/cluster bootstrap 置信区间；V1/V2 exact McNemar 或配对 bootstrap；按难度、任务类型、仓库、语言分层；每成功任务 token/cost/tool/time。
+- P1：首次 target/full-suite 通过时间、测试失败恢复率、case 区分度。
+- P2：项目—总分相关性；需多个模型/Agent 和更大 case 集后再实施。
+
+同一 case 的 repeats 不视为独立 case；小样本下“不显著”只表示证据不足。报告同时给 effect size、区间、样本数、预算与选择偏差。
+
+## 19. Golden Dataset 扩充路线
+
+- P0：普通逻辑/缓存/异常恢复 bugfix；单/跨模块和适度欠定义 spec；instruction following；行为保持/API 迁移 refactor。
+- P1：带证据的 code review；用缺陷检出率/mutation score 评测的 test generation；performance；security；并发/资源泄漏/事务一致性。
+- P2：multi-turn 需求澄清、需求变化与跨轮状态；需要用户模拟器、多轮 oracle、稳定性评测和答案泄漏防护。
+
+优先级以业务价值、确定性 oracle 可行性、实现复杂度和对现有覆盖的增益共同决定，不以 case 数量为唯一目标。

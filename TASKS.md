@@ -2,7 +2,7 @@
 
 Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`coding_agent_eval_plan_v2.md`](coding_agent_eval_plan_v2.md)，状态见 [`PROJECT_STATE.md`](PROJECT_STATE.md)。
 
-优先级：**P0** = 最低成功线（守住 M1+M2+M4）；**P1** = 网易差异化 / 可演示；**P2** = 只讲/加分。
+优先级：**P0** = 当前核心闭环/标准协议的最高优先级；**P1** = 重要差异化与能力扩展；**P2** = 依赖更多数据或架构改造的后续研究。原里程碑中的最低成功线仍为 M1+M2+M4。
 
 ## 里程碑总览
 
@@ -13,9 +13,15 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | M2 | 内部 benchmark + 确定性 grader + CLI | P0 | ✅ 完成 |
 | M4 | V1→V2 回归对比（money shot） | P0 | ✅ 完成 |
 | M3 | FastAPI + React 控制台 | P1 | ✅ 完成 |
-| M5 | HumanEval+ + LLM-Judge + kappa | P1 | ✅ 完成 |
-| C | SWE-bench 适配器 ×1 + Docker 设计 | P2 | ✅ 完成 |
+| M5 | EvalPlus-schema 子集 + LLM-Judge + kappa | P1 | ✅ 完成（子集验证） |
+| C | SWE-bench 兼容样例 + Docker 设计 | P2 | ✅ 完成（兼容验证） |
 | DOC | 长期文档（本批） | — | ✅ 完成 |
+| B1 | HumanEval+/EvalPlus 官方 Smoke Slice | P0 | ✅ 完成 |
+| B2 | SWE-bench 官方实例 Smoke Slice | P0 | ⬜ 待开发 |
+| B3 | 统计增强与分层报告 | P0/P1 | ⬜ 方案完成，待开发 |
+| B4 | Terminal-Bench/Harbor Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
+| B5 | OctoBench Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
+| G1 | 私有 Golden Dataset 类型扩充 | P0/P1/P2 | ⬜ 方案完成，待开发 |
 
 ---
 
@@ -55,13 +61,13 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] 浏览器实测四个视图 + Vite 代理 + 生产构建。
 - **验收**：前端看每 case 结果、看完整 trace、看最终 patch、筛失败 case、看 Version Compare。✅
 
-## M5 · HumanEval+ + LLM-Judge + kappa ✅
-- [x] `benchmark/humaneval_plus.py`：HumanEval+ adapter（10 题子集，EvalPlus schema），Pass@1、Base/Plus、时延/异常/超时；temp 目录 + 超时执行；数据集 canonical 自检 10/10。
+## M5 · EvalPlus-schema 子集 + LLM-Judge + kappa ✅
+- [x] `benchmark/humaneval_plus.py`：10 题自建/精选 EvalPlus-schema 子集，Pass@1、Base/Plus、时延/异常/超时；temp 目录 + 超时执行；数据集 canonical 自检 10/10。
 - [x] `scripts/run_humaneval.py`（含 `--selfcheck`）。DeepSeek 实测 Pass@1 100%（易题）。
 - [x] `judge/code_review_judge.py`：LLM-Judge，结构化 `{score,max_score,passed_items,missed_items,confidence,reason,verdicts}` + **强制引用**（引用须在代码中，否则降 confidence）+ swap 平均 + temperature=0。
 - [x] `judge/meta_eval.py`（拷改 ft_diag）：agreement + Cohen's kappa + trust map + 不达标降级；`judge/gold.py` + `data/judge_gold/`（6 case/16 item）。
 - [x] `scripts/run_judge_meta_eval.py`；`docs/judge_meta_eval_report_v1.md`。
-- **验收**：跑出真公开 benchmark 数字（Pass@1 100%）；judge 每条判定带有效引用；kappa 展示（CORRECTNESS/EDGE_CASES=1.0，READABILITY=0.62 贴阈值）。✅
+- **验收**：函数级 base/plus 评测流程跑通（Pass@1 100%，仅代表该 10 题易子集，不是正式 HumanEval+ 成绩）；judge 每条判定带有效引用；kappa 展示（CORRECTNESS/EDGE_CASES=1.0，READABILITY=0.62 贴阈值）。✅
 
 ## C · 只讲 + 部分落地 ✅（P2）
 - [x] `benchmark/swebench.py`：读官方 schema（`FAIL_TO_PASS`/`PASS_TO_PASS`/`test_patch`/gold `patch`），跑官方 resolve 流程；`scripts/run_swebench.py`（gold/agent）。
@@ -75,12 +81,61 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] `PROJECT_STATE.md`
 - [x] `TASKS.md`
 - [x] `docs/developer_guide.md`
+- [x] `docs/benchmark_methodology_and_roadmap.md`
+
+---
+
+## B1 · HumanEval+/EvalPlus 官方 Smoke Slice ✅（P0）
+
+- [x] 固定 EvalPlus 0.3.1；模型调用前以 seed `20260712` 选择 5 个官方任务并记录 SHA-256。
+- [x] canonical oracle 使用同一官方 evaluator，Base/Plus=1.00/1.00。
+- [x] 联网 generation 与受限环境 execution 拆分；官方 sanitizer + evaluator。
+- [x] DeepSeek v4-flash：Base=1.00、Plus=0.80；逐题结果、trace、manifest 和限制落盘。
+- [x] 产物标记 `smoke_slice`；报告明确不是完整排行榜成绩。
+- **验收**：官方实例端到端可复现，`HumanEval/39` 展示 base→plus 的严格测试区分作用。✅
+
+## B2 · SWE-bench 官方实例 Smoke Slice ⬜（P0）
+
+- [ ] 选择少量可复现的官方 Verified/Lite 实例并记录筛选偏差。
+- [ ] 按官方容器/环境契约先验证 oracle/gold。
+- [ ] 保证 Agent 阶段不可见 test patch/gold；评分时运行 FAIL_TO_PASS/PASS_TO_PASS。
+- [ ] 区分环境、oracle、Agent、patch apply、超时和 grader 失败。
+- **验收**：至少一个真实官方实例完成 oracle + candidate 全流程；结果明确标注 official-instance smoke slice。
+
+## B3 · 统计增强与分层报告 ⬜（P0/P1）
+
+- [ ] P0：case-level/cluster bootstrap 置信区间；二项指标可补 Wilson 区间。
+- [ ] P0：V1/V2 exact McNemar；成本使用配对 bootstrap/置换检验。
+- [ ] P0：按 difficulty/task_type/repo/language 分层，报告宏平均与样本数。
+- [ ] P0：token/cost/tool/time per successful trial 与预算约束成功率。
+- [ ] P1：first target/full-suite pass time、测试失败恢复率、case 区分度。
+- [ ] P2：多个模型/Agent、30+ case 后再研究项目—总分相关性。
+- **纪律**：同一 case 的 repeats 不当独立 case；同时报告 effect size、区间、样本数和预算；“不显著”不等于“相同”。
+
+## B4/B5 · Terminal-Bench 与 OctoBench 📝（P1）
+
+- [x] 在 benchmark 方法论路线图中记录评测构念、协议、资源、风险与实施顺序。
+- [ ] HumanEval+、SWE-bench 增量完成后，细化 Terminal-Bench/Harbor adapter 与 oracle 方案。
+- [ ] 选择少量官方 Terminal-Bench 任务：先 oracle，后 Agent，保留容器末态与终端轨迹。
+- [ ] 细化 OctoBench 官方环境、scaffold 指令与 objective checklist 映射。
+- [ ] 选择少量官方 OctoBench 环境，验证 Task/Strict 分离和持续约束。
+- **验收**：分别完成 protocol-conformant smoke slice；不作为全量 leaderboard 结果。
+
+## G1 · 私有 Golden Dataset 扩充 ⬜（分级）
+
+- [ ] P0：普通逻辑/缓存/异常恢复 bugfix；单/跨模块和适度欠定义 spec；instruction following；行为保持/API 迁移 refactor。
+- [ ] P1：带证据的 code review；以缺陷检出率/mutation score 评分的 test generation；performance；security；并发/资源泄漏/事务一致性。
+- [ ] P2：multi-turn 需求澄清、需求变化与跨轮状态；先设计用户模拟器、多轮 oracle、稳定性与泄漏防护。
+- [ ] 所有 case 补齐来源、标签、难度、语言、reference/oracle、污染/flaky/捷径检查、版本和修订记录。
 
 ---
 
 ## 当前推荐执行顺序
 
-全部 7 个里程碑（M0–M5 + C）已完成。剩余为可选加固与演示准备：
+原 7 个里程碑（M0–M5 + C）已完成；公开 benchmark 后续不追求高成本全量榜单，而按标准协议做少量官方实例：
 
-1. 面试演示彩排（8–10 分钟脚本见 `coding_agent_eval_plan_v2.md` §15）。
-2. 可选加固：更难 case 提升 V1/V2 区分度；HumanEval 换真 EvalPlus 全量；judge gold 扩到 30+ item 演示降级路径；SSE 实时进度接入控制台；SQLite 结构化存储；真实 SWE-bench Lite 实例 + Docker 落地。
+1. B2 SWE-bench 官方实例 Smoke Slice。
+2. B3 P0 统计增强。
+3. B4/B5 先文档、后 Terminal-Bench 与 OctoBench Smoke Slice。
+4. G1 按 P0→P2 扩充私有 Golden Dataset。
+5. 面试演示彩排（8–10 分钟脚本见 `coding_agent_eval_plan_v2.md` §15）。

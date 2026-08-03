@@ -70,6 +70,11 @@
 
 ## 7. Benchmark（`benchmark/`）
 
+对外口径先分清：`mini_store` 是自建私有 Golden Dataset，不是业内公共 benchmark；
+`humaneval_plus.py` 当前是 10 题 EvalPlus-schema 子集验证；`swebench.py` 当前完成官方字段兼容和
+自建 Compatibility Sample，尚无正式公开排行榜结果。完整方法、能力矩阵和实施等级见
+[`benchmark_methodology_and_roadmap.md`](benchmark_methodology_and_roadmap.md)。
+
 `case.py` · `EvalCase`：case_id / task_type / instruction / visible_tests / regression_tests / hidden_tests / constraints(forbidden_paths,max_changed_files…) / max_steps / timeout / tags。`load_suite` 读 `suite.json`。
 
 `materialize.py`：
@@ -116,15 +121,65 @@ CLI：`--agent v1|v2|reference|none --suite <dir> --repeats k --cases <ids> --ou
 5. 在 `suite.json` 加 case 条目（instruction 可适度欠定义以诱导 naive 修复）。
 6. `python scripts/selfcheck.py` 必须该 case valid（target 在 base 挂、缺陷隔离、参考修复后全过、hidden 不可读）。
 
-## 14. 启动与测试
+## 14. 公开 Benchmark Adapter 统一职责
+
+公开 benchmark 的实现分为 Protocol Study、Compatibility/Smoke Slice、Benchmark Evaluation
+三个等级；每次运行必须在产物和报告里标明等级。近期目标是用少量官方实例完成协议一致的
+Smoke Slice，而不是全量排行榜。
+
+Adapter 至少负责：
+
+1. 固定 benchmark 名称、官方版本、数据来源和实例筛选规则。
+2. 映射官方 task schema，不把自建题伪装成官方实例。
+3. 复现官方环境、oracle、候选执行和评分契约；oracle 先于 Agent 自检。
+4. 区分环境失败、oracle 失败、Agent 失败、超时和评分失败。
+5. 持久化原始输入、候选输出、patch、日志、grader、版本与复现命令。
+6. 报告样本规模、预算和不可外推边界；小样例不得写成排行榜成绩。
+
+后续统一结果模型需支持：difficulty/task_type/repo/language 分层字段、case-level 置信区间、
+V1/V2 配对比较、每成功任务 token/cost/tool/time、首次 target/full-suite 通过时间和测试失败恢复率。
+同一 case 的 repeats 是簇内重复，不得简单当作相互独立的新 case。
+
+### 14.1 EvalPlus 官方 Smoke Slice（B1）
+
+`benchmark/evalplus_official.py` 保持 EvalPlus optional import：主 `.venv` 的离线测试不依赖重型
+benchmark 包，正式运行使用 `.venv-evalplus`（固定 EvalPlus 0.3.1）。配置在
+`config/benchmarks/evalplus_smoke.json`，入口为 `scripts/run_evalplus_smoke.py`。
+
+执行纪律：固定 seed/显式 task IDs 在模型调用前选择官方实例 → 写 deterministic override dataset
+和 SHA-256 → canonical oracle 必须 Base/Plus=100% → 联网阶段 `--generate-only` 只生成与调用官方
+sanitizer → 人工检查样本 → 回到受限环境 `--resume ... --allow-local-model-execution` 调官方 evaluator。
+
+Evaluator 成功不能只看 return code：还必须解析出 Base/Plus 指标；oracle 进一步要求二者都为 1.0。
+同一 samples 路径不使用 `--i-just-wanna-run`，避免 EvalPlus 0.3.1 已有缓存时进入交互覆盖提示。
+macOS 当前配置 `EVALPLUS_MAX_MEMORY_BYTES=-1` 规避 rlimit 兼容错误，因此没有内存硬限制，不能称作
+安全沙箱。完整结果与限制见 [`evalplus_smoke_report_v1.md`](evalplus_smoke_report_v1.md)。
+
+## 15. 启动与测试
 
 见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（全绿，当前计数见 [`../PROJECT_STATE.md`](../PROJECT_STATE.md)）+ `ruff check` + `scripts/selfcheck.py`（9/9）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
 
-## 15. 测试覆盖现状
+## 16. 测试覆盖现状
 
 - `test_llm_provider`（provider 解析/trace）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch，25）、`test_tools`（6 工具 + 守卫）、`test_agent_loop`（scripted 端到端 + 停因 + V2 守卫）、`test_pipeline`（reference 上界/none 下界/区分度/grader 守卫）、`test_compare`、`test_failure_taxonomy`、`test_api`（后端）。
 
-## 16. 维护规则
+## 17. 新任务类型与 Oracle 要求
+
+任务扩充优先级见 `benchmark_methodology_and_roadmap.md`：P0 为 bugfix、spec、instruction
+following、refactor；P1 为 review、test generation、performance、security 和并发/资源类缺陷；
+P2 为 multi-turn。
+
+- Instruction Following 必须把功能成功与约束成功分开，产出真实 Task/Strict 差异。
+- Refactor 必须用完整回归/API contract 证明行为保持，不能用 Judge 代替程序 oracle。
+- Code Review 的每项判断必须引用代码证据，并用人工 gold 量 Judge 可信度。
+- Test Generation 不能只看新测试能否通过，至少使用已知缺陷检出率或 mutation testing。
+- Performance/Security 先过功能门禁，再用稳定性能输入或 exploit/negative tests 评分。
+- Multi-turn 需要用户模拟器、信息释放策略、多轮 oracle 和泄漏防护，不能简单拼接消息冒充。
+
+每个新 case 还必须记录能力标签、难度、语言、来源、reference、oracle、可能捷径、污染检查、
+flaky 检查、数据版本和修订/废弃原因。
+
+## 18. 维护规则
 
 - 改沙箱/grader/materialize 后必跑 `selfcheck.py` 与全套测试。
 - 任何影响“hidden 不可见 / 历史无解 / V1V2 同配置”的改动都要在 PROJECT_STATE 的“已知风险”里说明。

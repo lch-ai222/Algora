@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Run the HumanEval+ subset against the configured model.
+"""Run the legacy 10-task EvalPlus-schema subset against the configured model.
 
     python scripts/run_humaneval.py [--limit N]
 
@@ -51,7 +51,10 @@ def main() -> int:
         print(f"ERROR: needs an LLM provider. {provider._availability_error()}", file=sys.stderr)
         return 2
 
-    print(f"Running HumanEval+ ({len(problems)} problems) on {provider.settings.llm_provider}…")
+    print(
+        f"Running legacy EvalPlus-schema subset ({len(problems)} problems) "
+        f"on {provider.settings.llm_provider}…"
+    )
     summary = run_humaneval_suite(provider, problems)
     print(f"\n  Pass@1 (base)   {summary.pass_at_1:.2%}")
     print(f"  Plus pass rate  {summary.plus_pass_rate:.2%}")

@@ -1,0 +1,20 @@
+{
+  "schema_version": "algora.evalplus_smoke_config.v1",
+  "implementation_level": "smoke_slice",
+  "dataset": "humaneval",
+  "evalplus_version": "0.3.1",
+  "sample_size": 5,
+  "selection_seed": 20260712,
+  "task_ids": [],
+  "use_mini": true,
+  "samples_per_task": 1,
+  "temperature": 0.0,
+  "max_tokens": 2048,
+  "evaluator_mode": "local_process",
+  "isolation_level": "official_local_evaluator_no_container",
+  "parallel": 1,
+  "evalplus_max_memory_bytes": -1,
+  "evaluator_timeout_seconds": 600,
+  "cache_dir": ".cache/evalplus",
+  "evalplus_python": ".venv-evalplus/bin/python"
+}

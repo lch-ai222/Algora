@@ -13,13 +13,14 @@ tested* under identical conditions.
   things a program cannot decide (code-review quality, spec coverage) go to a Judge — and the
   Judge itself is meta-evaluated against a human gold set (Cohen's kappa; below-threshold
   dimensions are downgraded from hard gate to advisory).
-- **Private, uncontaminated benchmark**: `datasets/mini_store` is a self-built SWE-style repo, so
-  there is no train/test leakage — the headache of public benchmarks is designed out.
+- **Private, uncontaminated benchmark**: `datasets/mini_store` is a self-built SWE-style repo and
+  private Golden Dataset, not an industry-standard public benchmark. Its value is controlled
+  defects, hidden tests, and fast regression without answers in git history.
 - **Task Success vs Strict Success**: reveals "functionally done but engineering non-compliant".
 
 ## Status
 
-**All 7 milestones (M0–M5 + C) complete.** Verification (current): `70 passed, 1 skipped` (the
+**All 7 original milestones (M0–M5 + C) plus B1 complete.** Verification (current): `79 passed, 1 skipped` (the
 skip is an `RUN_LLM_SMOKE`-gated real-model test) · `ruff` clean · `selfcheck` 9/9 · HumanEval
 canonical 10/10. Per-milestone test/case counts below are cumulative snapshots — the numbers in
 this line and in [PROJECT_STATE.md](PROJECT_STATE.md) are authoritative.
@@ -61,21 +62,35 @@ this line and in [PROJECT_STATE.md](PROJECT_STATE.md) are authoritative.
   with pass@k/pass^k + failure tags), Trial Trace Viewer (step list + event detail + grader
   summary + colorized diff), and Version Compare (improved/regressed/stable + cost deltas).
   Vite + React + TS, typechecks and builds clean.
-- **M5 — HumanEval+ / LLM-Judge / kappa** ✅ — a real function-level public benchmark
-  (`benchmark/humaneval_plus.py`, curated EvalPlus-schema subset; DeepSeek scores Pass@1 100%
-  base+plus on the 10 easy problems), an LLM-as-Judge for code review (`judge/code_review_judge.py`,
+- **M5 — EvalPlus-schema study / LLM-Judge / kappa** ✅ — a 10-problem curated/self-built
+  EvalPlus-schema subset used to validate the function-level evaluation flow (not a full official
+  HumanEval+ run or leaderboard result; DeepSeek scores Pass@1 100% on this easy slice), an
+  LLM-as-Judge for code review (`judge/code_review_judge.py`,
   structured + **forced citations** + swap-averaging + temperature=0), and judge meta-eval
   (`judge/meta_eval.py`, agreement + Cohen's kappa + trust map). On the human gold set the judge
   agrees perfectly on objective dimensions (CORRECTNESS/EDGE_CASES κ=1.0) but only κ=0.62 on
   subjective READABILITY — near the Landis-Koch boundary, matching the plan's reference. See
   [docs/judge_meta_eval_report_v1.md](docs/judge_meta_eval_report_v1.md).
-- **C — SWE-bench adapter + Docker design** ✅ — `benchmark/swebench.py` reads the official
+- **B1 — official HumanEval+/EvalPlus smoke slice** ✅ — pinned EvalPlus 0.3.1, five official
+  tasks selected before generation with seed `20260712`, canonical oracle gate (Base/Plus 1.00),
+  official sanitizer/evaluator, immutable manifest, and split network-generation/local-execution
+  phases. DeepSeek v4-flash: Base pass@1 1.00, Plus pass@1 0.80 (one stricter-test failure); this
+  is a protocol-learning slice, not a full benchmark score. See
+  [docs/evalplus_smoke_report_v1.md](docs/evalplus_smoke_report_v1.md).
+- **C — SWE-bench compatibility adapter + Docker design** ✅ — `benchmark/swebench.py` reads the official
   SWE-bench instance schema (`FAIL_TO_PASS` / `PASS_TO_PASS` / `test_patch` / gold `patch`) and
   runs the official resolve flow. A **compatibility sample** (`datasets/swebench_compat/`, a
   small self-contained repo) runs end-to-end here: gold patch resolves it, and the MiniAgent
   (V2) resolves it for real. Clearly labelled "Compatibility Sample", not a leaderboard number.
   Docker sandbox is a validated design (`docker/sandbox.Dockerfile` + design doc) — not built
   here (no daemon). See [docs/swebench_and_docker.md](docs/swebench_and_docker.md).
+
+The public-benchmark goal is protocol learning rather than an expensive full leaderboard run:
+use a small number of official instances while preserving the official data, environment, oracle,
+execution, and reporting contracts. See
+[docs/benchmark_methodology_and_roadmap.md](docs/benchmark_methodology_and_roadmap.md) for the
+HumanEval+/EvalPlus → SWE-bench → Terminal-Bench → OctoBench roadmap, implementation-level labels,
+statistical plan, and private Golden Dataset expansion priorities.
 
 ### Console
 
@@ -96,6 +111,24 @@ python scripts/compare_runs.py <v1_run_dir> <v2_run_dir> # Version Compare (impr
 ```
 
 See [coding_agent_eval_plan_v2.md](coding_agent_eval_plan_v2.md) for the full design.
+
+### Official EvalPlus smoke slice
+
+EvalPlus is intentionally isolated from the main `.venv` because its optional dependency set is
+large. Its cache also stays inside the project and is ignored by git.
+
+```bash
+python3.11 -m venv .venv-evalplus
+.venv-evalplus/bin/python -m pip install -e ".[evalplus]"
+.venv-evalplus/bin/python scripts/run_evalplus_smoke.py --selfcheck
+.venv-evalplus/bin/python scripts/run_evalplus_smoke.py --generate-only
+.venv-evalplus/bin/python scripts/run_evalplus_smoke.py \
+  --resume artifacts/runs/<evalplus-smoke-run> --allow-local-model-execution
+```
+
+Review generated samples before the resume step. The official local evaluator executes generated
+Python without Docker; the split flow ensures the execution phase has no model-API network access.
+Cleanup: `rm -rf .venv-evalplus .cache/evalplus artifacts/runs/evalplus-smoke-<timestamp>`.
 
 ## Dev setup
 

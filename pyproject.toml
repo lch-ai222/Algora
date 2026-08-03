@@ -20,6 +20,9 @@ api = [
     "uvicorn[standard]>=0.29.0",
     "sse-starlette>=2.0.0",
 ]
+evalplus = [
+    "evalplus==0.3.1",
+]
 
 [project.scripts]
 codeagent-eval = "codeagent_eval.runner:main"
