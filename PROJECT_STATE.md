@@ -415,6 +415,27 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 
 **回扫结果**：117 个带 canary 的 trial、808 次编辑，遵守率 **1.000**，80 个足够长的 trial 平均 decay **+0.000**。即在当前轨迹长度（模型轮次中位数 19–24）下**未观察到上下文遗忘**。
 
+### V3 G1 · 长程 suite 扩充（2026-08-05）
+
+`mini_store_long` **4 → 5 case**，新增 `long-discount-rounding`。
+
+**先量出了一个结构性事实**：这个仓库只有**四个天然的跨模块枢纽**（inventory / pricing / returns / build），四个都已被现有 case 用掉。剩下的 cart / catalog / discounts 太小，基于它们的 case 约 8–12 步——**是中程不是长程**。所以"再加长程 case"实际要求**先给仓库补消费者模块**，让某个原语的缺陷能级联到足够多的测试面。
+
+因此本条 case 的成本是：4 个新消费者模块（coupons / clearance / membership / flash_sale）+ 4 个测试文件 + defect + hidden 测试 + suite 条目。顺带把"钱只在一个地方取整"确立为仓库的显式契约（调用方不再各自 round），这既更合理也让级联成立——否则调用方自己的 round 会把原语的误差吸收掉，缺陷只影响 2 个测试文件而不是 4 个。
+
+**case 设计**：`discounts.percent_off` 同时丢失取整与范围校验两个方面。只恢复取整能让**全部可见测试通过**，hidden 测试专门抓这个不完整修复。
+
+**实测区分度**：
+
+| 模型 | Task | 工具调用 | 失败归因 |
+|---|---|---|---|
+| DeepSeek v4-flash | **3/3** | 31–36 | — |
+| GLM-4.5-air | **0/2** | 17 | `TASK_UNDERSTANDING`（可见测试全过、漏掉校验） |
+
+弱模型的失败是**诊断性**的而非随机的，且改动正确限定在单文件内（零约束违规）。工具调用 31–36 超过 `expected_tool_calls: 25` 门槛，确认是长程。
+
+顺带修掉一个脆弱断言：`test_long_suite.py` 硬编码 `len(cases) == 4`，每加一条 case 就要改。改为断言最小数量 + 任务类型覆盖 + 逐 case 契约。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：

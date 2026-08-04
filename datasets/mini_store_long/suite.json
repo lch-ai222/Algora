@@ -185,6 +185,58 @@
       "build_checks": [
         "python -m pip wheel --no-deps --no-build-isolation ."
       ]
+    },
+    {
+      "case_id": "long-discount-rounding",
+      "task_type": "bugfix",
+      "instruction": "Coupon redemption, clearance pricing, membership tiers and flash sales all report money values that are off by fractions of a cent, and some percentages that should be rejected are being accepted. Reproduce the failures across the affected pricing surfaces, find the single shared root cause rather than patching each caller, and restore the behaviour every caller depends on. Money is rounded in exactly one place in this codebase; do not add rounding to individual callers, edit tests, or add dependencies. Run the focused failing tests, then the complete suite, and inspect git diff before finishing.",
+      "visible_tests": [
+        "tests/test_coupons.py",
+        "tests/test_clearance.py",
+        "tests/test_membership.py",
+        "tests/test_flash_sale.py"
+      ],
+      "regression_tests": [
+        "tests/test_discounts.py",
+        "tests/test_discount_invariants.py",
+        "tests/test_bundle.py",
+        "tests/test_tier_invariants.py",
+        "tests/test_orders.py"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_discounts.py"
+      ],
+      "constraints": {
+        "forbidden_paths": [
+          "tests/*"
+        ],
+        "max_changed_files": 1,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": true
+      },
+      "max_steps": 40,
+      "timeout_seconds": 600,
+      "difficulty": "hard",
+      "tags": [
+        "long-horizon",
+        "cascade",
+        "root-cause",
+        "rounding",
+        "validation"
+      ],
+      "horizon": "long",
+      "expected_steps": 12,
+      "expected_tool_calls": 25,
+      "canary": {
+        "constraint_id": "discount-single-rounding-site",
+        "description": "Money is rounded in exactly one place: mini_store/discounts.py. Keep the functional fix confined to that file.",
+        "checker": "allowed_files",
+        "params": {
+          "allowed": [
+            "mini_store/discounts.py"
+          ]
+        }
+      }
     }
   ]
 }
