@@ -19,6 +19,7 @@ from codeagent_eval.models import TraceEventType
 
 # §9 taxonomy
 TIMEOUT = "TIMEOUT"
+CONTEXT_OVERFLOW = "CONTEXT_OVERFLOW"
 REPEATED_ACTION = "REPEATED_ACTION"
 ENVIRONMENT = "ENVIRONMENT"
 PLANNING = "PLANNING"
@@ -50,6 +51,7 @@ _NATIVE_TO_CANONICAL = {
     "final": "final",
     "timeout": "budget_time",
     "max_steps": "budget_steps",
+    "context_overflow": "budget_context",
     "provider_error": "error",
     "repeated_action": "blocked",
 }
@@ -92,6 +94,8 @@ def attribute_failure(case: EvalCase, trial: TrialResult, grade: GradeResult) ->
     # Terminal/mechanical causes first.
     if stop == "budget_time":
         tags.append(FailureTag(tag=TIMEOUT, reason="trial exceeded the wall-clock budget"))
+    if stop == "budget_context":
+        tags.append(FailureTag(tag=CONTEXT_OVERFLOW, reason="ran out of context window"))
     if stop == "blocked":
         tags.append(FailureTag(tag=REPEATED_ACTION, reason="same action repeated past the guard limit"))
     if stop == "budget_steps":

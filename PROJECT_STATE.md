@@ -10,7 +10,7 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**239 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**244 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -258,6 +258,27 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 | 摘要大小 | 316 → 869 → 1088 字符（随工作累积增长） |
 | 结果 | Task 1.00，plan adherence 1.00（6 项 / 3 次修订） |
 
+### V3 H3 消融实验：compaction 有效，planner 有害（2026-08-04）
+
+长程 suite（4 case × 3 repeats = 12 trial/组），DeepSeek v4-flash，**上下文硬上限 12k**（对所有组生效），V3 compaction 阈值 10k：
+
+| 组 | Task | Strict | 溢出 | compaction | 峰值 tok | 工具调用 | plan 遵守率 |
+|---|---|---|---|---|---|---|---|
+| v2（两者皆无） | 0.50 | 0.42 | 9 | 0 | 14,398 | 23.4 | — |
+| **v3（两者皆有）** | 0.75 | 0.67 | 0 | 60 | 11,175 | 64.7 | 0.47 |
+| v3 − context | 0.33 | 0.33 | 10 | 0 | 14,107 | 23.7 | 0.22 |
+| **v3 − planner** | **1.00** | **1.00** | 0 | 50 | 10,275 | 62.9 | — |
+
+**结论一：compaction 是有效的那一半。** 从 v3 拿掉它，0.75 → 0.33（−0.42），失败模式几乎全变成 `CONTEXT_OVERFLOW`。有 compaction 的两组峰值稳定在上限之下（11.2k / 10.3k < 12k），溢出为 0。
+
+**结论二：planner 是有害的那一半。** 从 v3 拿掉它，0.75 → **1.00**（+0.25），且零失败。
+
+为什么：**当瓶颈是上下文时，planner 把稀缺资源花在了计划记账上。** 佐证是 v2（0.50）竟然好于 v3−context（0.33）——两者都没有 compaction，唯一差别是后者带 planner，即 **planner 在没有 compaction 兜底时单独造成 −0.17**。plan 遵守率也偏低（0.47 / 0.22），说明 agent 并没有很好地执行自己写的计划。
+
+这条否定了 W1-4 的隐含假设。任务规划是 JD 逐字点名的能力，主流 Agent 都有，但**在这个约束条件下它降低成功率**。诚实的表述是：planner 的价值取决于瓶颈是什么——瓶颈是上下文时它是净负担。
+
+**边界（必须同时陈述）**：n=3/case、12 trial/组，0.25 的差距约等于 3 个 trial，置信区间很宽；单模型；12k 上限是照着实测峰值 14.5k 挑的，换一个上限结论可能不同。这是方向性证据，不是效应量估计。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：
@@ -298,7 +319,8 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **H3 消融实验**：长程 suite + 收紧预算，跑 v2 / v3 / v3−context / v3−planner 四组，repeats≥3。所有前置条件（长程 case、预算变量、planner、context、消融开关、并行）现已齐备。
+1. **扩大 H3 的样本与条件**：repeats 提到 5、加第二个模型、扫描 2–3 档上下文上限，给出置信区间与配对检验（B3）。当前只是方向性证据。
+2. **诊断 planner 为何有害**：读 v3 的轨迹，确认是上下文占用还是计划本身误导；据此决定改进（如仅在长任务启用、或把计划放进 digest 而非消息流）还是保留为负面结论。
 2. **后续实验一律带预算维度**：至少 `max_steps` 取紧/松两档，否则强模型之间的差异测不出来。
 3. 长期：按 G1 路线补更难的 case（refactor / 并发 / 欠定义 spec）。预算收紧测的是约束下的效率，不能替代能不能做更难的事。
 4. 需要 GLM 的 USD 成本时，填一个带出处与日期的 `usd_per_cny`。

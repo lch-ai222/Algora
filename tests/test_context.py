@@ -291,3 +291,109 @@ def test_each_v3_addition_can_be_removed_on_its_own(git_repo):
 
         assert ("context_compactions" in result.completion_checks) is expect_context
         assert result.env_manifest["ablate"] == sorted(ablate)
+
+
+# --------------------------------------------------------------------------- #
+# The ceiling: a constraint that binds on every arm
+# --------------------------------------------------------------------------- #
+def _ceiling_run(git_repo, *, ceiling, context_management, sizes):
+    with WorktreeSandbox(git_repo) as sandbox:
+        task = AgentTask(
+            instruction="fix add", workspace_path=str(sandbox.root), max_steps=8, timeout_seconds=60
+        )
+        config = AgentConfig(
+            version="v3" if context_management else "v2",
+            enable_context_management=context_management,
+            context_budget_tokens=1000,
+            context_ceiling_tokens=ceiling,
+        )
+        turns = [_read_turn(n) for n in range(6)] + [LlmToolTurn(content="done", tool_calls=[])]
+        return MiniAgent(_StubProvider(turns, sizes), config).run(task, sandbox)
+
+
+def test_exceeding_the_ceiling_stops_the_trial_for_every_harness(git_repo):
+    """The ceiling stands in for a smaller model window, so it constrains V2 exactly as it
+    constrains V3 — otherwise a V2/V3 comparison only measures compaction's cost."""
+    trial = _ceiling_run(git_repo, ceiling=1000, context_management=False, sizes=[100, 1500])
+
+    assert trial.stop_reason == "context_overflow"
+    assert trial.completion_checks["context_overflowed"] is True
+    assert trial.completion_checks["peak_prompt_tokens"] == 1500
+    overflow = [e for e in trial.events if e.name == "context_overflow"]
+    assert overflow and overflow[0].payload["ceiling"] == 1000
+
+
+def test_work_done_before_an_overflow_is_kept(git_repo):
+    """A real context exhaustion does not undo edits already written to the repository."""
+    with WorktreeSandbox(git_repo) as sandbox:
+        task = AgentTask(
+            instruction="fix add", workspace_path=str(sandbox.root), max_steps=6, timeout_seconds=60
+        )
+        turns = [
+            LlmToolTurn(tool_calls=[LlmToolCall(
+                call_id="e", name="apply_patch",
+                arguments={"path": "app.py", "old_str": "return a - b  # bug: should be +",
+                           "new_str": "return a + b"})]),
+            _read_turn(1),
+        ]
+        trial = MiniAgent(
+            _StubProvider(turns, [100, 9999]),
+            AgentConfig(version="v2", context_ceiling_tokens=1000),
+        ).run(task, sandbox)
+
+    assert trial.stop_reason == "context_overflow"
+    assert "+    return a + b" in trial.patch
+
+
+def test_a_trial_below_the_ceiling_is_unaffected(git_repo):
+    trial = _ceiling_run(git_repo, ceiling=100_000, context_management=False,
+                         sizes=[100, 200, 300, 400, 500, 600, 700])
+
+    assert trial.stop_reason != "context_overflow"
+    assert trial.completion_checks["context_overflowed"] is False
+
+
+def test_an_overflow_is_attributed_to_the_context_window(git_repo):
+    from codeagent_eval.benchmark import EvalCase
+    from codeagent_eval.failure_taxonomy import CONTEXT_OVERFLOW, attribute_failure
+    from codeagent_eval.graders.constraint_grader import ConstraintGrade
+    from codeagent_eval.graders.patch_grader import PatchGrade
+    from codeagent_eval.graders.pytest_run import PytestOutcome
+    from codeagent_eval.graders.result import GradeResult
+    from codeagent_eval.graders.test_grader import TestGrade
+
+    trial = _ceiling_run(git_repo, ceiling=1000, context_management=False, sizes=[100, 1500])
+    empty = PytestOutcome(node_ids=[], exit_code=None)
+    grade = GradeResult.model_construct(
+        case_id="c", task_success=False, strict_success=False,
+        test=TestGrade.model_construct(target_passed=False, regression_passed=False,
+                                       hidden_passed=False, target=empty, regression=empty,
+                                       hidden=empty),
+        constraint=ConstraintGrade.model_construct(forbidden_paths_touched=[]),
+        patch=PatchGrade.model_construct(modified_tests=False),
+    )
+
+    attribution = attribute_failure(EvalCase(case_id="c", task_type="bugfix", instruction="x"),
+                                    trial, grade)
+    assert attribution.primary == CONTEXT_OVERFLOW
+
+
+def test_the_adapter_accepts_a_token_ceiling_it_can_now_enforce(git_repo):
+    """It used to raise UnsupportedCapability; refusing a limit you can enforce would push the
+    experiment back to constraining only one arm."""
+    adapter = MiniAgentAdapter(
+        _StubProvider([_read_turn(0), LlmToolTurn(content="x", tool_calls=[])], [100, 5000]),
+        harness="v2",
+    )
+    task = AgentTask(instruction="x", workspace_path="", max_steps=4, timeout_seconds=30)
+    with WorktreeSandbox(git_repo) as sandbox:
+        adapter.prepare(
+            sandbox.root, task, BudgetContract(max_wall_clock_s=30, max_tokens=1000), runtime=sandbox
+        )
+        result = adapter.run("x")
+        adapter.cleanup()
+
+    assert result.stop_reason == "budget_context"
+    assert result.native_stop_reason == "context_overflow"
+    assert result.env_manifest["context_ceiling_tokens"] == 1000
+    assert result.to_trial_result().stop_reason == "context_overflow"

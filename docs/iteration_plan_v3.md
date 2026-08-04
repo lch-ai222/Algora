@@ -29,7 +29,13 @@
 - **实测：给了 planner 不等于会规划。** DeepSeek v4-flash 在短程 case（7–17 动作）上完全不调用 `update_plan`；长程 case 上主动规划（3 项/3 修订 adherence 1.00；7 项/2 修订 adherence 0.71），且无计划表演。**推论：planner 的消融只能在长程上做**，短程上 V2/V3 必然无差异。
 - **W2-1 已完成**：`context.py` 分级截断 + 确定性 compaction。两条纪律——上下文大小取 provider 报告的 `prompt_tokens` 而非 char/4 估算（否则触发阈值对每个被测系统的真实大小都不同）；摘要由轨迹确定性构建而非 LLM 生成（评测 harness 不能在每个长 trial 中间插入不确定、计费的调用）。`--ablate planner|context` 可单独消融并写入 adapter_version 与 resume 指纹。239 passed/1 skipped。
 - **实测**（DeepSeek，`long-crossmodule-returns`，预算 16k）：compaction 触发 3 次、每次丢 21–23 条消息、峰值利用率 0.906，trial 仍 Task 1.00、plan adherence 1.00。
-- **下一项：H3 消融实验**（长程 + 收紧预算 × v2/v3/v3−context/v3−planner）；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
+- **H3 已完成，结果一半证实一半推翻（2026-08-04）**。先补了一个前置缺陷：`--context-budget-tokens` 只是 V3 的旋钮，v2 从不承受上下文压力（峰值 14.5k vs 窗口 128k），所以 v2/v3 对比根本测不出 compaction 有没有用。改为实现 `BudgetContract.max_tokens` 为**对所有 harness 生效的硬上下文上限**（`--context-ceiling-tokens`），约束才对每一组都成立。
+- 长程 4 case × 3 repeats，上限 12k：**v2 0.50 / v3 0.75 / v3−context 0.33 / v3−planner 1.00**。
+  - **compaction 有效**：拿掉它 −0.42，失败几乎全是 `CONTEXT_OVERFLOW`；有它的两组峰值稳定在上限下、溢出为 0。
+  - **planner 有害**：拿掉它 +0.25 且零失败。v2（0.50）好于 v3−context（0.33）进一步佐证 planner 单独造成 −0.17——**瓶颈是上下文时，规划把稀缺资源花在了记账上**。
+  - 这否定了 W1-4 的隐含假设：JD 点名、主流 Agent 都有的能力，在这个约束下降低成功率。
+- 边界：12 trial/组，0.25 ≈ 3 个 trial，区间很宽；单模型；上限值是照着实测峰值挑的。**方向性证据，不是效应量估计。**
+- **下一项：扩样本（repeats=5、第二个模型、多档上限）+ 诊断 planner 为何有害**；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
 
 ---
 

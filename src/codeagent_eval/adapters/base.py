@@ -54,6 +54,7 @@ CanonicalStopReason = Literal[
     "budget_time",
     "budget_cost",
     "budget_steps",
+    "budget_context",
     "error",
     "blocked",
 ]
@@ -110,6 +111,7 @@ class AgentRunResult(BaseModel):
         fallback = {
             "budget_time": "timeout",
             "budget_steps": "max_steps",
+            "budget_context": "context_overflow",
             "budget_cost": "timeout",
             "error": "provider_error",
             "blocked": "repeated_action",

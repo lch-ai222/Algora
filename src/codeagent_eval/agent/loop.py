@@ -43,10 +43,15 @@ class AgentConfig:
     enable_context_management: bool = False
     context_budget_tokens: int = 32_000
     compaction_threshold: float = 0.75
+    #: Hard context-window ceiling, applied to EVERY harness version. It stands in for a
+    #: smaller model window: without it, compaction cannot be shown to help, because nothing
+    #: ever runs out of context and the feature can only cost information.
+    context_ceiling_tokens: int | None = None
 
 
 class TrialResult(BaseModel):
-    stop_reason: str  # final | max_steps | timeout | provider_error | repeated_action
+    stop_reason: str  # final | max_steps | timeout | provider_error | repeated_action |
+    #                  # context_overflow
     # Framework-independent stop semantics, set by adapters. The MiniAgent's own vocabulary
     # doubles as the taxonomy's, but an external agent's native reasons ("error_max_turns")
     # do not, so attribution reads this field instead of pattern-matching native strings.
@@ -80,6 +85,7 @@ class _RunState:
     premature_final_attempts: int = 0
     action_signatures: list[str] = field(default_factory=list)
     planner: PlanTracker = field(default_factory=PlanTracker)
+    peak_prompt_tokens: int = 0
     files_read: list[str] = field(default_factory=list)
     files_written: list[str] = field(default_factory=list)
     commands_run: list[str] = field(default_factory=list)
@@ -152,13 +158,27 @@ class MiniAgent:
                     stop_reason = "provider_error"
                     break
 
+                # The provider's own count, not an estimate: it is the only number that means
+                # the same thing across models and tool schemas. Usage reporting is not part of
+                # the tool_completion contract, so a provider without it simply falls back to
+                # the char heuristic rather than breaking the trial.
+                prompt_tokens = (getattr(self.provider, "last_usage", None) or {}).get("prompt_tokens")
+                if prompt_tokens:
+                    state.peak_prompt_tokens = max(state.peak_prompt_tokens, prompt_tokens)
                 if context is not None:
-                    # The provider's own count, not an estimate: it is the only number that
-                    # means the same thing across models and tool schemas. Usage reporting is
-                    # not part of the tool_completion contract, so a provider without it
-                    # simply falls back to the char heuristic rather than breaking the trial.
-                    usage = getattr(self.provider, "last_usage", None) or {}
-                    context.observe(usage.get("prompt_tokens"))
+                    context.observe(prompt_tokens)
+                ceiling = self.config.context_ceiling_tokens
+                if ceiling and prompt_tokens and prompt_tokens > ceiling:
+                    # Edits made before the overflow stand — a real context exhaustion does not
+                    # undo work already written to the repository.
+                    state.emit(
+                        TraceEventType.ERROR,
+                        name="context_overflow",
+                        prompt_tokens=prompt_tokens,
+                        ceiling=ceiling,
+                    )
+                    stop_reason = "context_overflow"
+                    break
 
                 state.emit(
                     TraceEventType.MODEL_RESPONSE,
@@ -262,6 +282,8 @@ class MiniAgent:
             "blocked_commands": state.blocked_commands,
             "provider_error": stop_reason == "provider_error",
             "premature_final_attempts": state.premature_final_attempts,
+            "peak_prompt_tokens": state.peak_prompt_tokens,
+            "context_overflowed": stop_reason == "context_overflow",
         }
         plan_stats = state.planner.stats() if self.config.enable_planner else {}
         checks.update(context.stats.as_dict(context.budget_tokens) if context else {})

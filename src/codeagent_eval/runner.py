@@ -100,6 +100,7 @@ def _run_adapter_trial(
     max_steps: int | None = None,
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
+    context_ceiling_tokens: int | None = None,
 ) -> tuple[TrialResult, AgentRunResult]:
     adapter = create_adapter(
         adapter_name,
@@ -116,6 +117,7 @@ def _run_adapter_trial(
     budget = BudgetContract(
         max_wall_clock_s=case.timeout_seconds,
         max_steps=max_steps or case.max_steps,
+        max_tokens=context_ceiling_tokens,
     )
     adapter.prepare(sandbox.root, task, budget, runtime=sandbox)
     try:
@@ -241,6 +243,7 @@ def run_trial(
     max_steps_override: int | None = None,
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
+    context_ceiling_tokens: int | None = None,
 ) -> tuple[GradeResult, TrialResult, FailureAttribution]:
     # The step budget is an experimental variable, not a case constant: a suite every model
     # saturates still discriminates once the budget is tight enough to matter.
@@ -270,6 +273,7 @@ def run_trial(
                     max_steps=step_budget,
                     ablate=ablate,
                     context_budget_tokens=context_budget_tokens,
+                    context_ceiling_tokens=context_ceiling_tokens,
                 )
             elif kind in EXTERNAL_ADAPTERS:
                 trial, adapter_result = _run_adapter_trial(
@@ -448,6 +452,7 @@ class TrialSpec:
     max_steps_override: int | None = None
     ablate: frozenset[str] = frozenset()
     context_budget_tokens: int = 32_000
+    context_ceiling_tokens: int | None = None
 
 
 class TrialOutcome(NamedTuple):
@@ -508,6 +513,7 @@ def execute_trial(spec: TrialSpec) -> TrialOutcome:
             max_steps_override=spec.max_steps_override,
             ablate=spec.ablate,
             context_budget_tokens=spec.context_budget_tokens,
+            context_ceiling_tokens=spec.context_ceiling_tokens,
         )
     except Exception as exc:  # noqa: BLE001 - deliberately broad; see docstring
         # Loading the suite is inside the try as well, so even an unresolvable case_id becomes
@@ -790,6 +796,7 @@ def run_experiment(
     max_steps_override: int | None = None,
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
+    context_ceiling_tokens: int | None = None,
 ) -> dict[str, Any]:
     if workers < 1:
         raise ValueError("workers must be >= 1")
@@ -803,6 +810,9 @@ def run_experiment(
     # harness does; both belong in the fingerprint so they can never be resumed together.
     run_config["ablate"] = sorted(ablate)
     run_config["context_budget_tokens"] = context_budget_tokens if kind == "v3" else None
+    # Unlike the V3-only budget, the ceiling constrains every harness, so it belongs to the
+    # experiment rather than to one arm of it.
+    run_config["context_ceiling_tokens"] = context_ceiling_tokens
 
     experiment_id = resume_experiment_id or f"{kind}-{utc_now_iso().replace(':', '').replace('-', '')}"
     out_dir = out_root / experiment_id
@@ -834,6 +844,7 @@ def run_experiment(
                     max_steps_override=max_steps_override,
                     ablate=ablate,
                     context_budget_tokens=context_budget_tokens,
+                    context_ceiling_tokens=context_ceiling_tokens,
                 )
             )
 
@@ -989,6 +1000,14 @@ def main(argv: list[str] | None = None) -> int:
              "an experimental variable — a budget nothing reaches measures nothing",
     )
     parser.add_argument(
+        "--context-ceiling-tokens",
+        type=int,
+        default=None,
+        help="hard context-window ceiling applied to EVERY harness, standing in for a smaller "
+             "model window. Without it compaction cannot be shown to help, because nothing "
+             "runs out of context and the feature can only cost information",
+    )
+    parser.add_argument(
         "--max-steps",
         type=int,
         default=None,
@@ -1068,6 +1087,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--max-steps must be positive")
     if args.context_budget_tokens < 1:
         parser.error("--context-budget-tokens must be positive")
+    if args.context_ceiling_tokens is not None and args.context_ceiling_tokens < 1:
+        parser.error("--context-ceiling-tokens must be positive")
     if args.ablate and kind != "v3":
         parser.error("--ablate applies to the v3 harness only")
 
@@ -1086,6 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
             max_steps_override=args.max_steps,
             ablate=frozenset(args.ablate),
             context_budget_tokens=args.context_budget_tokens,
+            context_ceiling_tokens=args.context_ceiling_tokens,
         )
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

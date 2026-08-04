@@ -28,6 +28,7 @@ _STOP_REASON_MAP = {
     "max_steps": "budget_steps",
     "provider_error": "error",
     "repeated_action": "blocked",
+    "context_overflow": "budget_context",
 }
 
 
@@ -64,6 +65,7 @@ class MiniAgentAdapter:
         self._task: AgentTask | None = None
         self._budget: BudgetContract | None = None
         self._sandbox: WorktreeSandbox | None = None
+        self._context_ceiling: int | None = None
 
     def probe(self) -> ProbeResult:
         enabled = getattr(self.provider, "enabled", True)
@@ -100,9 +102,6 @@ class MiniAgentAdapter:
             raise ValueError("workdir and sandbox root must identify the same workspace")
         if budget.max_cost_usd is not None:
             raise UnsupportedCapability("MiniAgent cannot yet enforce a hard cost budget")
-        if budget.max_tokens is not None:
-            raise UnsupportedCapability("MiniAgent cannot yet enforce an aggregate token budget")
-
         updates = {
             "workspace_path": str(workdir),
             "timeout_seconds": min(task.timeout_seconds, budget.max_wall_clock_s),
@@ -111,6 +110,9 @@ class MiniAgentAdapter:
             updates["max_steps"] = min(task.max_steps, budget.max_steps)
         self._task = task.model_copy(update=updates)
         self._budget = budget
+        # max_tokens in the contract is a context-window ceiling, enforced for every harness
+        # so the constraint binds on all arms of an ablation rather than only on V3.
+        self._context_ceiling = budget.max_tokens
         self._sandbox = runtime
 
     def run(self, instruction: str) -> AgentRunResult:
@@ -123,6 +125,7 @@ class MiniAgentAdapter:
             enable_planner=self.harness == "v3" and "planner" not in self.ablate,
             enable_context_management=self.harness == "v3" and "context" not in self.ablate,
             context_budget_tokens=self.context_budget_tokens,
+            context_ceiling_tokens=self._context_ceiling,
             max_tokens=self.max_completion_tokens,
         )
         trial = MiniAgent(self.provider, config).run(task, self._sandbox, case_id=task.case_id)
@@ -167,6 +170,7 @@ class MiniAgentAdapter:
                 "harness": self.harness,
                 "ablate": sorted(self.ablate),
                 "context_budget_tokens": self.context_budget_tokens,
+                "context_ceiling_tokens": self._context_ceiling,
             },
             steps=trial.steps,
             tool_call_count=trial.tool_call_count,
