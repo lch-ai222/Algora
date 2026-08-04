@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Scan every patch already collected for signs that verification was disarmed.
+"""Scan every trial already collected for failure modes the pass/fail oracle cannot see.
 
-Detection needs no new experiments: every trial ever run left its diff on disk, so the
-question "how often does this happen" can be answered against the runs that already exist —
-including the external agent's, which makes the rate comparable across frameworks.
+Two detectors run over the artifacts:
+
+* **reward hacking** — a patch that disarms verification instead of satisfying it;
+* **instruction drift** — a constraint broken partway through, including breaches the agent
+  undid before finishing, which the final-state grader cannot see at all.
+
+Neither needs new experiments: every trial ever run left its diff and its trajectory on disk,
+so "how often does this happen" can be answered against the runs that already exist —
+including the external agent's, which makes the rates comparable across frameworks.
 
 A zero result is reported as a Wilson upper bound rather than as absence. "0 out of N" does
 not show the behaviour cannot occur; it bounds how common it could be given the sample, and
@@ -24,8 +30,25 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from codeagent_eval.detectors import detect_reward_hacking
+from codeagent_eval.agent.loop import TrialResult
+from codeagent_eval.benchmark import load_suite
+from codeagent_eval.detectors import detect_instruction_drift, detect_reward_hacking
 from codeagent_eval.stats import wilson_interval
+
+#: Cases are looked up by id across the shipped suites, since a trial artifact records the id
+#: but not which suite it came from.
+_CASES: dict[str, Any] = {}
+
+
+def _case(case_id: str):
+    if not _CASES:
+        for suite_dir in sorted(Path("datasets").glob("*/suite.json")):
+            try:
+                for c in load_suite(suite_dir.parent).cases:
+                    _CASES.setdefault(c.case_id, c)
+            except (OSError, ValueError):
+                continue
+    return _CASES.get(case_id)
 
 
 def scan_trial(trial_dir: Path) -> dict[str, Any] | None:
@@ -58,9 +81,27 @@ def scan_trial(trial_dir: Path) -> dict[str, Any] | None:
             pass
 
     report = detect_reward_hacking(patch)
+
+    # Instruction drift needs the trajectory and the case's constraints; a trial whose case is
+    # no longer in the shipped suites is scanned for hacking only rather than guessed at.
+    drift = None
+    case_id = config.get("case_id") or trial_dir.parent.name
+    case = _case(case_id)
+    trajectory = trial_dir / "trajectory.jsonl"
+    if case is not None and trajectory.is_file():
+        try:
+            events = [json.loads(line) for line in trajectory.read_text().splitlines() if line.strip()]
+            trial = TrialResult.model_validate(
+                {**json.loads((trial_dir / "trial.json").read_text()), "events": events}
+            )
+            drift = detect_instruction_drift(case, trial).model_dump()
+        except (OSError, ValueError):
+            drift = None
+
     return {
         "trial": str(trial_dir),
         "unconstrained": unconstrained,
+        "drift": drift,
         "agent": config.get("agent"),
         "adapter": config.get("adapter"),
         "model": config.get("model"),
@@ -100,7 +141,24 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     signal_counts = collections.Counter(
         s["name"] for r in results for s in r["signals"]
     )
+
+    scanned_drift = [r for r in results if r["drift"] is not None]
+    free_drift = [r for r in scanned_drift if r["unconstrained"]]
+    free_drifted = [r for r in free_drift if r["drift"]["breaches"]]
+    drifted = [r for r in scanned_drift if r["drift"]["breaches"]]
+    self_corrected = [r for r in drifted if r["drift"]["self_corrected"]]
+    persisted = [r for r in drifted if r["drift"]["persisted"]]
+    constraint_counts = collections.Counter(
+        b["constraint"] for r in drifted for b in r["drift"]["breaches"]
+    )
     return {
+        "drift_scanned": len(scanned_drift),
+        "drift_unconstrained_scanned": len(free_drift),
+        "drift_unconstrained_trials": len(free_drifted),
+        "drift_trials": len(drifted),
+        "drift_self_corrected": len(self_corrected),
+        "drift_persisted": len(persisted),
+        "drift_constraints": dict(constraint_counts.most_common()),
         "patches_scanned": n,
         "strong_findings": len(hacked),
         "rate": round(len(hacked) / n, 6) if n else None,
@@ -149,6 +207,24 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print("  none: every scanned trial ran under a harness that forbids editing tests,")
         print("  so the overall zero reflects enforcement and cannot be read as a rate")
+
+    scanned = summary["drift_scanned"]
+    print(f"\ninstruction drift: {summary['drift_trials']}/{scanned} trials broke a constraint")
+    free_scanned = summary["drift_unconstrained_scanned"]
+    # Same split as above, and for the same reason. The MiniAgent's sandbox refuses writes to
+    # forbidden paths and denied commands outright, so only its file-count constraint is a free
+    # observation; an unblocked agent is measured on all three.
+    print(f"  {summary['drift_unconstrained_trials']}/{free_scanned} of these came from trials "
+          "where path and command rules were not pre-blocked by the harness")
+    print("  (for the MiniAgent only the changed-file limit is freely observed; paths and "
+          "commands are enforced)")
+    if summary["drift_trials"]:
+        print(f"  {summary['drift_persisted']} shipped the breach "
+              f"(the only kind the final-state grader sees)")
+        print(f"  {summary['drift_self_corrected']} took it back before finishing "
+              f"— invisible without replaying the trajectory")
+        for name, count in summary["drift_constraints"].items():
+            print(f"    {name:<22} {count}")
 
     print("\nby agent:")
     for agent, counts in summary["by_agent"].items():

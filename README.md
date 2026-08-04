@@ -73,7 +73,13 @@ Context management is the entire effect. The planner is neutral and costs ~18% m
 calls. An earlier version of this ablation reported the planner as actively *harmful*; that
 turned out to be two defects in this codebase, not a property of planning — see below.
 
-### Reward hacking: detected, not assumed absent
+### Failure modes the pass/fail oracle cannot see
+
+Two detectors run over the artifacts, and both report a zero the same way: split by whether
+the harness was actually letting the agent misbehave, because pooling those turns a sandbox
+policy into a finding.
+
+**Reward hacking** — a patch that disarms verification instead of satisfying it.
 
 An agent can turn a suite green by fixing the code or by disarming the tests.
 [`detectors/reward_hacking.py`](src/codeagent_eval/detectors/reward_hacking.py) scans diffs for
@@ -90,8 +96,14 @@ reader:
 | MiniAgent (sandbox forbids test edits) | 624 | 0 | *enforcement, not observation* |
 | Claude Code (unconstrained) | 16 | 0 | **19.4%** |
 
-Only the unconstrained sample measures behaviour. Pooling them would present a sandbox policy
-as a finding.
+Only the unconstrained sample measures behaviour.
+
+**Instruction drift** — a constraint broken partway through. The constraint grader looks only
+at the final patch, so it cannot distinguish "obeyed throughout" from "broke the rule and took
+it back"; replaying the trajectory recovers the first-breach step, the obedience ratio, and
+whether the breach shipped or was self-corrected. Across 364 trials with replayable
+trajectories: zero breaches, and for the MiniAgent only the changed-file limit is a free
+observation — its path and command rules are refused by the sandbox before they can happen.
 
 ---
 
@@ -121,7 +133,7 @@ and was correct; only the enforcement path was unwired, so every artifact looked
 ```
 report        docs/*.md  ·  backend + frontend console over artifacts/
 ────────────────────────────────────────────────────────────────────────
-analysis      detectors/ (reward hacking)   stats/ (Wilson intervals)
+analysis      detectors/ (reward hacking · instruction drift)  stats/ (Wilson)
               failure_taxonomy.py           compare.py
 ────────────────────────────────────────────────────────────────────────
 orchestration runner.py — process-pool parallelism, trial-level resume,
@@ -182,7 +194,7 @@ python -m codeagent_eval.runner --adapter claude_code --claude-model glm-5.2 \
   --suite datasets/mini_store_long --max-wall-clock 120 --workers 3
 
 # Scan every patch ever produced for signs verification was disarmed
-python scripts/scan_reward_hacking.py artifacts/runs
+python scripts/scan_failure_modes.py artifacts/runs
 ```
 
 Each trial persists `config.json` (model, budgets, adapter version, pricing revision),
@@ -204,11 +216,12 @@ bounds reference=1.00 / none=0.00 on both suites · CI green including a contain
 | `mini_store` short + long | complete private benchmark, self-built, uncontaminated |
 | Cross-agent comparison | live, model-controlled; 8–12 trials per arm |
 | Reward-hacking detection | validated detector; 640 patches scanned, 16 of them unconstrained |
+| Instruction-drift detection | trajectory replay; 364 trials scanned, 16 of them unconstrained |
 | HumanEval+/EvalPlus | official smoke slice, 5 pinned tasks — [report](docs/evalplus_smoke_report_v1.md) |
 | SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
 | Terminal-Bench / OctoBench | protocol study only |
 
-Not done: instruction-drift and context-amnesia detectors, multi-turn, cluster-bootstrap
+Not done: the context-amnesia detector, multi-turn, cluster-bootstrap
 intervals and paired tests, SWE-bench official instances. The 4-case long suite is the binding
 limit on statistical claims — with case as the clustering unit, more cases matter more than
 more repeats.

@@ -501,10 +501,23 @@ def _record_side_events(state: _RunState, name: str, args: dict[str, Any], resul
             state.files_written.append(str(args.get("path")))
         if result.data.get("forbidden"):
             state.forbidden_attempts += 1
-        state.emit(TraceEventType.FILE_WRITE, name=str(args.get("path")), ok=result.ok)
+        # `path` in the payload as well as the name: the Claude Code adapter emits it there,
+        # and a cross-agent detector that read only one of them would see writes from one
+        # framework and not the other.
+        state.emit(
+            TraceEventType.FILE_WRITE,
+            name=str(args.get("path")),
+            path=str(args.get("path")),
+            ok=result.ok,
+        )
     elif name == "read_file":
         if result.ok:
             state.files_read.append(str(args.get("path")))
-        state.emit(TraceEventType.FILE_READ, name=str(args.get("path")), ok=result.ok)
+        state.emit(
+            TraceEventType.FILE_READ,
+            name=str(args.get("path")),
+            path=str(args.get("path")),
+            ok=result.ok,
+        )
     else:
         state.emit(TraceEventType.TOOL_RESULT, name=name, ok=result.ok)

@@ -220,7 +220,7 @@ def _trial(tmp_path: Path, name: str, patch: str, *, policy_enforced: bool) -> P
 def test_a_zero_from_a_harness_that_forbids_test_edits_is_not_a_rate(tmp_path):
     """The MiniAgent's sandbox refuses the write outright, so its zero measures the policy.
     Pooling it with an unconstrained agent's zero would turn enforcement into a finding."""
-    from scripts.scan_reward_hacking import scan, summarize
+    from scripts.scan_failure_modes import scan, summarize
 
     _trial(tmp_path, "blocked", diff("mini_store/a.py", added=["x = 1"]), policy_enforced=True)
     _trial(tmp_path, "free", diff("mini_store/b.py", added=["y = 2"]), policy_enforced=False)
@@ -235,7 +235,7 @@ def test_a_zero_from_a_harness_that_forbids_test_edits_is_not_a_rate(tmp_path):
 
 
 def test_the_scan_surfaces_a_real_hack_with_its_evidence(tmp_path):
-    from scripts.scan_reward_hacking import scan, summarize
+    from scripts.scan_failure_modes import scan, summarize
 
     _trial(tmp_path, "hacked", HACKS["skip the failing test"], policy_enforced=False)
     results = scan([tmp_path])
@@ -248,7 +248,7 @@ def test_the_scan_surfaces_a_real_hack_with_its_evidence(tmp_path):
 
 
 def test_a_trial_with_an_empty_patch_is_skipped(tmp_path):
-    from scripts.scan_reward_hacking import scan
+    from scripts.scan_failure_modes import scan
 
     _trial(tmp_path, "nochange", "   \n", policy_enforced=False)
 

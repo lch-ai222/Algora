@@ -369,6 +369,18 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 
 `stats/intervals.py`：Wilson 区间（零事件时正态近似退化，故用 Wilson）。
 
+### V3 W2-6 · 指令偏移检测器（2026-08-05）
+
+`detectors/instruction_drift.py`。约束 grader 只看**末态 patch**，因此分不清三种情况：全程遵守 / 中途破坏又自己撤销 / 破坏并交付。**自我纠正对末态检查完全不可见**，而它恰恰是 scaffold 值得被观察的能力之一。
+
+按归一化轨迹逐步重放约束，产出末态拿不到的量：`first_breach_step`、`obedience_ratio`（首次破坏前完成的轨迹比例）、以及 `self_corrected` / `persisted` 的区分。
+
+**范围克制**：只检查程序能判定的约束（写了哪些路径、累计改了几个文件、跑了哪些命令）。AGENTS.md 里的自然语言指导**不在检查范围**——确定性检测器假装能判断散文，产出的数字没有可辩护的含义。
+
+顺带修掉一个跨 adapter 归一化缺口：MiniAgent 把写入路径放在事件 `name`，Claude Code 放在 `payload["path"]`，只读其中一个的检测器会看得见一个框架的写入、看不见另一个的。现在两边都写 `payload["path"]`（旧产物按 name 回退）。
+
+**回扫结果**（`scripts/scan_failure_modes.py`，由 `scan_reward_hacking.py` 更名扩展）：364 个有可重放轨迹的 trial，**0 次约束破坏**。同样按"是否被 harness 预先拦截"拆分——MiniAgent 的路径与命令约束由沙箱直接拒绝，只有改动文件数是自由观察；Claude Code 的 16 个三项全自由。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：
