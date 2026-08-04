@@ -35,6 +35,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple
+from uuid import uuid4
 
 from codeagent_eval import __version__
 from codeagent_eval.adapters import (
@@ -724,6 +725,18 @@ def _format_rate(value: float | None) -> str:
     return "n/a" if value is None else str(value)
 
 
+def _new_experiment_id(kind: str) -> str:
+    """Return a human-readable ID that is also safe across concurrent runner processes.
+
+    A timestamp with one-second precision is useful for operators but not unique: two CI jobs
+    or two local shells can start the same agent kind in the same second and then overwrite
+    each other's manifest, summary, or cleanup target. The random suffix keeps the readable
+    ordering prefix while making the artifact directory independently owned.
+    """
+    timestamp = utc_now_iso().replace(":", "").replace("-", "")
+    return f"{kind}-{timestamp}-{uuid4().hex[:8]}"
+
+
 def _experiment_fingerprint(
     kind: str, suite_name: str, repeats: int, cases: list[EvalCase], run_config: dict[str, Any]
 ) -> dict[str, Any]:
@@ -827,7 +840,7 @@ def run_experiment(
     # experiment rather than to one arm of it.
     run_config["context_ceiling_tokens"] = context_ceiling_tokens
 
-    experiment_id = resume_experiment_id or f"{kind}-{utc_now_iso().replace(':', '').replace('-', '')}"
+    experiment_id = resume_experiment_id or _new_experiment_id(kind)
     out_dir = out_root / experiment_id
     fingerprint = _experiment_fingerprint(kind, suite.name, repeats, cases, run_config)
     _write_or_verify_manifest(out_dir, fingerprint, resuming=resume_experiment_id is not None)

@@ -10,7 +10,7 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**254 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**255 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -144,6 +144,7 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 - **调度与检查点的单位都是 trial**：`--workers N` 用进程池并发 N 个 trial；每个 trial 最后写 `trial-complete.json` 标记，`--resume <experiment_id>` 只重跑缺失的部分。
 - **并行是调度细节，不是语义**：聚合始终按 suite 顺序而非完成顺序，实测 workers=1 与 workers=8 的 summary 逐字段一致（仅 experiment_id / created_at / workers / duration 这些本就该变的字段不同）。实测短程 9 case × 2 repeats：**17.0s → 4.26s（4.0×，565% CPU）**。
+- **跨进程也必须隔离**：并行启动短/长 bounds 时发现秒级时间戳会让两个独立 runner 生成相同 experiment ID，从而可能互相覆盖 manifest/summary 或删除对方目录。自动 ID 已改为 `agent-UTC-<uuid8>`；显式 `--resume <id>` 不变，并有同秒唯一性回归测试。
 - **默认 `--workers 1`**：并行会改变 provider 的限流行为，因此并行是显式选项，已校准的基线保持逐位可复现。
 - 修掉一个并行才会暴露的缺陷：`materialize_case` 原先按 `build_root/<case_id>` 建仓，同一 case 的并发 repeats 会互相覆盖。改为每个 trial 独立 build 目录。
 - **断点续跑必须诚实**：`manifest.json` 固定实验身份（agent/suite/repeats/cases/run_config），`--resume` 遇到配置不符直接拒绝（退出码 2）——否则会把两套配置的 trial 平均进同一个 summary，而这是下游任何检查都发现不了的溯源失效。

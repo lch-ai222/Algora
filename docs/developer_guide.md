@@ -123,7 +123,7 @@
 
 ## 11. Runner（`runner.py`）
 
-CLI 保留 legacy `--agent v1|v2|v3|reference|none`，新接入路径为 `--adapter mini_agent|claude_code --harness v1|v2|v3`。通用实验变量含 `--suite/--repeats/--cases/--out/--workers/--resume/--model/--max-steps`；MiniAgent 另有 `--max-completion-tokens`、`--context-budget-tokens`、`--context-ceiling-tokens`、`--ablate`。所有会改变被测系统或约束的参数都进入 provenance 与 resume 指纹。产物落 `artifacts/runs/<experiment_id>/<case_id>/rep<k>/`。
+CLI 保留 legacy `--agent v1|v2|v3|reference|none`，新接入路径为 `--adapter mini_agent|claude_code --harness v1|v2|v3`。通用实验变量含 `--suite/--repeats/--cases/--out/--workers/--resume/--model/--max-steps`；MiniAgent 另有 `--max-completion-tokens`、`--context-budget-tokens`、`--context-ceiling-tokens`、`--ablate`。所有会改变被测系统或约束的参数都进入 provenance 与 resume 指纹。产物落 `artifacts/runs/<experiment_id>/<case_id>/rep<k>/`；自动 ID 为 `agent-UTC-<uuid8>`，避免独立进程同秒启动时共享目录，resume 则始终复用用户给定的完整 ID。
 
 长程复现命令：
 
@@ -186,7 +186,7 @@ macOS 当前配置 `EVALPLUS_MAX_MEMORY_BYTES=-1` 规避 rlimit 兼容错误，�
 
 ## 15. 启动与测试
 
-见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 254 passed/1 skipped）+ `ruff check` + `scripts/selfcheck.py`（短程 9/9）+ `scripts/selfcheck.py datasets/mini_store_long`（长程 4/4）+ `PYTHONPATH=src scripts/check_bounds.py --suite ...`（当前未 editable-install 的环境需要该前缀；两套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
+见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 255 passed/1 skipped）+ `ruff check` + `scripts/selfcheck.py`（短程 9/9）+ `scripts/selfcheck.py datasets/mini_store_long`（长程 4/4）+ `PYTHONPATH=src scripts/check_bounds.py --suite ...`（当前未 editable-install 的环境需要该前缀；两套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
 
 ## 16. 测试覆盖现状
 

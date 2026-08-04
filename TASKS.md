@@ -52,7 +52,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] provider/网络错误作为 infra-invalid 排除出能力分母；compare 拒绝基础设施无效 run。
 - [x] V2 拒绝截断、空回复、无改动、未测试和末次测试失败的假完成；V1 行为不变。
 - [x] 成本费率缺失时记录 `cost_usd=null`、`cost_source=unavailable`，不伪造零成本。
-- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（254 passed/1 skipped）。
+- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（255 passed/1 skipped）。
 
 ### W1-3 · ClaudeCodeAdapter ✅（代码 + live）
 
@@ -85,6 +85,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] `--workers N` 进程池并行；短程 9×2 实测 17.0s → 4.26s（4.0×）。
 - [x] trial 完成标记、manifest 指纹和聚合顺序稳定性；配置不符拒绝 resume。
 - [x] infra-invalid trial 必须重试，不能被冻结成“已完成”证据。
+- [x] 自动 experiment ID 加 UUID 后缀，防止两个独立进程同秒启动时覆盖 manifest/summary/清理目录。
 - [x] 每个 repeat 使用独立 build 目录，修复并行 materialize 覆盖。
 
 ### W1-7 · Provider/模型阶梯/成本 ✅

@@ -21,7 +21,7 @@ tested* under identical conditions.
 ## Status
 
 **All 7 original milestones (M0–M5 + C), B1, V3 W1-1 through W1-7, and W2-1 are complete.**
-Verification (current): `254 passed, 1 skipped` (the skip is an `RUN_LLM_SMOKE`-gated real-model
+Verification (current): `255 passed, 1 skipped` (the skip is an `RUN_LLM_SMOKE`-gated real-model
 test) · `ruff` clean · short/long `selfcheck` 9/9 and 4/4 · deterministic bounds reference=1.00
 and none=0.00 on both suites · HumanEval canonical 10/10. Per-milestone counts below are
 historical snapshots; this line and [PROJECT_STATE.md](PROJECT_STATE.md) are authoritative.
@@ -53,6 +53,8 @@ historical snapshots; this line and [PROJECT_STATE.md](PROJECT_STATE.md) are aut
   console, and containerized `--network none` evaluation gates; nightly separates bounds,
   EvalPlus oracle, and optional LLM smoke. Trial-level process-pool execution measured 4.0× speedup,
   while checkpoint/resume uses a manifest fingerprint and never adopts infra-invalid trials.
+  Automatic experiment IDs combine a readable UTC timestamp with a random suffix, preventing
+  independent processes started in the same second from sharing an artifact directory.
 - **V3 W1-7 — provider ladder and auditable pricing** ✅ — DeepSeek/OpenAI-compatible/GLM
   providers share a single specification table; `--model`, budgets, ablations, pricing revision,
   aliases, cache-rate tiers, and requested/served model identities are persisted. Missing prices

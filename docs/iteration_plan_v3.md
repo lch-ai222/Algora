@@ -16,7 +16,7 @@
 - ✅ **W1-3 protocol + repo live 已完成**：Homebrew stable Claude Code 2.1.220 的真实 `probe()`、无认证 stream-json、智谱 GLM-5.2 协议流和获授权的 `bugfix-pricing-tax` repo smoke 均通过；后者 Task/Strict 1.00、6 tools / 8 model turns。该 n=1 只验证集成，不是横向能力结论。live 还暴露并修复了实验级 adapter 版本和外部 token 汇总丢失；后续两次 `ENOTFOUND` 正确落为 infra-invalid，正式矩阵前需校准 endpoint 稳定性。
 - **W1-5 已完成（配置层）**：`ci.yml` 三门禁（quality / sandbox-image / console）+ `nightly-eval.yml` 三 job（bounds / evalplus-oracle / llm-smoke）+ `scripts/check_bounds.py` 确定性边界门禁 + `.dockerignore`。CI 全程不需要 LLM key；140 passed/1 skipped。已在干净 venv（仅 `pip install -e ".[dev,api]"`）逐步验证 ruff/pytest/selfcheck/check_bounds，并本地验证 `npm ci && npm run build`。
 - **CI 首跑全绿**，含 `sandbox-image`：镜像 build 成功并在 `--network none` 下跑通 selfcheck 与确定性边界，容器化评测已落地。
-- **W1-6 已完成**：`--workers N` 进程池并行 + `--resume` trial 级断点续跑；聚合按 suite 顺序，实测 workers=1 与 workers=8 summary 逐字段一致；短程 9×2 实测 17.0s→4.26s（4.0×）。默认 workers=1 以保持已校准基线可复现。`manifest.json` 固定实验身份，resume 配置不符直接拒绝。修掉了并行才暴露的 build 目录冲突。156 passed/1 skipped。
+- **W1-6 已完成**：`--workers N` 进程池并行 + `--resume` trial 级断点续跑；聚合按 suite 顺序，实测 workers=1 与 workers=8 summary 逐字段一致；短程 9×2 实测 17.0s→4.26s（4.0×）。默认 workers=1 以保持已校准基线可复现。`manifest.json` 固定实验身份，resume 配置不符直接拒绝。先后修掉并行 build 目录冲突，以及两个独立 runner 同秒启动时 experiment ID 冲突（现为 UTC + UUID 后缀）。
 - **W1-7 已完成（机制层）**：`ProviderSpec` 表取代三处平行 if-chain 并接入 GLM（重构时发现 `_expected_model` 正是漏改的第三处）；`--model` 一个 flag 切换阶梯并写入溯源；`pricing.py` + `config/pricing.json` 每模型费率表，未定价报 `None` 而非 `0.0`、费率须带 source/as_of、CNY 不做隐式汇率换算、缓存命中分档计价、trial 内部分定价即整体不可用。182 passed/1 skipped。
 - **费率已填（2026-08-04）**：DeepSeek（USD）与 GLM（CNY）均带 source URL 与日期；新增 `aliases` 与 `tiered` 两个字段。实时 API 验证发现 `deepseek-reasoner` 解析到 v4-flash，因此修掉两个缺陷：`DEEPSEEK_MODEL_PRO` 默认使 pro 档成为静默空操作；`last_model` 只记请求名会让产物声称跑了一个从未运行的模型（现记录实际服务模型 + `requested_model`）。GLM 型号已换代，阶梯更新为 glm-5.2 / glm-4.5-air / glm-4.7-flash（免费）。191 passed/1 skipped。
 - **首次真实成本测量**：DeepSeek v4-flash vs v4-pro，短程 2 case，Task 均 1.00，成本 **$0.000791 vs $0.004163（5.26×）**——H1 saturation 首次带上成本维度。缓存分档计价把某 trial 的成本从 $0.002047 修正到 $0.000414（避免 4.94× 高估）。
@@ -39,7 +39,7 @@
 - 修复：`AgentConfig.for_harness()` 统一定义 harness 身份；adherence 按归一化文本匹配并上报改名次数（12 trial 共 49 次）；新增 `plan_done_unverified` + 工具结果回灌警告；v3 prompt 写明计划不是完成证据。
 - **重跑后**：v2 0.42 / **v3.1 1.00** / v3.1−context 0.33 / **v3.1−planner 1.00**。**planner 中性（成本 +18% 工具调用），compaction 是全部效应（+0.67）**。
 - 方法论教训：消融只有在两组除被测能力外完全相同时才成立；没有轨迹级诊断就会把 harness 缺陷当成能力结论发表。
-- **当前验证总数：254 passed / 1 skipped，Ruff 全绿，短/长 selfcheck 9/9 + 4/4，两个 suite 的 reference/none=1.00/0.00。**
+- **当前验证总数：255 passed / 1 skipped，Ruff 全绿，短/长 selfcheck 9/9 + 4/4，两个 suite 的 reference/none=1.00/0.00。**
 - **下一项：Claude endpoint 校准后启动横向组**。repo smoke 已验证 tool use、patch、grade、实际服务模型和 artifact；先测稳定性/限流，再把横向报告拆成默认模型真实产品组与统一模型 adapter 受控组。
 
 > 状态口径：本节“执行进度”与根目录 `PROJECT_STATE.md`/`TASKS.md` 是当前事实；下文三周计划、资源预算和假设表保留为预注册设计记录。凡与本节冲突，以当前事实为准，不得把历史预期当成已完成结果。

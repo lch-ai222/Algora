@@ -55,6 +55,20 @@ def run(out: Path, *, workers: int = 1, cases=None, repeats: int = 1, resume=Non
     )
 
 
+def test_automatic_experiment_ids_are_unique_within_the_same_second(monkeypatch):
+    """Independent runner processes must never share an artifact or cleanup directory."""
+    from codeagent_eval import runner
+
+    monkeypatch.setattr(runner, "utc_now_iso", lambda: "2026-08-04T12:20:05Z")
+
+    first = runner._new_experiment_id("reference")
+    second = runner._new_experiment_id("reference")
+
+    assert first.startswith("reference-20260804T122005Z-")
+    assert second.startswith("reference-20260804T122005Z-")
+    assert first != second
+
+
 # --------------------------------------------------------------------------- #
 # Parallelism must be a scheduling detail, not a semantic one
 # --------------------------------------------------------------------------- #
