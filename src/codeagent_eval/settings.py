@@ -42,12 +42,17 @@ class Settings:
     llm_enable: bool = field(default_factory=lambda: _bool_env("LLM_ENABLE", False))
     llm_timeout_seconds: float = _float_env("LLM_TIMEOUT_SECONDS", "60")
     llm_max_retries: int = _int_env("LLM_MAX_RETRIES", "2")
-    llm_prompt_cost_per_1k_usd: float = _float_env("LLM_PROMPT_COST_PER_1K_USD", "0")
-    llm_completion_cost_per_1k_usd: float = _float_env("LLM_COMPLETION_COST_PER_1K_USD", "0")
+    # Cost comes from the per-model table in config/pricing.json, not from a flat rate:
+    # a model ladder prices each rung differently, and a single global number would be
+    # silently wrong for every rung but one.
+    pricing_path: Path = _path_env("PRICING_PATH", "config/pricing.json")
 
     deepseek_base_url: str = _str_env("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     deepseek_model_fast: str = _str_env("DEEPSEEK_MODEL_FAST", "deepseek-chat")
     deepseek_model_pro: str = _str_env("DEEPSEEK_MODEL_PRO", "deepseek-reasoner")
+    zhipu_base_url: str = _str_env("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
+    zhipu_model_fast: str = _str_env("ZHIPU_MODEL_FAST", "glm-4.6")
+    zhipu_model_pro: str = _str_env("ZHIPU_MODEL_PRO", "glm-4.6")
     openai_model: str = _str_env("OPENAI_MODEL", "gpt-5.4-mini")
 
     # --- Observability ---

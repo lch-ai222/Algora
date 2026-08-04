@@ -167,6 +167,9 @@ def _run_config(
             "temperature": cfg.temperature,
             "complexity": cfg.complexity,
             "max_tokens": max_completion_tokens,
+            # Which rate table backed this run's cost figures; without it a cost number in an
+            # archived artifact cannot be checked against the prices that produced it.
+            **provider.pricing_provenance(),
         }
     return {
         "adapter": f"builtin_{kind}",
@@ -409,6 +412,7 @@ class TrialSpec:
     repeat: int
     max_completion_tokens: int = 2048
     adapter_config: Any = None
+    model_override: str | None = None
 
 
 class TrialOutcome(NamedTuple):
@@ -431,15 +435,16 @@ def _worker_suite(suite_dir: str):
     return _WORKER_CACHE[key]
 
 
-def _worker_provider(kind: str):
+def _worker_provider(kind: str, model_override: str | None = None):
     if kind not in ("v1", "v2"):
         return None
-    if "provider" not in _WORKER_CACHE:
+    key = ("provider", model_override)
+    if key not in _WORKER_CACHE:
         from codeagent_eval.llm import LlmProvider
         from codeagent_eval.settings import load_settings
 
-        _WORKER_CACHE["provider"] = LlmProvider(load_settings())
-    return _WORKER_CACHE["provider"]
+        _WORKER_CACHE[key] = LlmProvider(load_settings(), model_override=model_override)
+    return _WORKER_CACHE[key]
 
 
 def execute_trial(spec: TrialSpec) -> TrialOutcome:
@@ -459,7 +464,7 @@ def execute_trial(spec: TrialSpec) -> TrialOutcome:
             case,
             Path(spec.suite_dir),
             suite.repo,
-            _worker_provider(spec.kind),
+            _worker_provider(spec.kind, spec.model_override),
             Path(spec.build_root) / f"{spec.case_id}-rep{spec.repeat}",
             out_dir,
             spec.repeat,
@@ -755,6 +760,7 @@ def run_experiment(
                     repeat=repeat,
                     max_completion_tokens=max_completion_tokens,
                     adapter_config=adapter_config,
+                    model_override=getattr(provider, "model_override", None),
                 )
             )
 
@@ -889,6 +895,12 @@ def main(argv: list[str] | None = None) -> int:
         help="per-model-turn output-token cap for MiniAgent (default preserves V1/V2 history)",
     )
     parser.add_argument(
+        "--model",
+        default=None,
+        help="override the provider's default model; one ladder rung differs from another by "
+             "exactly this flag, and the choice is recorded in run provenance",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=1,
@@ -947,7 +959,7 @@ def main(argv: list[str] | None = None) -> int:
         from codeagent_eval.llm import LlmProvider
         from codeagent_eval.settings import load_settings
 
-        provider = LlmProvider(load_settings())
+        provider = LlmProvider(load_settings(), model_override=args.model)
         if not provider.enabled:
             print(f"ERROR: agent={kind} needs an LLM provider. {provider._availability_error()}",
                   file=sys.stderr)

@@ -2,8 +2,9 @@
 
 Adapted from ft_diag_agent's ``llm.py``: the fault-tree domain imports are dropped,
 but the provider contract is unchanged so the MiniAgent loop and the LLM-Judge share
-one battle-tested tool-calling path. Both DeepSeek and OpenAI are OpenAI-compatible;
-``LLM_PROVIDER`` selects which.
+one battle-tested tool-calling path. DeepSeek, Zhipu (GLM) and OpenAI are all
+OpenAI-compatible; ``LLM_PROVIDER`` selects which, and ``ProviderSpec`` keeps the
+endpoint/model/credential facts of each one in a single place.
 
 The agentic multi-turn loop lives in ``agent/loop.py`` — this module exposes one
 tool turn (``tool_completion``) and one structured-JSON call (``json_completion``).
@@ -15,6 +16,7 @@ import json
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from hashlib import sha256
 from time import perf_counter
 from typing import Any, TypeVar
@@ -22,6 +24,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel, Field, ValidationError
 
 from codeagent_eval.models import LlmCallRecord
+from codeagent_eval.pricing import cached_price_table
 from codeagent_eval.settings import Settings
 
 T = TypeVar("T", bound=BaseModel)
@@ -59,9 +62,59 @@ class LlmToolTurn(BaseModel):
     finish_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class ProviderSpec:
+    """One OpenAI-compatible backend: where to reach it and which models it exposes.
+
+    Kept as data rather than three parallel if-chains (client, model, availability) so adding
+    a backend cannot leave one of them behind — which is exactly how a run ends up reporting
+    the wrong model name in its provenance.
+    """
+
+    name: str
+    api_key_env: str
+    base_url: str | None
+    model_fast: str
+    model_pro: str
+
+    def model_for(self, complexity: str) -> str:
+        return self.model_pro if complexity == "pro" else self.model_fast
+
+
+def provider_specs(settings: Settings) -> dict[str, ProviderSpec]:
+    return {
+        "deepseek": ProviderSpec(
+            name="deepseek",
+            api_key_env="DEEPSEEK_API_KEY",
+            base_url=settings.deepseek_base_url,
+            model_fast=settings.deepseek_model_fast,
+            model_pro=settings.deepseek_model_pro,
+        ),
+        "zhipu": ProviderSpec(
+            name="zhipu",
+            api_key_env="ZHIPU_API_KEY",
+            base_url=settings.zhipu_base_url,
+            model_fast=settings.zhipu_model_fast,
+            model_pro=settings.zhipu_model_pro,
+        ),
+        "openai": ProviderSpec(
+            name="openai",
+            api_key_env="OPENAI_API_KEY",
+            base_url=None,
+            model_fast=settings.openai_model,
+            model_pro=settings.openai_model,
+        ),
+    }
+
+
 class LlmProvider:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, *, model_override: str | None = None):
         self.settings = settings
+        # Set by --model so one ladder rung differs from another by exactly one flag, with the
+        # override still visible in run provenance rather than hidden in the environment.
+        self.model_override = model_override
+        self._specs = provider_specs(settings)
+        self._price_table = cached_price_table(str(settings.pricing_path))
         self.last_error: str | None = None
         self.last_model: str | None = None
         self.last_raw_content: str | None = None
@@ -72,20 +125,19 @@ class LlmProvider:
         # retries with backoff for transient errors (connection failures, 429, 5xx).
         self._clients: dict[tuple[str, str | None], Any] = {}
 
+    def _spec(self) -> ProviderSpec:
+        spec = self._specs.get(self.settings.llm_provider)
+        if spec is None:
+            raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
+        return spec
+
     def _get_client(self) -> Any:
         from openai import OpenAI
 
-        provider = self.settings.llm_provider
-        if provider == "deepseek":
-            cache_key: tuple[str, str | None] = ("deepseek", self.settings.deepseek_base_url)
-            api_key = os.environ["DEEPSEEK_API_KEY"]
-            base_url: str | None = self.settings.deepseek_base_url
-        elif provider == "openai":
-            cache_key = ("openai", None)
-            api_key = os.environ["OPENAI_API_KEY"]
-            base_url = None
-        else:
-            raise ValueError(f"Unsupported LLM provider: {provider}")
+        spec = self._spec()
+        cache_key: tuple[str, str | None] = (spec.name, spec.base_url)
+        api_key = os.environ[spec.api_key_env]
+        base_url = spec.base_url
         client = self._clients.get(cache_key)
         if client is None:
             client_kwargs: dict[str, Any] = {
@@ -105,6 +157,8 @@ class LlmProvider:
 
     def resolved_model(self, complexity: str = "fast") -> str | None:
         """Public model name for the current provider + complexity (for run provenance)."""
+        if self.model_override:
+            return self.model_override
         return self._expected_model(complexity)
 
     def tool_completion(
@@ -296,27 +350,24 @@ class LlmProvider:
                 )
 
     def _client_and_model(self, complexity: str):
-        if self.settings.llm_provider == "deepseek":
-            model = (
-                self.settings.deepseek_model_pro if complexity == "pro" else self.settings.deepseek_model_fast
-            )
-            return self._get_client(), model
-        if self.settings.llm_provider == "openai":
-            return self._get_client(), self.settings.openai_model
-        raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
+        return self._get_client(), self.model_override or self._spec().model_for(complexity)
 
     def _availability_error(self) -> str | None:
         if not self.settings.llm_enable:
             return "LLM_ENABLE is false; LLM calls are disabled."
-        if self.settings.llm_provider == "deepseek":
-            if not os.getenv("DEEPSEEK_API_KEY"):
-                return "DEEPSEEK_API_KEY is not set."
-            return None
-        if self.settings.llm_provider == "openai":
-            if not os.getenv("OPENAI_API_KEY"):
-                return "OPENAI_API_KEY is not set."
-            return None
-        return f"Unsupported LLM provider: {self.settings.llm_provider}"
+        spec = self._specs.get(self.settings.llm_provider)
+        if spec is None:
+            return (
+                f"Unsupported LLM provider: {self.settings.llm_provider} "
+                f"(known: {', '.join(sorted(self._specs))})"
+            )
+        if not os.getenv(spec.api_key_env):
+            return f"{spec.api_key_env} is not set."
+        return None
+
+    def pricing_provenance(self) -> dict[str, Any]:
+        """Which rate table backed this run's cost figures."""
+        return self._price_table.provenance()
 
     def _record_call(
         self,
@@ -335,6 +386,14 @@ class LlmProvider:
     ) -> LlmCallRecord:
         usage = self.last_usage or {}
         context = _TRACE_CONTEXT.get() or {}
+        model = self.last_model or self._expected_model(complexity)
+        estimate = self._price_table.estimate(
+            provider=self.settings.llm_provider,
+            model=model,
+            prompt_tokens=int(usage.get("prompt_tokens") or 0),
+            completion_tokens=int(usage.get("completion_tokens") or 0),
+            cached_prompt_tokens=int(usage.get("cached_prompt_tokens") or 0),
+        )
         record = LlmCallRecord(
             case_id=context.get("case_id"),
             node_name=context.get("node_name"),
@@ -342,7 +401,7 @@ class LlmProvider:
             call_type=call_type,
             provider=self.settings.llm_provider,
             endpoint=self._endpoint_label(),
-            model=self.last_model or self._expected_model(complexity),
+            model=model,
             complexity=complexity,
             prompt_version=prompt_version,
             prompt_fingerprint=prompt_fingerprint,
@@ -355,8 +414,11 @@ class LlmProvider:
             latency_ms=max(0, int((perf_counter() - started) * 1000)),
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
             completion_tokens=int(usage.get("completion_tokens") or 0),
+            cached_prompt_tokens=int(usage.get("cached_prompt_tokens") or 0),
             total_tokens=int(usage.get("total_tokens") or 0),
-            estimated_cost_usd=_estimate_cost_usd(usage, self.settings),
+            estimated_cost_usd=estimate.amount_usd,
+            cost_source=estimate.source,
+            cost_note=estimate.reason,
         )
         self.last_call = record
         self.call_history.append(record)
@@ -366,18 +428,12 @@ class LlmProvider:
         return record
 
     def _expected_model(self, complexity: str) -> str | None:
-        if self.settings.llm_provider == "deepseek":
-            return (
-                self.settings.deepseek_model_pro if complexity == "pro" else self.settings.deepseek_model_fast
-            )
-        if self.settings.llm_provider == "openai":
-            return self.settings.openai_model
-        return None
+        spec = self._specs.get(self.settings.llm_provider)
+        return spec.model_for(complexity) if spec else None
 
     def _endpoint_label(self) -> str | None:
-        if self.settings.llm_provider == "deepseek":
-            return self.settings.deepseek_base_url
-        return None
+        spec = self._specs.get(self.settings.llm_provider)
+        return spec.base_url if spec else None
 
 
 def _usage_dict(response: Any) -> dict[str, int] | None:
@@ -388,22 +444,33 @@ def _usage_dict(response: Any) -> dict[str, int] | None:
         "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
         "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
         "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+        "cached_prompt_tokens": _cached_prompt_tokens(usage),
     }
+
+
+def _cached_prompt_tokens(usage: Any) -> int:
+    """Prompt-cache hits, which most vendors bill at a reduced rate.
+
+    Two shapes are in circulation: DeepSeek's flat ``prompt_cache_hit_tokens`` and the
+    OpenAI-compatible ``prompt_tokens_details.cached_tokens`` that Zhipu and OpenAI use.
+    Reading only one of them would understate cache usage and overstate cost for the other.
+    """
+    flat = getattr(usage, "prompt_cache_hit_tokens", None)
+    if flat is not None:
+        return max(0, int(flat or 0))
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is None:
+        return 0
+    cached = (
+        details.get("cached_tokens") if isinstance(details, dict)
+        else getattr(details, "cached_tokens", None)
+    )
+    return max(0, int(cached or 0))
 
 
 def _prompt_fingerprint(system_prompt: str, user_prompt: str) -> str:
     digest = sha256(f"{system_prompt}\n---\n{user_prompt}".encode()).hexdigest()
     return digest[:24]
-
-
-def _estimate_cost_usd(usage: dict[str, int], settings: Settings) -> float:
-    prompt_tokens = int(usage.get("prompt_tokens") or 0)
-    completion_tokens = int(usage.get("completion_tokens") or 0)
-    cost = (
-        prompt_tokens * settings.llm_prompt_cost_per_1k_usd / 1000
-        + completion_tokens * settings.llm_completion_cost_per_1k_usd / 1000
-    )
-    return round(cost, 8)
 
 
 def _exception_label(exc: Exception) -> str:

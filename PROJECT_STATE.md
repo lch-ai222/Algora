@@ -6,11 +6,11 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ## 1. 当前总体状态
 
-闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1/W1-2/W1-3/W1-5/W1-6 已完成**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter（代码层完成，**尚未 live 验证**——本机无 `claude` CLI）。
+闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1/W1-2/W1-3/W1-5/W1-6/W1-7 已完成**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter（代码层完成，**尚未 live 验证**——本机无 `claude` CLI）。
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**156 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**182 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -134,6 +134,19 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 - **崩掉的 trial 是缺失证据，不是 Agent 失败**：worker 内部吞掉异常并记为 infra-invalid（形状合法的零分产物），第 47 个 trial 崩了不会丢掉前 46 个，也不会被算成 Agent 答错。进程池整体死亡（OOM/信号）在父进程侧按同样口径记录。
 - `scripts/check_bounds.py` 与 CI 的边界门禁改用 `--workers 2`，CI 顺带覆盖并行路径。
 
+### V3 W1-7 · GLM provider + 模型阶梯 + 成本表
+
+- `ProviderSpec` 表取代原先三处平行的 if-chain（client / model / availability）。加 backend 只改一处数据，不会漏改导致"能连上 A 但溯源写成 B 的模型"。GLM（zhipu）由此接入。**这个缺陷是真实存在的**：重构时发现 `_expected_model` 就是漏改的第三处，zhipu 会返回 `None`。
+- **模型阶梯 = 一个 flag**：`--model glm-4.6 / glm-4.5-air / glm-4-flash`，显式覆盖优先于 complexity，且写入 run provenance——阶梯之间只差这一个参数，不靠改环境变量。
+- `pricing.py` + `config/pricing.json`：**每模型**费率表，三条纪律——
+  1. 查不到费率是 `None` 不是 `0.0`（0 在任何表格和图里都读作"这次是免费的"；原先的 `LLM_*_COST_PER_1K_USD` 默认 0，未定价的运行会静默报出"成本为零"）；
+  2. 费率必须带 `source` URL 和 `as_of` 日期，缺任一项视为不可用——厂商定价会变；
+  3. **不做隐式汇率换算**：CNY 计价的模型只有在操作者显式填了 `usd_per_cny` 时才产出 USD，否则不可用。猜一个汇率等于凭空制造精度，而对比会继承这个精度。
+- 缓存命中按 cached 费率计价（兼容 DeepSeek 的 `prompt_cache_hit_tokens` 与 OpenAI 式的 `prompt_tokens_details.cached_tokens` 两种口径）；表里没有 cached 费率时按全价计并标记 `upper_bound=true`，不冒充精确估计。
+- trial 级：**只有全部调用都定价成功才报成本**。只把定价成功的那部分加起来会低估总额，却仍然长得像一个真数字。
+- 每次运行的 `run_config` 记录 `pricing_revision` / `pricing_path`——否则归档产物里的成本数字在厂商调价后就无法回溯核对。
+- ⚠️ **`config/pricing.json` 目前所有费率为 null**，即成本仍是 `unavailable`。填费率是一步需要查厂商官网的手工操作（要连同 source URL 和日期一起填），机制已就绪。
+
 ## 5. 最近一次验证结果
 
 ### V3 长程校准（正式基线）
@@ -171,7 +184,7 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 - **统计功效有限**：当前私有集共 13 case，长程正式校准仅 n=1/case，不能把 1.00 外推成稳定能力；横向对比仍需 repeats 与区间。
 - **覆盖范围有限**：仍只有 Python 小仓库；虽已补 API refactor 与 build/CLI，但 review/test-generation/performance/security/multi-turn 与多语言仍缺。
 - **ClaudeCodeAdapter 未 live 验证**：本机无 `claude` CLI，stream-json 记录结构与 flag 集按官方文档实现 + 容错解析，测试以 CLI stand-in 驱动。**接触真实 CLI 后必须先 probe + 单 case 冒烟核对 schema/flag，再产出任何横向数据**；在此之前不得声称已具备横向评测结果。
-- **成本不可用**：当前 DeepSeek 费率环境变量为 0，产物诚实记录 `null/unavailable`；W1-7 需完成跨 provider 成本口径。Claude Code 侧仅在官方端点下报 native 成本。
+- **成本表未填**：`config/pricing.json` 的费率全为 null，因此成本仍诚实记录为 `unavailable`。机制（每模型费率、溯源、汇率不假设、缓存计价）已完成，**缺的是从厂商官网抄费率这一步手工操作**。Claude Code 侧仅在官方端点下报 native 成本。
 - **沙箱网络隔离**：MVP 是命令层（拦网络工具），非内核级；内核级隔离由 CI 的 `--network none` 容器执行覆盖（已实跑验证），本地开发路径仍是命令层。
 - **并行下的成本/限流未验证**：4.0× 加速是在确定性 reference/none 上测的（CPU-bound）。真实 LLM trial 是 I/O-bound，加速比可能更高，但会撞 provider 限流；首次并行跑真实模型前需要观察 429 与重试行为。
 - pytest 结果解析基于 `-v` 文本，未来接 pytest-json 更稳。
@@ -179,8 +192,8 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **V3 W1-7 · GLM 模型阶梯 + 成本表**：接 GLM provider，补齐跨 provider 成本口径（当前成本仍为 `null/unavailable`）。
-2. **V3 W1-4 · planner/v3 prompt**：`update_plan` 工具 + plan 遵守率打点，解锁 Agent 框架线。
-3. **首次并行跑真实模型**：先小规模观察限流与成本，再决定横向矩阵的并发度。
+1. **填 `config/pricing.json` 费率**（含 source URL 与 as_of 日期），成本口径才真正可用。
+2. **首次用 GLM 跑真实实验**：短程 suite 上跑 glm-4.6 与 glm-4-flash 两档，验证阶梯是否恢复区分度（H2），并小规模观察并行下的限流行为。
+3. **V3 W1-4 · planner/v3 prompt**：`update_plan` 工具 + plan 遵守率打点，解锁 Agent 框架线。
 4. **ClaudeCodeAdapter live 验证**：一旦有可用 CLI，先 probe + 单 case 冒烟核对 stream-json schema 与 flag 集。
 4. **公开 benchmark**：SWE-bench 官方 Smoke Slice 仍是后续 P0，但不冒充全量榜单。

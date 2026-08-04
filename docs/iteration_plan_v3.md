@@ -17,7 +17,9 @@
 - **W1-5 已完成（配置层）**：`ci.yml` 三门禁（quality / sandbox-image / console）+ `nightly-eval.yml` 三 job（bounds / evalplus-oracle / llm-smoke）+ `scripts/check_bounds.py` 确定性边界门禁 + `.dockerignore`。CI 全程不需要 LLM key；140 passed/1 skipped。已在干净 venv（仅 `pip install -e ".[dev,api]"`）逐步验证 ruff/pytest/selfcheck/check_bounds，并本地验证 `npm ci && npm run build`。
 - **CI 首跑全绿**，含 `sandbox-image`：镜像 build 成功并在 `--network none` 下跑通 selfcheck 与确定性边界，容器化评测已落地。
 - **W1-6 已完成**：`--workers N` 进程池并行 + `--resume` trial 级断点续跑；聚合按 suite 顺序，实测 workers=1 与 workers=8 summary 逐字段一致；短程 9×2 实测 17.0s→4.26s（4.0×）。默认 workers=1 以保持已校准基线可复现。`manifest.json` 固定实验身份，resume 配置不符直接拒绝。修掉了并行才暴露的 build 目录冲突。156 passed/1 skipped。
-- **下一项是 W1-7 / W1-4**；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
+- **W1-7 已完成（机制层）**：`ProviderSpec` 表取代三处平行 if-chain 并接入 GLM（重构时发现 `_expected_model` 正是漏改的第三处）；`--model` 一个 flag 切换阶梯并写入溯源；`pricing.py` + `config/pricing.json` 每模型费率表，未定价报 `None` 而非 `0.0`、费率须带 source/as_of、CNY 不做隐式汇率换算、缓存命中分档计价、trial 内部分定价即整体不可用。182 passed/1 skipped。
+- ⚠️ **费率表为空**：`config/pricing.json` 所有费率为 null，成本仍是 `unavailable`。填费率需查厂商官网（连同 source URL 与日期），是一步手工操作。
+- **下一项：填费率 → 首次 GLM 实跑（验证 H2 模型阶梯是否恢复区分度）→ W1-4 planner**；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
 
 ---
 
@@ -399,7 +401,7 @@ class EvalCase(BaseModel):
 | 功能 | Task Success | target 测试全过 | 现有 |
 | 功能 | Strict Success | target + hidden + regression 全过 **且** 约束全守 | 现有；长程 case 上预期首次出现明显分离 |
 | 稳定 | pass@k / pass^k | 现有 | pass^k 更能体现可靠性 |
-| 成本 | cost per success | 总成本 / 成功 trial 数 | 需 `cost.py` 归一化；`cost_source` 必须标注 |
+| 成本 | cost per success | 总成本 / 成功 trial 数 | `pricing.py` 已实现（每模型费率 + 溯源 + 不假设汇率）；`cost_source` 必须标注；费率表待填 |
 | 成本 | 预算约束成功率 | 固定 wall-clock/USD 上限下的成功率 | 跨 Agent 公平对比的主口径 |
 | 效率 | steps-to-first-target-pass | 首次 target 通过的步号 | 归一化轨迹后跨 Agent 可比 |
 | 规划 | plan adherence / abandonment | §3.3 定义 | 仅对声明 `PLANNING` 能力的系统 |

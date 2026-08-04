@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "revision": "2026-08-04-unpriced",
+  "_readme": [
+    "Per-model rates for cost-per-success reporting. See src/codeagent_eval/pricing.py.",
+    "An entry yields a cost only when prompt_per_1k, completion_per_1k, source and as_of are",
+    "all present. Anything else reports cost_source=unavailable rather than 0.0, because a",
+    "zero is indistinguishable from 'this was free' everywhere it is later displayed.",
+    "",
+    "To price a model: copy the figures from the vendor's official pricing page, put that",
+    "page's URL in 'source' and the date you read it in 'as_of', then bump 'revision'. The",
+    "revision is recorded in every run's artifacts, so a cost figure stays traceable to the",
+    "rates that produced it even after prices change.",
+    "",
+    "CNY-priced models additionally need a top-level 'usd_per_cny'. Without it the entry",
+    "reports unavailable: no exchange rate is ever assumed."
+  ],
+  "usd_per_cny": null,
+  "models": [
+    {
+      "provider": "deepseek",
+      "model": "deepseek-chat",
+      "currency": "USD",
+      "prompt_per_1k": null,
+      "cached_prompt_per_1k": null,
+      "completion_per_1k": null,
+      "source": null,
+      "as_of": null,
+      "note": "Cache-hit input is billed separately; fill cached_prompt_per_1k or the estimate becomes an upper bound."
+    },
+    {
+      "provider": "deepseek",
+      "model": "deepseek-reasoner",
+      "currency": "USD",
+      "prompt_per_1k": null,
+      "cached_prompt_per_1k": null,
+      "completion_per_1k": null,
+      "source": null,
+      "as_of": null,
+      "note": "Reasoning tokens are billed as output."
+    },
+    {
+      "provider": "zhipu",
+      "model": "glm-4.6",
+      "currency": "CNY",
+      "prompt_per_1k": null,
+      "cached_prompt_per_1k": null,
+      "completion_per_1k": null,
+      "source": null,
+      "as_of": null,
+      "note": "open.bigmodel.cn publishes CNY; the z.ai endpoint publishes USD. Set currency to match the endpoint actually used."
+    },
+    {
+      "provider": "zhipu",
+      "model": "glm-4.5-air",
+      "currency": "CNY",
+      "prompt_per_1k": null,
+      "cached_prompt_per_1k": null,
+      "completion_per_1k": null,
+      "source": null,
+      "as_of": null,
+      "note": "Mid tier of the model ladder."
+    },
+    {
+      "provider": "zhipu",
+      "model": "glm-4-flash",
+      "currency": "CNY",
+      "prompt_per_1k": null,
+      "cached_prompt_per_1k": null,
+      "completion_per_1k": null,
+      "source": null,
+      "as_of": null,
+      "note": "Weak tier of the ladder; used to restore discrimination on the saturated short suite."
+    }
+  ]
+}

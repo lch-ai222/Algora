@@ -108,16 +108,12 @@ class MiniAgentAdapter:
     def _normalize(self, trial: TrialResult) -> AgentRunResult:
         prompt_tokens = sum(call.prompt_tokens for call in trial.llm_calls)
         completion_tokens = sum(call.completion_tokens for call in trial.llm_calls)
-        cost = sum(call.estimated_cost_usd for call in trial.llm_calls)
-        settings = getattr(self.provider, "settings", None)
-        pricing_configured = bool(
-            settings
-            and (
-                getattr(settings, "llm_prompt_cost_per_1k_usd", 0) > 0
-                or getattr(settings, "llm_completion_cost_per_1k_usd", 0) > 0
-            )
-        )
-        cost_available = bool(trial.llm_calls) and pricing_configured
+        cached_tokens = sum(call.cached_prompt_tokens for call in trial.llm_calls)
+        # A trial's cost is only reportable when *every* call in it was priced. Summing the
+        # priced subset would understate the total while still looking like a real number.
+        priced = [c for c in trial.llm_calls if c.estimated_cost_usd is not None]
+        cost_available = bool(trial.llm_calls) and len(priced) == len(trial.llm_calls)
+        cost = sum(c.estimated_cost_usd for c in priced) if cost_available else None
         return AgentRunResult(
             adapter=self.name,
             adapter_version=self.adapter_version,
@@ -126,8 +122,8 @@ class MiniAgentAdapter:
             events=trial.events,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            cached_tokens=0,
-            cost_usd=cost if cost_available else None,
+            cached_tokens=cached_tokens,
+            cost_usd=cost,
             cost_source="derived" if cost_available else "unavailable",
             stop_reason=_STOP_REASON_MAP.get(trial.stop_reason, "error"),
             native_stop_reason=trial.stop_reason,

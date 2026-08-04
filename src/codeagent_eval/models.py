@@ -52,8 +52,12 @@ class LlmCallRecord(BaseModel):
     latency_ms: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    cached_prompt_tokens: int = 0
     total_tokens: int = 0
-    estimated_cost_usd: float = 0.0
+    # None, never 0.0: an unpriced call must not read as a free one. See pricing.py.
+    estimated_cost_usd: float | None = None
+    cost_source: str = "unavailable"
+    cost_note: str | None = None
     created_at: str = Field(default_factory=utc_now_iso)
 
 
