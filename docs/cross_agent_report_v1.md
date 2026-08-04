@@ -170,4 +170,4 @@ LLM_PROVIDER=zhipu python -m codeagent_eval.runner --adapter mini_agent --harnes
 2. **补第三方开源 adapter**（aider / mini-swe-agent）：三个 arm 里两个是自研，第三方样本只有 Claude Code 一个。
 3. ~~**补上下文遗忘检测器**~~ **已完成（2026-08-05）**：三类检测器均已进入 `scripts/scan_failure_modes.py`。历史 artifacts 上 canary 遵守率 1.000、decay +0.000；新增 `long-release-accounting` 后出现首个 early→late 衰减正例，但成因仍只能表述为“遗忘或策略改变”的推断，不能越过可观察证据。
 4. **补齐 Claude Code 宽松档**：待额度恢复后按修复后的预算链路重跑，把 §5.3 的证据等级拉平。
-5. **补交付链**：第二外部 adapter、repro bundle、静态报告/跨 Agent UI 和官方 SWE-bench 实例仍未完成。
+5. ~~**补 repro 交付链**~~ **已完成（2026-08-05）**：失败 trial 可生成脱敏诊断包与自动 replay fixture；重放无需模型，并通过 suite 指纹与 grader signature 防止 oracle 漂移被误报成回归。仍缺第二外部 adapter、静态报告/跨 Agent UI 和官方 SWE-bench 实例。

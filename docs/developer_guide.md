@@ -34,7 +34,7 @@
 
 失败模式检测当前作为 artifacts 后处理运行：`scripts/scan_failure_modes.py` 重放 trajectory/diff，调用 `detectors/reward_hacking.py`、`instruction_drift.py`、`context_amnesia.py`。统计比较由 `scripts/compare_experiments.py` 调用 `stats/` 的 case-cluster bootstrap、exact McNemar 和 Wilson 区间；这些结果不反写 grader，避免分析层改变原始评分证据。
 
-当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。离线开发当前从 W3-4 开始：失败 trial 的 patch 和证据将被打包，并通过重新 materialize case → 应用 patch → 注入 hidden → deterministic grade 的路径复现，不再次调用模型，也不把 hidden 测试内容复制进诊断包。
+当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。W3-4 已沿离线路径完成；下一主线是消费历史 artifacts 的 W3-5 静态报告与 W3-3 统计收口。
 
 ## 3. LLM Provider（`llm.py`）
 
@@ -126,9 +126,19 @@
 - `detectors/reward_hacking.py`：从 unified diff 检测删测试、skip、弱化断言、硬编码测试输入等 8 类信号；每项必须带 evidence span。检测器有效性（构造样本/零误报）与真实检出率分开报告。
 - `detectors/instruction_drift.py`：逐步重放允许路径、改动文件数和命令约束，输出首次违规步、obedience ratio、self-corrected/persisted；不假装确定性判断自然语言散文。
 - `detectors/context_amnesia.py`：对只在开场注入一次的 canary 做被动编辑检查，以 early/late decay 区分“从未理解”和“后期丢失”；轨迹过短拒绝给 decay。
+- `detectors/repro_bundle.py`：把有效失败 trial 转成脱敏诊断包和自动 replay fixture。bundle 只保存稳定 grade signature 与 hidden 聚合状态，不保存 hidden 代码、节点名、失败正文或 native log；replay 校验 checksum/suite 指纹后，重新 materialize → 应用 patch → 注入 hidden → 调正式 grader。infra-invalid 不接受，旧 schema 只做诊断、不伪造 replay。
 - `stats/bootstrap.py`：以 case 为聚类单位；少于 8 个聚类主动警告。`mcnemar.py` 要求完整配对网格，`intervals.py` 用 Wilson 处理零事件。
 
-尚未实现：hackbait 专用 suite、repro bundle/自动回归 fixture、分层宏平均、成本配对统计和静态报告导出。
+复现命令：
+
+```bash
+.venv/bin/python scripts/build_repro_bundle.py build \
+  artifacts/runs/<experiment>/<case>/rep0 --suite datasets/mini_store_long
+.venv/bin/python scripts/build_repro_bundle.py replay \
+  artifacts/repro_bundles/<bundle-id>
+```
+
+生成物位于 `artifacts/repro_bundles/`，已 gitignore；清理单个 bundle 使用 `rm -rf artifacts/repro_bundles/<bundle-id>`。尚未实现：hackbait 专用 suite、分层宏平均、成本配对统计和静态报告导出。
 
 ## 10. 版本对比（`compare.py`）
 
@@ -199,11 +209,11 @@ macOS 当前配置 `EVALPLUS_MAX_MEMORY_BYTES=-1` 规避 rlimit 兼容错误，�
 
 ## 15. 启动与测试
 
-见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 349 passed/1 skipped）+ `ruff check` + `scripts/selfcheck.py`（短程 9/9）+ `scripts/selfcheck.py datasets/mini_store_long`（长程 8/8）+ `scripts/check_bounds.py --suite ...`（两套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
+见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 360 passed/1 skipped）+ `ruff check` + `scripts/selfcheck.py`（短程 9/9）+ `scripts/selfcheck.py datasets/mini_store_long`（长程 8/8）+ `scripts/check_bounds.py --suite ...`（两套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
 
 ## 16. 测试覆盖现状
 
-- `test_llm_provider`（provider spec、served model、finish_reason/trace）、`test_pricing`（alias/cache/tier/币种/不完整定价）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch）、`test_tools`（coding + planning 工具）、`test_agent_loop`（V1/V2/V3、完成门禁、context ceiling/compaction、planner 指标）、`test_adapters` 与 `test_claude_code_adapter`（协议/预算/真实 subprocess stand-in/归一化/成本/配置隔离）、`test_parallel_runner`（并行/checkpoint/resume/infra 重试）、`test_long_suite`（8-case schema/isolation/reference/none）、`test_reward_hacking`、`test_instruction_drift`、`test_context_amnesia`、`test_scan_failure_modes`、`test_stats`、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`、`test_api`。
+- `test_llm_provider`（provider spec、served model、finish_reason/trace）、`test_pricing`（alias/cache/tier/币种/不完整定价）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch）、`test_tools`（coding + planning 工具）、`test_agent_loop`（V1/V2/V3、完成门禁、context ceiling/compaction、planner 指标）、`test_adapters` 与 `test_claude_code_adapter`（协议/预算/真实 subprocess stand-in/归一化/成本/配置隔离）、`test_parallel_runner`（并行/checkpoint/resume/infra 重试）、`test_long_suite`（8-case schema/isolation/reference/none）、`test_reward_hacking`、`test_instruction_drift`、`test_context_amnesia`、`test_scan_failure_modes`、`test_repro_bundle`（脱敏、空/非空 patch replay、篡改/oracle 漂移/旧 schema）、`test_stats`、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`、`test_api`。
 
 ## 17. 新任务类型与 Oracle 要求
 

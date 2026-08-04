@@ -155,7 +155,7 @@ and was correct; only the enforcement path was unwired, so every artifact looked
 ```
 report        docs/*.md  ·  backend + frontend console over artifacts/
 ────────────────────────────────────────────────────────────────────────
-analysis      detectors/ (reward hacking · instruction drift · context amnesia)
+analysis      detectors/ (reward hacking · instruction drift · context amnesia · repro bundle)
               stats/ (cluster bootstrap · exact McNemar · Wilson)
               failure_taxonomy.py           compare.py
 ────────────────────────────────────────────────────────────────────────
@@ -171,7 +171,7 @@ agent         loop.py │ prompts (v1/v2/v3) │ planner.py │ context.py
 ────────────────────────────────────────────────────────────────────────
 data          benchmark/ (case · materialize · swebench · evalplus)
               graders/ (pytest · constraint · patch)   judge/ (+ kappa meta-eval)
-              mini_store_suite (9 short) │ mini_store_long (4 long-horizon)
+              mini_store_suite (9 short) │ mini_store_long (8 long-horizon)
 ```
 
 ### Principles the code enforces
@@ -199,7 +199,7 @@ data          benchmark/ (case · materialize · swebench · evalplus)
 python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev,api]"
 cp .env.example .env          # fill in a provider key
-.venv/bin/python -m pytest -q # 349 passed, 1 skipped — offline, no API key needed
+.venv/bin/python -m pytest -q # 360 passed, 1 skipped — offline, no API key needed
 ```
 
 ```bash
@@ -221,11 +221,20 @@ python scripts/scan_failure_modes.py artifacts/runs
 
 # Compare two arms with an interval and a paired test, not two point estimates
 python scripts/compare_experiments.py artifacts/runs/<a> artifacts/runs/<b>
+
+# Turn one deterministic failure into a sanitized diagnostic + replay fixture
+python scripts/build_repro_bundle.py build artifacts/runs/<run>/<case>/rep0 \
+  --suite datasets/mini_store_long
+python scripts/build_repro_bundle.py replay artifacts/repro_bundles/<bundle-id>
 ```
 
 Each trial persists `config.json` (model, budgets, adapter version, pricing revision),
 `trajectory.jsonl` (normalized), `native/` (the external agent's raw stream), `patch.diff`,
 `grader-results.json`, `failure-tags.json` — enough to re-grade or diagnose without re-running.
+Failure bundles go to `artifacts/repro_bundles/` and are gitignored. They exclude hidden-test
+code/details and native adapter logs; replay rematerializes the case, applies the patch, injects
+hidden tests at grade time, and checks the deterministic grade signature without a model call.
+Clean one generated bundle with `rm -rf artifacts/repro_bundles/<bundle-id>`.
 
 Console: `uvicorn backend.app.main:app --port 8000` + `cd frontend && npm run dev`.
 
@@ -233,7 +242,7 @@ Console: `uvicorn backend.app.main:app --port 8000` + `cd frontend && npm run de
 
 ## Status and evidence levels
 
-`349 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short and 8/8 long · deterministic
+`360 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short and 8/8 long · deterministic
 bounds reference=1.00 / none=0.00 on both suites · CI green including a containerized
 `--network none` evaluation gate.
 
@@ -248,8 +257,8 @@ bounds reference=1.00 / none=0.00 on both suites · CI green including a contain
 | SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
 | Terminal-Bench / OctoBench | protocol study only |
 
-Not done: run/cross-run memory, multi-turn, a second external-agent adapter, reproducible defect
-bundles, static report export, and SWE-bench official instances. The long suite now has 8 cases,
+Not done: run/cross-run memory, multi-turn, a second external-agent adapter, static report export,
+and SWE-bench official instances. The long suite now has 8 cases,
 meeting `MIN_USEFUL_CLUSTERS`; however, the headline cross-agent and ablation tables above still
 come from the original 4-case matrix. With case as the clustering unit, only rerunning on the
 expanded suite can strengthen those claims—extra repeats on the old four cases cannot.

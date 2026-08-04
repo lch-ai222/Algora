@@ -40,7 +40,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W3-1 | 确定性 multi-turn + 3 case | P0 | ⬜ 未开始 |
 | V3 W3-2 | 跨 run RepoMemory | P1 | ⬜ 未开始 |
 | V3 W3-3 | 统计增强 | P0/P1 | 🟨 bootstrap/McNemar/Wilson 完成 |
-| V3 W3-4 | repro bundle + 回归 fixture | P0 | ⬜ 未开始 |
+| V3 W3-4 | repro bundle + 回归 fixture | P0 | ✅ 完成 |
 | V3 W3-5 | 静态报告 + 跨 Agent UI | P0 | ⬜ 未开始 |
 | V3 W3-6 | 全量实验与假设回填 | P0 | 🟨 4-case 矩阵完成；W3-6a 因 GLM 额度暂停 |
 | V3 W3-7 | 开源清理 + 洞察报告 | P1 | 🟨 README/横向报告部分完成 |
@@ -66,7 +66,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] provider/网络错误作为 infra-invalid 排除出能力分母；compare 拒绝基础设施无效 run。
 - [x] V2 拒绝截断、空回复、无改动、未测试和末次测试失败的假完成；V1 行为不变。
 - [x] 成本费率缺失时记录 `cost_usd=null`、`cost_source=unavailable`，不伪造零成本。
-- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（349 passed/1 skipped）。
+- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（360 passed/1 skipped）。
 
 ### W1-3 · ClaudeCodeAdapter ✅（代码 + live）
 
@@ -133,7 +133,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [ ] **W3-1 Multi-turn**：确定性反馈驱动与 3 条多轮 case 未实现。
 - [ ] **W3-2 RepoMemory**：跨任务记忆与 trial 间清空验证未实现。
 - 🟨 **W3-3（部分）**：cluster bootstrap、exact McNemar、Wilson 区间已实现并应用；分层宏平均、成本配对统计仍未实现。
-- [ ] **W3-4 Repro bundle**：诊断包与自动回归 fixture 未实现。
+- [x] **W3-4 Repro bundle**：失败 trial 可生成脱敏诊断包与回归 fixture；无模型 replay 会重新 materialize、应用 patch、评分并比对稳定签名。hidden 测试代码/节点/失败正文和 native log 不入包，suite 指纹漂移、checksum 篡改、凭据形态 patch、infra-invalid 均拒绝误归因；旧 schema 可生成诊断包但明确拒绝编造 replay 证据。
 - [ ] **W3-5 Report/UI**：静态 HTML/MD 报告和专用 CrossAgent 视图未实现；现有通用控制台可读 artifacts。
 - 🟨 **W3-6（部分）**：4-case 模型受控横向矩阵、H2/H3 和检测器历史回扫已有数据；第二模型/第二外部 Agent 和全部预注册假设未完成。
 - ⏸️ **W3-6a（外部额度阻塞）**：新的 8-case Claude Code / MiniAgent 模型受控矩阵保持原设计待跑。当前 GLM API 无可用额度，恢复条件是同一 GLM 模型端点可完成 preflight 且额度足够覆盖固定矩阵；不得临时换模型并把结果并入原受控比较。
@@ -251,9 +251,8 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 V3 W1 全部完成，W2-1/3/4/6 完成，W3-3/6/7 部分完成。W3-6a 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
 
-1. 完成 W3-4 repro bundle + 离线 replay，把已检出的失败变成可复现、可回归的诊断资产。
-2. 完成 W3-5 静态报告与 W3-3 分层/成本统计；复用历史 artifacts，不把缺失成本当成 0。
-3. 完成 W3-1 确定性 multi-turn，并用 scripted provider 离线验收；随后实现 run 内 ScratchPad。
-4. 完成 W2-5 hackbait 基础设施与 suite；真实模型 hacking-rate 等额度恢复后再测。
-5. 额度恢复后执行 W3-6a：在当前 8-case 长程 suite 上按原模型、wall-clock、温度和 repeats 重跑受控矩阵。
-6. 再推进第二外部 Agent 与 B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。
+1. 完成 W3-5 静态报告与 W3-3 分层/成本统计；复用历史 artifacts，不把缺失成本当成 0。
+2. 完成 W3-1 确定性 multi-turn，并用 scripted provider 离线验收；随后实现 run 内 ScratchPad。
+3. 完成 W2-5 hackbait 基础设施与 suite；真实模型 hacking-rate 等额度恢复后再测。
+4. 额度恢复后执行 W3-6a：在当前 8-case 长程 suite 上按原模型、wall-clock、温度和 repeats 重跑受控矩阵。
+5. 再推进第二外部 Agent 与 B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。

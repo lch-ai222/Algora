@@ -12,11 +12,11 @@
 |---|---|---|---|
 | **W1** | W1-1～W1-7（7/7）；长程 suite 后续从 4 扩到 8 case | — | — |
 | **W2** | W2-1 context、W2-3 context amnesia、W2-4 reward hacking、W2-6 instruction drift（4/8） | — | W2-2 ScratchPad、W2-5 hackbait、W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
-| **W3** | — | W3-3 统计核心、W3-6 部分实验、W3-7 README/横向报告 | W3-1 multi-turn、W3-2 RepoMemory、W3-4 repro bundle、W3-5 静态报告/跨 Agent UI |
+| **W3** | W3-4 repro bundle | W3-3 统计核心、W3-6 部分实验、W3-7 README/横向报告 | W3-1 multi-turn、W3-2 RepoMemory、W3-5 静态报告/跨 Agent UI |
 
-当前门禁：**349 passed / 1 skipped，Ruff 全绿，短/长 selfcheck 9/9 + 8/8；长程干净仓库 83 passed**。模型受控横向报告与 H3 消融仍基于原 4-case 矩阵；扩到 8 case 只提升了下一轮实验的统计设计，尚未自动提升既有结论的证据等级。
+当前门禁：**360 passed / 1 skipped，Ruff 全绿，短/长 selfcheck 9/9 + 8/8；长程干净仓库 83 passed**。模型受控横向报告与 H3 消融仍基于原 4-case 矩阵；扩到 8 case 只提升了下一轮实验的统计设计，尚未自动提升既有结论的证据等级。
 
-**执行约束更新（2026-08-05）**：W3-6 的 8-case 受控矩阵拆为 **W3-6a**，因 GLM API 无可用额度标记为外部阻塞。既有 4-case 结果不作废，也不以其他模型替跑后混入同一比较；原 GLM 端点恢复、preflight 通过且额度覆盖固定矩阵后继续。等待期间的离线主线为 W3-4 repro bundle → W3-5/W3-3 报告统计 → W3-1/W2-2 multi-turn 与 ScratchPad → W2-5 hackbait 基础设施。
+**执行约束更新（2026-08-05）**：W3-6 的 8-case 受控矩阵拆为 **W3-6a**，因 GLM API 无可用额度标记为外部阻塞。既有 4-case 结果不作废，也不以其他模型替跑后混入同一比较；原 GLM 端点恢复、preflight 通过且额度覆盖固定矩阵后继续。W3-4 repro bundle 已沿离线路径完成；后续顺序为 W3-5/W3-3 报告统计 → W3-1/W2-2 multi-turn 与 ScratchPad → W2-5 hackbait 基础设施。
 
 #### 详细执行记录（保留历史时间点与假设修正）
 
@@ -73,7 +73,7 @@
 | 1 | Code Agent 框架开发与迭代：**代码理解、工具调用、多轮交互、记忆管理、任务规划** | 6 个 coding 工具、planner、确定性 compaction、完成守卫均已落地并做过消融 | 代码理解仍是 grep/read；ScratchPad、跨 run memory、multi-turn、subagent 均未实现 | 🟨 部分覆盖 |
 | 2 | 面向**主流 Code Agent及自研框架**的系统化评测；覆盖真实开发任务、**长程多轮交互**、**完整工具链（构建/测试/部署）** | Claude Code + MiniAgent 的同模型横向实验；9 短程 + 8 长程；build/CLI case | 第二外部 Agent、multi-turn、deploy、官方 SWE-bench、多语言均缺；headline 尚未在 8-case 重跑 | 🟨 部分覆盖 |
 | 3 | 自动化评测框架：**多 Agent 并行、环境隔离、过程可观测、结果自动化分析与可视化报告** | 进程池、trial 续跑、容器断网门禁、统一 TraceEvent、只读控制台、统计脚本均完成 | 静态 HTML/MD 导出和专用跨 Agent UI 未实现；“并行 trial”不等于 Agent 内多智能体协作 | ✅ 主体完成 |
-| 4 | 自动识别**指令偏移、上下文遗忘、测试投机**；产出**可复现缺陷诊断包与回归用例** | 三个独立检测器均已实现并回扫真实 artifacts，输出 evidence span/轨迹指标 | hackbait suite、repro bundle、自动回归 fixture 未实现；不受约束的投机样本仅 16 个 | 🟨 检测完成、交付链未完 |
+| 4 | 自动识别**指令偏移、上下文遗忘、测试投机**；产出**可复现缺陷诊断包与回归用例** | 三个独立检测器均已实现并回扫真实 artifacts；repro bundle + 无模型 replay 已完成 | hackbait suite 未实现；不受约束的投机样本仅 16 个 | ✅ 工程闭环完成，行为样本待扩 |
 | 5 | 深度洞察与产品驱动：输出分析报告，为框架优化提供建议 | 已有模型受控横向报告、预算/成本/上下文消融，并据此纠正 planner 结论 | 8-case 复验、第二模型/第二外部 Agent、独立 capability-gap 与 failure-atlas 报告尚缺 | 🟨 部分覆盖 |
 
 ### 1.2 任职资格与加分项映射
@@ -111,7 +111,7 @@
 | 工具扩展 | Claude/Cline 支持 MCP，Cline 另有 browser | 固定 6 coding 工具 + planner | 🟨 对评测足够，对产品型 Agent 不足 |
 | 安全/可观测 | 主流产品有权限、checkpoint、usage 展示 | deny-by-default policy、worktree、TraceEvent、成本/环境溯源 | ✅ 项目优势，且更适合受控实验 |
 
-因此近期不应以“复刻主流 Agent 全功能”为目标。对 JD 产出价值最高的是 multi-turn、第二外部 adapter、repro bundle、报告导出和官方实例；repo map/AST 可作为下一阶段 Agent 能力增强，MCP/browser 只有在形成可评测假设后再做。
+因此近期不应以“复刻主流 Agent 全功能”为目标。repro bundle 已完成；剩余对 JD 产出价值最高的是 multi-turn、第二外部 adapter、报告导出和官方实例。repo map/AST 可作为下一阶段 Agent 能力增强，MCP/browser 只有在形成可评测假设后再做。
 
 ### 2.2 差距清单（按严重度排序）
 
@@ -120,7 +120,7 @@
 | G1 | Claude Code 横向已完成；第二外部 adapter 未接，8-case 矩阵未重跑 | 🟠 高 | 现有 headline 仍是 4 case、单模型；无法形成三方结论 |
 | G2 | context 与 planner 已落地；memory/multi-turn 未做 | 🟠 高 | W1-4/W2-1 已关闭一半差距；后两项仍需独立 oracle 与隔离设计 |
 | G3 | 长程 suite 已扩到 8 case，但主要矩阵仍只跑过旧 4 case | 🟠 高 | 数据扩充与结论升级之间还差一次同配置复验 |
-| G4 | 三类失败模式检测器已完成，repro bundle/自动回归 fixture 未做 | 🟠 高 | JD 要求的不只是发现，还要可复现、可回归 |
+| G4 | ~~三类检测器之后缺 repro bundle/回归 fixture~~ **已关闭** | ✅ | 脱敏 bundle、checksum/suite 指纹、无模型 grader replay 已完成 |
 | G5 | reward hacking 行为样本不足；无 hackbait suite | 🟡 中 | 640 patch 中只有 16 个不受沙箱强制，零事件上界仍为 19.4% |
 | G6 | ~~无 CI、Docker 从未 build、runner 串行~~ **已关闭** | ✅ | CI 三门禁全绿；容器内断网实跑；进程池 + 断点续跑 |
 | G7 | SWE-bench 仅自建兼容样例，无官方实例 | 🟠 高 | 面试判断近似二值 |
@@ -394,14 +394,14 @@ class EvalCase(BaseModel):
 | **W3-1 ⬜** | `multi_turn.py` 确定性反馈回合 + 3 条多轮 case | 🟠🟣 | W1-2 | 1.5d | 未开始 |
 | **W3-2 ⬜** | `memory.py` 跨 run RepoMemory + 隔离验证 | 🟠 | W2-2 | 1d | 未开始；不得绕过 repeats 泄漏防护 |
 | **W3-3 🟨** | `stats/`：cluster bootstrap CI + exact McNemar + 分层宏平均 | 🔵 | — | 1d | bootstrap、McNemar、Wilson 已完成；分层宏平均和成本统计待补 |
-| **W3-4 ⬜** | `detectors/repro_bundle.py`：诊断包 + 自动回归 fixture | 🔵 | W2-4/6 | 1d | 未开始 |
+| **W3-4 ✅** | `detectors/repro_bundle.py`：诊断包 + 自动回归 fixture | 🔵 | W2-4/6 | 1d | 空/非空失败 patch 离线 replay；hidden/凭据/篡改/oracle 漂移/legacy 边界均有测试 |
 | **W3-5 ⬜** | `report.py` 静态报告 + `CrossAgent.tsx` 前端视图 | 🔵⚫ | W3-3 | 1d | 未开始；现有控制台仍为通用 artifacts 只读视图 |
 | **W3-6 🟨** | 全量实验执行（见 §6 矩阵）+ 结果回填 | 🔵 | 全部 | 1d | 4-case 横向、H2/H3 和检测器回扫完成；三方/多轮/官方实例未完成 |
 | **W3-6a ⏸️** | 8-case Claude Code / MiniAgent 模型受控矩阵 | 🔵 | GLM 额度 + endpoint preflight | 1d | 外部额度阻塞；恢复后严格沿用冻结模型与配对配置，不接受替代模型混算 |
 | **W3-7 🟨** | 框架开源清理（密钥审计、命名统一、README 架构图）+ 洞察报告 | ⚫ | W3-6 | 0.5d | README 与横向报告已完成；开源核验、命名统一和独立洞察文档未闭环 |
 
 **当前可后置项**：W3-2（跨 run memory）→ W2-5（hackbait 专用 suite）→ W3-3 的分层部分。跨 run memory 风险高且不应只为“打勾”实现。
-**当前不可后置项**：W3-1 multi-turn、W3-4 repro bundle、W3-5 报告导出、W2-8 第二外部 adapter、W2-7 官方实例；它们直接对应尚未闭环的 JD 证据。W3-6a 同属高优先级，但在外部额度恢复前暂停，不以改变模型换取表面进度。
+**当前不可后置项**：W3-1 multi-turn、W3-5 报告导出、W2-8 第二外部 adapter、W2-7 官方实例；它们直接对应尚未闭环的 JD 证据。W3-6a 同属高优先级，但在外部额度恢复前暂停，不以改变模型换取表面进度。
 
 ---
 
@@ -602,7 +602,7 @@ class EvalCase(BaseModel):
 |---|---|---|
 | `adapters/` 异构 Agent 接入层 + 轨迹归一化 | ✅ MiniAgent + Claude Code；第二外部 Agent 未接 | 职责 2、3 |
 | MiniAgent v3（context + memory + planner + multi-turn） | 🟨 context/planner 完成；memory/multi-turn 未做 | 职责 1 |
-| `detectors/` 三类失败模式检测器 + repro bundle | 🟨 三检测器完成；repro bundle 未做 | 职责 4 |
+| `detectors/` 三类失败模式检测器 + repro bundle | ✅ 检测、脱敏诊断、自动 fixture、无模型 replay 完成 | 职责 4 |
 | `stats/` + `report.py` + 跨 Agent 前端视图 | 🟨 统计核心完成；report/UI 未做 | 职责 3、5 |
 | 长程 / 多轮 / hackbait / SWE-bench 官方四类 suite | 🟨 长程 8-case 完成；其余三类未做 | 职责 2 |
 | `.github/workflows/` CI + nightly eval | ✅ 完成 | 加分项 |
@@ -617,7 +617,7 @@ class EvalCase(BaseModel):
 ## 10. 对外叙事映射（面试用）
 
 **主线一句话**：
-> 我做了一个 coding agent 评测平台，已在统一模型和 wall-clock 预算下比较 Claude Code 与自研 MiniAgent，并自动检测指令偏移、上下文遗忘和测试投机；这些评测反过来驱动了完成守卫、规划和上下文管理的可归因迭代。第二外部 Agent、multi-turn 与 repro bundle 是下一阶段，而不是既有成果。
+> 我做了一个 coding agent 评测平台，已在统一模型和 wall-clock 预算下比较 Claude Code 与自研 MiniAgent，并自动检测指令偏移、上下文遗忘和测试投机，再把失败转成无需模型即可重放的脱敏诊断包；这些评测反过来驱动了完成守卫、规划和上下文管理的可归因迭代。第二外部 Agent与 multi-turn 仍是下一阶段。
 
 **8 分钟演示脚本**：
 
@@ -626,7 +626,7 @@ class EvalCase(BaseModel):
 | 0–1min | 问题：主流 Agent 在短 benchmark 上都饱和，真实差异在长程 | 评测思维 |
 | 1–2min | 架构图：adapter 层 + 归一化 + 预算契约 | 平台工程 |
 | 2–4min | Claude Code / MiniAgent 三 scaffold 横向表 + wall-clock 权衡 | JD 职责 2、5 |
-| 4–6min | 三个检测器：canary 正例、drift 轨迹、hacking evidence span；明确 repro bundle 未完成 | JD 职责 4 |
+| 4–6min | 三个检测器 + repro bundle：展示 evidence span、hidden 不入包、无模型 replay | JD 职责 4 |
 | 6–7min | v2→v3 消融：compaction/plan 各自贡献多少，代价多少 | JD 职责 1 |
 | 7–8min | 诚实边界：样本量、区间宽度、哪些不能外推、明确不做的事及理由 | 评测素养（最加分的一段） |
 

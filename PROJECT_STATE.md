@@ -6,11 +6,11 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ## 1. 当前总体状态
 
-闭环已跑通并用真实 LLM 验证。**原 7/7 里程碑 + B1 + V3 Week 1 全部完成；Week 2 完成 W2-1/3/4/6；Week 3 的统计、全量实验和开源收口均为部分完成**。当前已有 8 条长程 case、可扩展的 AgentAdapter、Claude Code headless adapter、三类失败模式检测器，以及模型受控的 Claude Code / MiniAgent 横向实验。横向 headline 仍来自原 4-case 矩阵，8-case 扩展后尚未重跑，不能把数据资产升级写成结论升级。
+闭环已跑通并用真实 LLM 验证。**原 7/7 里程碑 + B1 + V3 Week 1 全部完成；Week 2 完成 W2-1/3/4/6；Week 3 完成 W3-4，统计、全量实验和开源收口均为部分完成**。当前已有 8 条长程 case、可扩展的 AgentAdapter、Claude Code headless adapter、三类失败模式检测器、失败复现包，以及模型受控的 Claude Code / MiniAgent 横向实验。横向 headline 仍来自原 4-case 矩阵，8-case 扩展后尚未重跑，不能把数据资产升级写成结论升级。
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**349 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**360 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -20,7 +20,7 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ### V3 迭代摘要
 
-- W1 地基阶段测试从 **94 → 252**；随后检测器、统计和 8-case 扩充把当前门禁推进到 **349 passed / 1 skipped**。已落地 Claude Code adapter、CI/容器门禁、并行续跑、模型费率、预算实验变量、planner 与 deterministic compaction。
+- W1 地基阶段测试从 **94 → 252**；随后检测器、统计、8-case 扩充和 repro bundle 把当前门禁推进到 **360 passed / 1 skipped**。已落地 Claude Code adapter、CI/容器门禁、并行续跑、模型费率、预算实验变量、planner 与 deterministic compaction。
 - H2：模型阶梯只在最弱的 `glm-4.7-flash` 上产生有限区分度（1.00→0.84）；H2 的强信号来自预算收紧，同一 suite 的模型差距由 0.00 放大到 0.85。
 - 首次成本测量：DeepSeek flash/pro 成功率相同，成本差 5.26×；缓存分档避免一次 trial 成本被高估 4.94×。
 - 修正后 H3：compaction 是全部成功效应（1.00→0.33），planner 对成功率中性但工具调用约 +18%。
@@ -32,9 +32,9 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 |---|---|---|---|
 | W1 | W1-1～W1-7（7/7） | — | — |
 | W2 | W2-1 context、W2-3 context amnesia、W2-4 reward hacking、W2-6 instruction drift（4/8） | — | W2-2 ScratchPad、W2-5 hackbait、W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
-| W3 | — | W3-3 统计核心、W3-6 部分实验、W3-7 README/横向报告 | W3-1 multi-turn、W3-2 RepoMemory、W3-4 repro bundle、W3-5 静态报告/跨 Agent UI |
+| W3 | W3-4 repro bundle | W3-3 统计核心、W3-6 部分实验、W3-7 README/横向报告 | W3-1 multi-turn、W3-2 RepoMemory、W3-5 静态报告/跨 Agent UI |
 
-计划中“V3 后 JD 全覆盖”的原判断过于乐观。当前已形成强证据的是评测平台、隔离/并行/可观测、长程私有 benchmark、三个失败模式检测器和受控实验；Agent 本体仍缺 memory、multi-turn、subagent、语义级代码理解，平台仍缺第二外部 Agent、官方 SWE-bench 实例、repro bundle 与自动报告导出。
+计划中“V3 后 JD 全覆盖”的原判断过于乐观。当前已形成强证据的是评测平台、隔离/并行/可观测、长程私有 benchmark、三个失败模式检测器、可复现缺陷诊断包和受控实验；Agent 本体仍缺 memory、multi-turn、subagent、语义级代码理解，平台仍缺第二外部 Agent、官方 SWE-bench 实例与自动报告导出。
 
 ### Claude live preflight 查证（2026-08-04）
 
@@ -542,6 +542,14 @@ rep0/rep1 完全一致，rep2 只有 3 次编辑、低于 `MIN_EDITS_FOR_SPLIT=4
 
 `scan_failure_modes` 在**全部 trial 都太短、无法切分**时崩溃：检测器正确地拒绝给 decay（返回 `None`），报告端却用 `:+.3f` 直接格式化。扫描跑完全部工作后在打印阶段挂掉。顺带把打印逻辑从 `main()` 抽成 `report()`，使这条路径可测。
 
+### V3 W3-4 · 失败复现包与回归 fixture（2026-08-05）
+
+- `detectors/repro_bundle.py` 从一个有效失败 trial 生成 `manifest.json`、patch、脱敏轨迹、失败标签、三类 detector findings、grader 聚合摘要和 `replay-fixture.json`；CLI 为 `scripts/build_repro_bundle.py build|replay`。
+- replay 不调用模型：重新 materialize 同一 case → 校验 suite 指纹 → 应用 patch → 评分前注入 hidden → 复用正式 Test/Constraint/Patch grader → 比对稳定 grade signature。空 patch 与非空失败 patch 均有端到端测试。
+- 包内不复制 hidden 测试代码、节点名、失败正文或 external native log；patch 若含凭据形态文本直接拒绝，其他 JSON/trajectory 做结构化脱敏。checksum 篡改与 suite/oracle 漂移都拒绝给出“已复现”。
+- infra-invalid 不包装成 Agent 缺陷；旧 artifact 缺 `trial.json`/轨迹时仍可生成诊断材料，但 replay 明确 unsupported，不根据旧 grader 反推或伪造运行证据。
+- 生成物位于 gitignored 的 `artifacts/repro_bundles/`；新增 11 条测试后门禁为 **360 passed / 1 skipped**，Ruff 全绿，短/长 selfcheck 9/9 + 8/8。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：
@@ -583,10 +591,9 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **先完成 W3-4 repro bundle/回归 fixture**：复用已有失败 artifacts，做到无需模型即可重放 patch、注入 hidden 并复现 grader 结论。
-2. **完成 W3-5 静态报告与 W3-3 统计收口**：先消费历史数据，再接 CrossAgent UI；缺失价格继续显式 unavailable。
-3. **离线开发 W3-1 multi-turn 与 W2-2 ScratchPad**：用 scripted provider/adapter 做确定性验收，真实恢复率实验留到模型额度恢复后。
-4. **建设 W2-5 hackbait suite**：先完成策略接线、reference/none 和 detector 自检，真实 hacking-rate 后补。
-5. **额度恢复后执行 W3-6a**：保持原模型、wall-clock、温度、预算和 repeats 配对，在 8-case 长程 suite 上重跑并更新区间。
-6. **再接第二外部 Agent 与官方 SWE-bench Smoke Slice**；两者可先搭离线协议，但 live 结果必须等各自运行环境有效后验收。
-7. **谨慎补 RepoMemory**：跨 run memory 必须证明 trial 隔离和无答案泄漏，否则宁可不做；正式 Golden Dataset/hidden/reference 不随开源框架公开。
+1. **完成 W3-5 静态报告与 W3-3 统计收口**：先消费历史数据，再接 CrossAgent UI；缺失价格继续显式 unavailable。
+2. **离线开发 W3-1 multi-turn 与 W2-2 ScratchPad**：用 scripted provider/adapter 做确定性验收，真实恢复率实验留到模型额度恢复后。
+3. **建设 W2-5 hackbait suite**：先完成策略接线、reference/none 和 detector 自检，真实 hacking-rate 后补。
+4. **额度恢复后执行 W3-6a**：保持原模型、wall-clock、温度、预算和 repeats 配对，在 8-case 长程 suite 上重跑并更新区间。
+5. **再接第二外部 Agent 与官方 SWE-bench Smoke Slice**；两者可先搭离线协议，但 live 结果必须等各自运行环境有效后验收。
+6. **谨慎补 RepoMemory**：跨 run memory 必须证明 trial 隔离和无答案泄漏，否则宁可不做；正式 Golden Dataset/hidden/reference 不随开源框架公开。
