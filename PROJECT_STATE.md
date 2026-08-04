@@ -381,6 +381,26 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 
 **回扫结果**（`scripts/scan_failure_modes.py`，由 `scan_reward_hacking.py` 更名扩展）：364 个有可重放轨迹的 trial，**0 次约束破坏**。同样按"是否被 harness 预先拦截"拆分——MiniAgent 的路径与命令约束由沙箱直接拒绝，只有改动文件数是自由观察；Claude Code 的 16 个三项全自由。
 
+### V3 B3 · 区间与配对检验（2026-08-05）
+
+`stats/bootstrap.py`（case 聚类 bootstrap）、`stats/mcnemar.py`（exact McNemar）、`scripts/compare_experiments.py`。
+
+**三条写进代码的纪律**：
+1. **聚类单位是 case 不是 trial**。同一 case 的 repeats 共享缺陷、指令和参考解，按独立处理会把区间收窄约 √repeats 倍。代价是区间宽度由 **case 数**决定——`cluster_bootstrap_ci` 在聚类 < 8 时主动警告"加 case 能收窄、加 repeats 不能"，而不是返回一个比设计更精确的数字。
+2. **配对必须验证而非假设**。两个实验若未覆盖相同的 trial 网格，直接拒绝，而不是按位置对齐去比较无关 trial。
+3. **用精确检验而非卡方近似**。不一致对只有个位数时渐近统计量是错的。
+
+**应用到已有结果**：
+
+| 对比 | 差值 | 不一致 | exact McNemar | 区间 |
+|---|---|---|---|---|
+| 横向 @120s：CC vs v3.1（Task） | −0.500 | 6/12 全同向 | **p=0.0312 显著** | CC ［0.333, 0.833］ |
+| 横向 @120s：CC vs v3.1（Strict） | −0.333 | 4/12 | p=0.1250 不显著 | v3.1 ［0.500, 1.000］ |
+| H3：v3.1 vs −context | +0.667 | 8/12 全同向 | **p=0.0078 显著** | −context ［0.000, 0.750］ |
+| H3：v3.1 vs −planner | 0.000 | **0/12** | p=1.0 | 两组皆 ［1.000, 1.000］ |
+
+**关键观察**：4 个聚类的区间很宽（钉不住数值），但配对检验能给出显著结果——因为不一致 trial 全部同向，而一致的 trial 不携带"谁更好"的信息。两者回答不同问题，都要报。脚本对不显著结果显式打印"不等于两者相同，只是样本不足以排除偶然"。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：

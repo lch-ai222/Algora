@@ -32,6 +32,11 @@ Full report: **[docs/cross_agent_report_v1.md](docs/cross_agent_report_v1.md)**
 | MiniAgent v3.1 | 120s | 12 | **1.00** | 0.83 | 34.3 | 18.8 |
 | MiniAgent v2 | 120s | 12 | 0.92 | 0.83 | 34.3 | 19.3 |
 
+Paired at the trial level: Task differs by −0.50 with all six disagreements pointing the same
+way (exact McNemar **p = 0.031**), while the 4-case cluster bootstrap puts Claude Code's rate
+anywhere in ［0.33, 0.83］. Both are true and they answer different questions — the sample
+pins down the *direction* but not the *value*.
+
 Given enough time every scaffold scores 1.00 — the suite has no resolving power. Tighten the
 clock to 120s and Claude Code halves while the MiniAgent holds. The trajectories say why: in
 120s Claude Code issues **14.6 tool calls against the MiniAgent's 34.3**, spending its budget
@@ -68,6 +73,10 @@ V3 = V2 + a task planner + context management. Long suite, 12k hard context ceil
 | **v3.1 (both)** | **1.00** | 0.92 | 0 | 55 |
 | v3.1 − context | 0.33 | 0.33 | 10 | 0 |
 | v3.1 − planner | **1.00** | 0.92 | 0 | 44 |
+
+Removing context management costs 0.667 with eight of twelve trials flipping, all in the same
+direction (exact McNemar **p = 0.008**). Removing the planner flips nothing at all
+(0 discordant, p = 1.0) — which bounds its effect rather than proving it has none.
 
 Context management is the entire effect. The planner is neutral and costs ~18% more tool
 calls. An earlier version of this ablation reported the planner as actively *harmful*; that
@@ -133,7 +142,8 @@ and was correct; only the enforcement path was unwired, so every artifact looked
 ```
 report        docs/*.md  ·  backend + frontend console over artifacts/
 ────────────────────────────────────────────────────────────────────────
-analysis      detectors/ (reward hacking · instruction drift)  stats/ (Wilson)
+analysis      detectors/ (reward hacking · instruction drift)
+              stats/ (cluster bootstrap · exact McNemar · Wilson)
               failure_taxonomy.py           compare.py
 ────────────────────────────────────────────────────────────────────────
 orchestration runner.py — process-pool parallelism, trial-level resume,
@@ -193,8 +203,11 @@ ANTHROPIC_BASE_URL=... ANTHROPIC_AUTH_TOKEN=... \
 python -m codeagent_eval.runner --adapter claude_code --claude-model glm-5.2 \
   --suite datasets/mini_store_long --max-wall-clock 120 --workers 3
 
-# Scan every patch ever produced for signs verification was disarmed
+# Scan every trial ever produced for reward hacking and instruction drift
 python scripts/scan_failure_modes.py artifacts/runs
+
+# Compare two arms with an interval and a paired test, not two point estimates
+python scripts/compare_experiments.py artifacts/runs/<a> artifacts/runs/<b>
 ```
 
 Each trial persists `config.json` (model, budgets, adapter version, pricing revision),
@@ -221,10 +234,10 @@ bounds reference=1.00 / none=0.00 on both suites · CI green including a contain
 | SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
 | Terminal-Bench / OctoBench | protocol study only |
 
-Not done: the context-amnesia detector, multi-turn, cluster-bootstrap
-intervals and paired tests, SWE-bench official instances. The 4-case long suite is the binding
-limit on statistical claims — with case as the clustering unit, more cases matter more than
-more repeats.
+Not done: the context-amnesia detector, multi-turn, SWE-bench official instances. The 4-case
+long suite is the binding limit on statistical claims — with case as the clustering unit, more
+cases narrow the interval and more repeats do not, which `cluster_bootstrap_ci` warns about
+rather than hiding.
 
 ## Documents
 
