@@ -10,7 +10,7 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**182 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**191 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -145,7 +145,12 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 - 缓存命中按 cached 费率计价（兼容 DeepSeek 的 `prompt_cache_hit_tokens` 与 OpenAI 式的 `prompt_tokens_details.cached_tokens` 两种口径）；表里没有 cached 费率时按全价计并标记 `upper_bound=true`，不冒充精确估计。
 - trial 级：**只有全部调用都定价成功才报成本**。只把定价成功的那部分加起来会低估总额，却仍然长得像一个真数字。
 - 每次运行的 `run_config` 记录 `pricing_revision` / `pricing_path`——否则归档产物里的成本数字在厂商调价后就无法回溯核对。
-- ⚠️ **`config/pricing.json` 目前所有费率为 null**，即成本仍是 `unavailable`。填费率是一步需要查厂商官网的手工操作（要连同 source URL 和日期一起填），机制已就绪。
+- **费率已填（2026-08-04，含 source URL 与日期）**：DeepSeek v4-flash/v4-pro（USD，官方 pricing 页）、GLM-5.2/4.7/4.5-Air/4.7-FlashX/4.7-Flash（CNY，官方 pricing 页，JS 渲染，用浏览器读取）。
+- `tiered` 标记：GLM 的 4.7 / 4.5-Air 按输入/输出长度分档计价，表内登记**最贵档**并让估算带 `upper_bound=true`——长程 trial 确实会越过 32k 分界，选最便宜档会对一半 trial 系统性低估。
+- `aliases`：厂商保留旧模型名。**用实时 API 验证**：`deepseek-chat` 与 `deepseek-reasoner` 都解析到 `deepseek-v4-flash`。
+- **修掉两个由此暴露的缺陷**：(1) `DEEPSEEK_MODEL_PRO=deepseek-reasoner` 使 "pro" 档成为静默空操作（实际服务的是 flash），默认改为 `deepseek-v4-pro`；(2) `last_model` 原先只记**请求**的名字，产物会声称跑了一个从未运行过的模型——现在记录**实际服务**的模型，并保留 `requested_model` 供对照。
+- **GLM 型号已换代**：`glm-4.6` 与 `glm-4-flash` 已不在现价目表。阶梯更新为 **glm-5.2（强）/ glm-4.5-air（中）/ glm-4.7-flash（弱，免费）**。
+- ⚠️ `usd_per_cny` 仍为 null，因此 **GLM 成本按设计报 `unavailable`**（不假设汇率）；DeepSeek 为 USD 计价，成本正常产出。
 
 ## 5. 最近一次验证结果
 
@@ -154,6 +159,19 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 `v2-20260803T191808Z`，DeepSeek v4-flash，temperature=0，4 case × 1 repeat，单回合输出上限 4096：Task/Strict **1.00/1.00**，有效 trial **4/4**，infra **0**；工具动作中位数 **30**，模型轮次中位数 **13.5**，测试运行中位数 **3**。逐 case 工具动作是 34/26/16/44。成本费率未配置，故 `cost_usd=null`、`cost_source=unavailable`。
 
 该运行只用于 W1-1 难度/轨迹长度验收，n=1 不足以证明稳定成功率；后续横向评测必须增加 repeats、置信区间和配对检验。
+
+### V3 W1-7 首次真实成本测量（2026-08-04）
+
+DeepSeek，V2 harness，短程 2 case × 1 repeat，workers=2，费率表 `2026-08-04`：
+
+| model | Task | 2 trial 成本 | tokens/trial | tools/trial |
+|---|---|---|---|---|
+| deepseek-v4-flash | 1.00 | $0.000791 | 13,820 | 7.0 |
+| deepseek-v4-pro | 1.00 | $0.004163 | 18,536 | 8.0 |
+
+**成本比 5.26×，成功率完全相同** —— 在这个 suite 上多付 5 倍买不到任何东西。这是 saturation 结论第一次带上成本维度（H1 的直接证据）。样本极小（n=1/case），只用于验证成本链路与展示口径，不能外推。
+
+缓存计价的实际影响：某 trial 的 13,365 prompt tokens 中 11,904 为缓存命中（89%）。按 cached 费率计为 **$0.000414**；若不分档会算成 **$0.002047**，**高估 4.94×**。这是"缓存分档计价不是可选项"的实测依据。
 
 ### V2 短程历史结果
 
@@ -184,7 +202,9 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 - **统计功效有限**：当前私有集共 13 case，长程正式校准仅 n=1/case，不能把 1.00 外推成稳定能力；横向对比仍需 repeats 与区间。
 - **覆盖范围有限**：仍只有 Python 小仓库；虽已补 API refactor 与 build/CLI，但 review/test-generation/performance/security/multi-turn 与多语言仍缺。
 - **ClaudeCodeAdapter 未 live 验证**：本机无 `claude` CLI，stream-json 记录结构与 flag 集按官方文档实现 + 容错解析，测试以 CLI stand-in 驱动。**接触真实 CLI 后必须先 probe + 单 case 冒烟核对 schema/flag，再产出任何横向数据**；在此之前不得声称已具备横向评测结果。
-- **成本表未填**：`config/pricing.json` 的费率全为 null，因此成本仍诚实记录为 `unavailable`。机制（每模型费率、溯源、汇率不假设、缓存计价）已完成，**缺的是从厂商官网抄费率这一步手工操作**。Claude Code 侧仅在官方端点下报 native 成本。
+- **GLM 未实跑**：`ZHIPU_API_KEY` 未配置，模型阶梯的弱档（glm-4.7-flash，免费）无法验证，**H2（弱模型恢复区分度）仍未检验**。DeepSeek 侧只有 flash/pro 两档且都饱和。
+- **GLM 成本需汇率**：`usd_per_cny` 为 null，GLM 成本按设计报 `unavailable`。填一个带出处和日期的汇率即可启用；汇率每日变动，属于操作者选择而非可以内置的常量。
+- **分档计价是上界**：GLM 4.7 / 4.5-Air 的成本估算标记 `upper_bound`，不是点估计。要精确需按每次调用的输入/输出长度分桶。
 - **沙箱网络隔离**：MVP 是命令层（拦网络工具），非内核级；内核级隔离由 CI 的 `--network none` 容器执行覆盖（已实跑验证），本地开发路径仍是命令层。
 - **并行下的成本/限流未验证**：4.0× 加速是在确定性 reference/none 上测的（CPU-bound）。真实 LLM trial 是 I/O-bound，加速比可能更高，但会撞 provider 限流；首次并行跑真实模型前需要观察 429 与重试行为。
 - pytest 结果解析基于 `-v` 文本，未来接 pytest-json 更稳。
@@ -192,8 +212,8 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **填 `config/pricing.json` 费率**（含 source URL 与 as_of 日期），成本口径才真正可用。
-2. **首次用 GLM 跑真实实验**：短程 suite 上跑 glm-4.6 与 glm-4-flash 两档，验证阶梯是否恢复区分度（H2），并小规模观察并行下的限流行为。
-3. **V3 W1-4 · planner/v3 prompt**：`update_plan` 工具 + plan 遵守率打点，解锁 Agent 框架线。
+1. **配 `ZHIPU_API_KEY` 后跑 GLM 阶梯**：短程 suite 上 glm-5.2 vs glm-4.7-flash，检验 H2（弱模型是否恢复区分度）。这是当前唯一被外部条件卡住的一项。
+2. **V3 W1-4 · planner/v3 prompt**：`update_plan` 工具 + plan 遵守率打点，解锁 Agent 框架线。
+3. 需要 GLM 的 USD 成本时，填一个带出处与日期的 `usd_per_cny`。
 4. **ClaudeCodeAdapter live 验证**：一旦有可用 CLI，先 probe + 单 case 冒烟核对 stream-json schema 与 flag 集。
 4. **公开 benchmark**：SWE-bench 官方 Smoke Slice 仍是后续 P0，但不冒充全量榜单。

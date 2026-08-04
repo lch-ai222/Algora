@@ -171,21 +171,90 @@ def test_the_shipped_table_parses_and_covers_the_model_ladder():
     entries = {(p.provider, p.model) for p in loaded.prices}
 
     assert json.loads(SHIPPED_TABLE.read_text())["schema_version"] == PRICING_SCHEMA_VERSION
-    assert ("deepseek", "deepseek-chat") in entries
-    assert ("zhipu", "glm-4.6") in entries
-    assert ("zhipu", "glm-4-flash") in entries
+    assert ("deepseek", "deepseek-v4-flash") in entries
+    assert ("deepseek", "deepseek-v4-pro") in entries
+    # The ladder's three rungs: flagship, mid, free weak tier.
+    assert ("zhipu", "glm-5.2") in entries
+    assert ("zhipu", "glm-4.5-air") in entries
+    assert ("zhipu", "glm-4.7-flash") in entries
 
 
-def test_the_shipped_table_reports_unavailable_until_rates_are_filled_in():
-    """Ships unpriced on purpose: rates must be entered from the vendor page with a source
-    and a date, and until then every cost figure has to say it does not know."""
+def test_every_shipped_rate_carries_its_source_and_date():
+    for price in load_price_table(SHIPPED_TABLE).prices:
+        assert price.source, f"{price.model} has a rate with no source"
+        assert price.as_of, f"{price.model} has a rate with no as_of date"
+
+
+def test_the_shipped_usd_rates_price_a_call():
+    loaded = load_price_table(SHIPPED_TABLE)
+    result = loaded.estimate(
+        provider="deepseek", model="deepseek-v4-flash", prompt_tokens=1000, completion_tokens=1000
+    )
+
+    assert result.available is True
+    assert result.amount_usd == pytest.approx(0.00014 + 0.00028, rel=1e-9)
+
+
+def test_the_shipped_cny_rates_stay_unavailable_without_an_exchange_rate():
+    """The table is priced but deliberately carries no usd_per_cny, so GLM cost is withheld
+    rather than converted at a guessed rate."""
+    loaded = load_price_table(SHIPPED_TABLE)
+    result = loaded.estimate(
+        provider="zhipu", model="glm-5.2", prompt_tokens=1000, completion_tokens=1000
+    )
+
+    assert loaded.usd_per_cny is None
+    assert result.amount_usd is None
+    assert "usd_per_cny" in result.reason
+
+
+def test_a_free_model_is_zero_cost_not_unpriced():
+    """glm-4.7-flash is genuinely free. That has to be distinguishable from 'we do not know',
+    which is the whole reason an unpriced model reports None instead of 0.0."""
+    loaded = load_price_table(SHIPPED_TABLE)
+    free = loaded.lookup("zhipu", "glm-4.7-flash")
+
+    assert free.usable is True
+    assert free.prompt_per_1k == 0.0
+    priced = PriceTable(revision="t", path="t", usd_per_cny=0.14, prices=(free,))
+    result = priced.estimate(
+        provider="zhipu", model="glm-4.7-flash", prompt_tokens=10_000, completion_tokens=10_000
+    )
+    assert result.available is True
+    assert result.amount_usd == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# Aliases and length-tiered rates
+# --------------------------------------------------------------------------- #
+def test_a_legacy_alias_resolves_to_the_billed_model():
+    """Verified live on 2026-08-04: deepseek-chat and deepseek-reasoner both serve
+    deepseek-v4-flash, so a lookup miss on the alias would drop cost for a priced run."""
     loaded = load_price_table(SHIPPED_TABLE)
 
-    for price in loaded.prices:
-        if price.usable:
-            assert price.source and price.as_of, f"{price.model} priced without provenance"
-        else:
-            result = loaded.estimate(
-                provider=price.provider, model=price.model, prompt_tokens=10, completion_tokens=10
-            )
-            assert result.amount_usd is None
+    for name in ("deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"):
+        assert loaded.lookup("deepseek", name).model == "deepseek-v4-flash", name
+    assert loaded.lookup("deepseek", "deepseek-v4-pro").model == "deepseek-v4-pro"
+
+
+def test_an_alias_does_not_leak_across_providers():
+    loaded = load_price_table(SHIPPED_TABLE)
+
+    assert loaded.lookup("zhipu", "deepseek-chat") is None
+
+
+def test_a_length_tiered_rate_is_reported_as_an_upper_bound():
+    """The entry carries the most expensive tier, so the figure must not pass as an estimate."""
+    result = estimate(table(priced(tiered=True)))
+
+    assert result.available is True
+    assert result.upper_bound is True
+    assert "most expensive tier" in result.reason
+
+
+def test_tier_and_cache_fallbacks_are_both_reported():
+    result = estimate(table(priced(tiered=True)), prompt_tokens=1000, cached_prompt_tokens=500)
+
+    assert result.upper_bound is True
+    assert "full prompt rate" in result.reason
+    assert "most expensive tier" in result.reason

@@ -18,8 +18,10 @@
 - **CI 首跑全绿**，含 `sandbox-image`：镜像 build 成功并在 `--network none` 下跑通 selfcheck 与确定性边界，容器化评测已落地。
 - **W1-6 已完成**：`--workers N` 进程池并行 + `--resume` trial 级断点续跑；聚合按 suite 顺序，实测 workers=1 与 workers=8 summary 逐字段一致；短程 9×2 实测 17.0s→4.26s（4.0×）。默认 workers=1 以保持已校准基线可复现。`manifest.json` 固定实验身份，resume 配置不符直接拒绝。修掉了并行才暴露的 build 目录冲突。156 passed/1 skipped。
 - **W1-7 已完成（机制层）**：`ProviderSpec` 表取代三处平行 if-chain 并接入 GLM（重构时发现 `_expected_model` 正是漏改的第三处）；`--model` 一个 flag 切换阶梯并写入溯源；`pricing.py` + `config/pricing.json` 每模型费率表，未定价报 `None` 而非 `0.0`、费率须带 source/as_of、CNY 不做隐式汇率换算、缓存命中分档计价、trial 内部分定价即整体不可用。182 passed/1 skipped。
-- ⚠️ **费率表为空**：`config/pricing.json` 所有费率为 null，成本仍是 `unavailable`。填费率需查厂商官网（连同 source URL 与日期），是一步手工操作。
-- **下一项：填费率 → 首次 GLM 实跑（验证 H2 模型阶梯是否恢复区分度）→ W1-4 planner**；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
+- **费率已填（2026-08-04）**：DeepSeek（USD）与 GLM（CNY）均带 source URL 与日期；新增 `aliases` 与 `tiered` 两个字段。实时 API 验证发现 `deepseek-reasoner` 解析到 v4-flash，因此修掉两个缺陷：`DEEPSEEK_MODEL_PRO` 默认使 pro 档成为静默空操作；`last_model` 只记请求名会让产物声称跑了一个从未运行的模型（现记录实际服务模型 + `requested_model`）。GLM 型号已换代，阶梯更新为 glm-5.2 / glm-4.5-air / glm-4.7-flash（免费）。191 passed/1 skipped。
+- **首次真实成本测量**：DeepSeek v4-flash vs v4-pro，短程 2 case，Task 均 1.00，成本 **$0.000791 vs $0.004163（5.26×）**——H1 saturation 首次带上成本维度。缓存分档计价把某 trial 的成本从 $0.002047 修正到 $0.000414（避免 4.94× 高估）。
+- ⚠️ **H2 仍未检验**：`ZHIPU_API_KEY` 未配置，模型阶梯的弱档跑不了；DeepSeek 只有两档且都饱和。**这是当前唯一被外部条件卡住的一项。**
+- **下一项：配 GLM key 跑弱档验 H2 → W1-4 planner**；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
 
 ---
 
@@ -331,7 +333,7 @@ class EvalCase(BaseModel):
 | **W1-4** | `planner.py` + `update_plan` 工具 + v3 prompt 初版 | 🟠 | W1-1 | 1d | 长程 case 上 plan 事件入 trace；`plan_adherence` 可计算 |
 | **W1-5** | GitHub Actions CI（ruff + pytest + Docker build + selfcheck） | ⚫ | — | 0.5d | CI 绿；**`docker/sandbox.Dockerfile` 首次真实 build 成功**（消除"本机无 daemon"硬伤） |
 | **W1-6** | runner 并行化（进程池）+ trial 级 checkpoint 续跑 | ⚫ | W1-2 | 1d | 8 并发下 120 trial 无串扰（worktree 隔离验证）；中断后 `--resume` 不重跑已完成 trial |
-| **W1-7** | GLM provider 接入 + 模型阶梯配置 | 🔵 | — | 0.5d | GLM-4.6 / GLM-4-Flash / DeepSeek 三档可切换；成本表登记 |
+| **W1-7** | GLM provider 接入 + 模型阶梯配置 | 🔵 | — | 0.5d | ✅ 机制完成、费率已填、DeepSeek 两档实测；GLM 实跑待 key |
 
 **Week 1 里程碑**：能用一条命令，在长程 suite 上并行跑 Claude Code 和 MiniAgent，拿到第一份可对比的数据。
 

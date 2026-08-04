@@ -39,7 +39,10 @@ class LlmCallRecord(BaseModel):
     call_type: str = "JSON"
     provider: str
     endpoint: str | None = None
+    #: The model the provider reported serving. Vendors alias names, so this can differ
+    #: from ``requested_model`` — recording only the request would misstate what ran.
     model: str | None = None
+    requested_model: str | None = None
     complexity: str = "fast"
     prompt_version: str = "UNVERSIONED"
     prompt_fingerprint: str | None = None

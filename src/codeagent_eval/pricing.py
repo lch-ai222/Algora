@@ -38,9 +38,19 @@ class ModelPrice:
     prompt_per_1k: float | None
     completion_per_1k: float | None
     cached_prompt_per_1k: float | None = None
+    #: Other names the same billed model answers to. Vendors keep legacy aliases alive
+    #: (deepseek-chat still resolves to deepseek-v4-flash), and a lookup miss on an alias
+    #: would drop cost for an otherwise fully priced run.
+    aliases: tuple[str, ...] = ()
+    #: True when the vendor prices by input/output length. This entry then carries the most
+    #: expensive tier, so any estimate from it is an upper bound rather than a figure.
+    tiered: bool = False
     source: str | None = None
     as_of: str | None = None
     note: str | None = None
+
+    def matches(self, provider: str, model: str) -> bool:
+        return self.provider == provider and (model == self.model or model in self.aliases)
 
     @property
     def usable(self) -> bool:
@@ -72,21 +82,21 @@ class CostEstimate:
         return self.source == "table" and self.amount_usd is not None
 
 
-UNAVAILABLE = CostEstimate(amount_usd=None, source="unavailable")
-
 
 @dataclass(frozen=True)
 class PriceTable:
     revision: str
     path: str
     usd_per_cny: float | None = None
+    usd_per_cny_source: str | None = None
+    usd_per_cny_as_of: str | None = None
     prices: tuple[ModelPrice, ...] = ()
 
     def lookup(self, provider: str, model: str | None) -> ModelPrice | None:
         if not model:
             return None
         for price in self.prices:
-            if price.provider == provider and price.model == model:
+            if price.matches(provider, model):
                 return price
         return None
 
@@ -98,6 +108,7 @@ class PriceTable:
             "pricing_entries": len(self.prices),
             "pricing_usable_entries": sum(1 for p in self.prices if p.usable),
             "usd_per_cny": self.usd_per_cny,
+            "usd_per_cny_as_of": self.usd_per_cny_as_of,
         }
 
     def estimate(
@@ -128,7 +139,8 @@ class PriceTable:
 
         cached = max(0, min(cached_prompt_tokens, prompt_tokens))
         uncached = max(0, prompt_tokens - cached)
-        upper_bound = cached > 0 and price.cached_prompt_per_1k is None
+        cache_fallback = cached > 0 and price.cached_prompt_per_1k is None
+        upper_bound = cache_fallback or price.tiered
         cached_rate = (
             price.cached_prompt_per_1k if price.cached_prompt_per_1k is not None else price.prompt_per_1k
         )
@@ -137,10 +149,15 @@ class PriceTable:
             + cached * cached_rate / 1000
             + completion_tokens * price.completion_per_1k / 1000
         )
+        reasons = []
+        if cache_fallback:
+            reasons.append("prompt-cache tokens billed at the full prompt rate")
+        if price.tiered:
+            reasons.append("vendor prices by input/output length; the most expensive tier is used")
         return CostEstimate(
             amount_usd=round(native * rate_to_usd, 8),
             source="table",
-            reason="prompt-cache tokens billed at the full prompt rate" if upper_bound else None,
+            reason="; ".join(reasons) or None,
             upper_bound=upper_bound,
         )
 
@@ -151,8 +168,6 @@ class PriceTable:
             return self.usd_per_cny
         return None
 
-
-EMPTY_TABLE = PriceTable(revision="none", path="<none>", prices=())
 
 
 def load_price_table(path: str | Path | None = None) -> PriceTable:
@@ -178,6 +193,8 @@ def load_price_table(path: str | Path | None = None) -> PriceTable:
             prompt_per_1k=entry.get("prompt_per_1k"),
             completion_per_1k=entry.get("completion_per_1k"),
             cached_prompt_per_1k=entry.get("cached_prompt_per_1k"),
+            aliases=tuple(entry.get("aliases", ())),
+            tiered=bool(entry.get("tiered", False)),
             source=entry.get("source"),
             as_of=entry.get("as_of"),
             note=entry.get("note"),
@@ -188,6 +205,8 @@ def load_price_table(path: str | Path | None = None) -> PriceTable:
         revision=str(data.get("revision", "unversioned")),
         path=str(resolved),
         usd_per_cny=data.get("usd_per_cny"),
+        usd_per_cny_source=data.get("usd_per_cny_source"),
+        usd_per_cny_as_of=data.get("usd_per_cny_as_of"),
         prices=prices,
     )
 

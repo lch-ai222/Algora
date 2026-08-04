@@ -119,6 +119,7 @@ class LlmProvider:
         self.last_model: str | None = None
         self.last_raw_content: str | None = None
         self.last_usage: dict[str, int] | None = None
+        self.last_requested_model: str | None = None
         self.last_call: LlmCallRecord | None = None
         self.call_history: list[LlmCallRecord] = []
         # One HTTP client per provider endpoint; the SDK client carries timeout +
@@ -184,6 +185,7 @@ class LlmProvider:
         self.last_usage = None
         self.last_call = None
         self.last_model = None
+        self.last_requested_model = None
         status = "ERROR"
         availability_error = self._availability_error()
         if availability_error:
@@ -204,6 +206,7 @@ class LlmProvider:
             return None
         try:
             client, model = self._client_and_model(complexity)
+            self.last_requested_model = model
             self.last_model = model
             kwargs: dict[str, Any] = {}
             if tool_choice is not None:
@@ -218,6 +221,10 @@ class LlmProvider:
                 **kwargs,
             )
             self.last_usage = _usage_dict(response)
+            # Providers alias model names (deepseek-reasoner currently resolves to
+            # deepseek-v4-flash), so provenance and pricing must follow what was actually
+            # served, not what was asked for.
+            self.last_model = getattr(response, "model", None) or model
             choice = response.choices[0]
             message = choice.message
             self.last_raw_content = message.content
@@ -287,6 +294,7 @@ class LlmProvider:
         self.last_usage = None
         self.last_call = None
         self.last_model = None
+        self.last_requested_model = None
         status = "ERROR"
         availability_error = self._availability_error()
         if availability_error:
@@ -307,6 +315,7 @@ class LlmProvider:
             return None
         try:
             client, model = self._client_and_model(complexity)
+            self.last_requested_model = model
             self.last_model = model
             kwargs: dict[str, Any] = {}
             if temperature is not None:
@@ -324,6 +333,10 @@ class LlmProvider:
             content = response.choices[0].message.content or "{}"
             self.last_raw_content = content
             self.last_usage = _usage_dict(response)
+            # Providers alias model names (deepseek-reasoner currently resolves to
+            # deepseek-v4-flash), so provenance and pricing must follow what was actually
+            # served, not what was asked for.
+            self.last_model = getattr(response, "model", None) or model
             validated = response_model.model_validate(json.loads(content))
             status = "SUCCESS"
             return validated
@@ -402,6 +415,7 @@ class LlmProvider:
             provider=self.settings.llm_provider,
             endpoint=self._endpoint_label(),
             model=model,
+            requested_model=self.last_requested_model or self._expected_model(complexity),
             complexity=complexity,
             prompt_version=prompt_version,
             prompt_fingerprint=prompt_fingerprint,

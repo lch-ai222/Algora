@@ -48,11 +48,13 @@ class Settings:
     pricing_path: Path = _path_env("PRICING_PATH", "config/pricing.json")
 
     deepseek_base_url: str = _str_env("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-    deepseek_model_fast: str = _str_env("DEEPSEEK_MODEL_FAST", "deepseek-chat")
-    deepseek_model_pro: str = _str_env("DEEPSEEK_MODEL_PRO", "deepseek-reasoner")
+    deepseek_model_fast: str = _str_env("DEEPSEEK_MODEL_FAST", "deepseek-v4-flash")
+    # deepseek-reasoner is a legacy alias that now resolves to v4-flash, so naming it
+    # here made the "pro" tier a silent no-op.
+    deepseek_model_pro: str = _str_env("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
     zhipu_base_url: str = _str_env("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
-    zhipu_model_fast: str = _str_env("ZHIPU_MODEL_FAST", "glm-4.6")
-    zhipu_model_pro: str = _str_env("ZHIPU_MODEL_PRO", "glm-4.6")
+    zhipu_model_fast: str = _str_env("ZHIPU_MODEL_FAST", "glm-4.7")
+    zhipu_model_pro: str = _str_env("ZHIPU_MODEL_PRO", "glm-5.2")
     openai_model: str = _str_env("OPENAI_MODEL", "gpt-5.4-mini")
 
     # --- Observability ---

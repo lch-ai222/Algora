@@ -30,7 +30,7 @@ def test_every_backend_declares_its_endpoint_credential_and_models():
     assert set(specs) == {"deepseek", "zhipu", "openai"}
     assert specs["zhipu"].api_key_env == "ZHIPU_API_KEY"
     assert "bigmodel.cn" in specs["zhipu"].base_url
-    assert specs["zhipu"].model_for("fast") == "glm-4.6"
+    assert specs["zhipu"].model_for("fast") == "glm-4.7"
     assert specs["openai"].base_url is None  # the SDK default endpoint
 
 
@@ -60,7 +60,7 @@ def test_endpoint_and_model_stay_consistent_per_backend(monkeypatch):
     monkeypatch.setenv("ZHIPU_API_KEY", "k")
     provider = LlmProvider(_settings(llm_provider="zhipu", llm_enable=True))
 
-    assert provider.resolved_model("fast") == "glm-4.6"
+    assert provider.resolved_model("fast") == "glm-4.7"
     assert provider._spec().base_url == provider.settings.zhipu_base_url
 
 
@@ -72,11 +72,11 @@ def test_model_override_selects_the_rung_and_beats_complexity(monkeypatch):
     settings = _settings(llm_provider="zhipu", llm_enable=True)
 
     default = LlmProvider(settings)
-    weak = LlmProvider(settings, model_override="glm-4-flash")
+    weak = LlmProvider(settings, model_override="glm-4.7-flash")
 
-    assert default.resolved_model("fast") == "glm-4.6"
-    assert weak.resolved_model("fast") == "glm-4-flash"
-    assert weak.resolved_model("pro") == "glm-4-flash", "an explicit rung is not a suggestion"
+    assert default.resolved_model("fast") == "glm-4.7"
+    assert weak.resolved_model("fast") == "glm-4.7-flash"
+    assert weak.resolved_model("pro") == "glm-4.7-flash", "an explicit rung is not a suggestion"
 
 
 def test_run_provenance_records_the_rung_and_the_rate_table(monkeypatch):
@@ -84,16 +84,37 @@ def test_run_provenance_records_the_rung_and_the_rate_table(monkeypatch):
 
     monkeypatch.setenv("ZHIPU_API_KEY", "k")
     provider = LlmProvider(
-        _settings(llm_provider="zhipu", llm_enable=True), model_override="glm-4-flash"
+        _settings(llm_provider="zhipu", llm_enable=True), model_override="glm-4.7-flash"
     )
     config = _run_config("v2", provider)
 
     assert config["provider"] == "zhipu"
-    assert config["model"] == "glm-4-flash"
+    assert config["model"] == "glm-4.7-flash"
     # Without the table's identity, an archived cost figure cannot be checked against the
     # rates that produced it once vendor prices move.
     assert config["pricing_revision"]
     assert "pricing_path" in config
+
+
+def test_the_deepseek_pro_tier_names_a_model_that_is_actually_pro():
+    """Verified live on 2026-08-04: deepseek-reasoner resolves to deepseek-v4-flash, so the
+    old default made the "pro" complexity tier a silent no-op that still reported itself as
+    a different model in run provenance."""
+    specs = provider_specs(_settings())
+
+    assert specs["deepseek"].model_pro == "deepseek-v4-pro"
+    assert specs["deepseek"].model_pro != specs["deepseek"].model_fast
+    assert "reasoner" not in specs["deepseek"].model_pro
+
+
+def test_provenance_distinguishes_the_requested_model_from_the_served_one():
+    """A provider that silently aliases must not be able to make an artifact claim a model
+    that never ran."""
+    record = LlmCallRecord(
+        provider="deepseek", requested_model="deepseek-reasoner", model="deepseek-v4-flash"
+    )
+
+    assert record.requested_model != record.model
 
 
 # --------------------------------------------------------------------------- #
