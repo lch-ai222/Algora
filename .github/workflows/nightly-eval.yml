@@ -39,7 +39,7 @@ jobs:
 
       - name: Bounds (short + long)
         run: |
-          python scripts/check_bounds.py \
+          python scripts/check_bounds.py --workers 2 \
             --suite datasets/mini_store_suite \
             --suite datasets/mini_store_long \
             --out artifacts/nightly --keep

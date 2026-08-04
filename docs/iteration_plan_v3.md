@@ -15,8 +15,9 @@
 - W1-3 期间发现并修复一个跨 Agent 归因缺陷：`failure_taxonomy` 原先按 MiniAgent 的原生 `stop_reason` 字符串做规则匹配，外部 Agent 的 `error_max_turns` 等原生词汇不在该词表内，会被静默误归因为 UNKNOWN。已引入 `TrialResult.canonical_stop_reason`，归因改走框架无关语义；旧产物无该字段时按原映射回退，历史归因结果不变（有回归测试锁定）。
 - ⚠️ **W1-3 尚未 live 验证**：本机未安装 `claude` CLI。stream-json 记录结构与 flag 集按官方文档实现并做了容错解析（未知记录类型/畸形行只计数不中断），测试用可执行的 CLI stand-in 驱动真实 subprocess 路径（流式落盘、wall-clock 终止、进程组 kill、环境白名单）。**接触到真实 CLI 后必须先跑 `probe()` 与单 case 冒烟，核对 schema 与 flag 后再产出任何横向数据。**
 - **W1-5 已完成（配置层）**：`ci.yml` 三门禁（quality / sandbox-image / console）+ `nightly-eval.yml` 三 job（bounds / evalplus-oracle / llm-smoke）+ `scripts/check_bounds.py` 确定性边界门禁 + `.dockerignore`。CI 全程不需要 LLM key；140 passed/1 skipped。已在干净 venv（仅 `pip install -e ".[dev,api]"`）逐步验证 ruff/pytest/selfcheck/check_bounds，并本地验证 `npm ci && npm run build`。
-- ⚠️ **`sandbox-image` job 未验证**：本机无 Docker daemon，`docker build` 与容器内断网执行只能由 CI 首跑确认。在该 job 变绿前，"容器化评测"仍属未落地。
-- **下一项是 W1-6**（runner 并行 + checkpoint）；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
+- **CI 首跑全绿**，含 `sandbox-image`：镜像 build 成功并在 `--network none` 下跑通 selfcheck 与确定性边界，容器化评测已落地。
+- **W1-6 已完成**：`--workers N` 进程池并行 + `--resume` trial 级断点续跑；聚合按 suite 顺序，实测 workers=1 与 workers=8 summary 逐字段一致；短程 9×2 实测 17.0s→4.26s（4.0×）。默认 workers=1 以保持已校准基线可复现。`manifest.json` 固定实验身份，resume 配置不符直接拒绝。修掉了并行才暴露的 build 目录冲突。156 passed/1 skipped。
+- **下一项是 W1-7 / W1-4**；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
 
 ---
 
@@ -34,7 +35,7 @@
 |---|---|---|---|---|
 | 1 | Code Agent 框架开发与迭代：**代码理解、工具调用、多轮交互、记忆管理、任务规划** | 工具调用 ✅；代码理解 ⚠️（仅 grep+read）；多轮 ❌；记忆 ⚠️（仅 AGENTS.md 注入）；规划 ❌ | 五项全覆盖，且每项都有**消融实验数据**支撑 | A3, B1–B4, C2 |
 | 2 | 面向**主流 Code Agent（Claude Code / Roo Code / Cline）及自研框架**的系统化评测；覆盖真实开发任务、**长程多轮交互**、**完整工具链（构建/测试/部署）** | ❌ 仅自研 MiniAgent；仅短程单轮；仅 test，无 build/deploy | Claude Code + 1~2 个开源 Agent + MiniAgent 三方对比；长程 + 多轮 suite；含 build 环节的 case | A1, A2, A6, C2, D2, D3 |
-| 3 | 自动化评测框架：**多 Agent 并行、环境隔离、过程可观测、结果自动化分析与可视化报告** | 串行 runner；无 Docker 实跑；可观测 ✅（TraceEvent + 控制台）；报告 ⚠️（仅前端，无导出） | 进程池并行 + 断点续跑；CI 内 Docker 实跑；统一归一化轨迹；静态 HTML/MD 报告导出 | A4, A5, D4, E2 |
+| 3 | 自动化评测框架：**多 Agent 并行、环境隔离、过程可观测、结果自动化分析与可视化报告** | 并行 ✅（进程池 + 断点续跑）；环境隔离 ✅（CI 内断网容器实跑）；可观测 ✅（TraceEvent + 控制台）；报告 ⚠️（仅前端，无导出） | 进程池并行 + 断点续跑；CI 内 Docker 实跑；统一归一化轨迹；静态 HTML/MD 报告导出 | A4, A5, D4, E2 |
 | 4 | 评测算法与缺陷挖掘：自动识别**指令偏移、上下文遗忘、测试投机**；产出**可复现缺陷诊断包与回归用例** | ⚠️ 仅 101 行规则式 `failure_taxonomy.py`；三类失败模式均无检测器；测试文件是**禁止**而非**检测** | 三个独立检测器 + repro bundle + 自动回归 fixture 生成 | C1, C3, C4, C5 |
 | 5 | 深度洞察与产品驱动：输出深度分析报告，为框架优化提供可落地建议 | ⚠️ 有报告但只针对自研 V1/V2 | 三方横向对比报告 → 直接产出 MiniAgent 的能力缺口清单与优先级 | E1, E3 |
 
@@ -45,11 +46,11 @@
 | **框架开发经验** | MiniAgent（254 行 loop + 沙箱 + 6 工具） | + context/memory/planner/multi-turn 四个子系统 | 从"能跑"升到"有架构" |
 | **深度用户视角**（1 年+ AI 编程工具） | 隐含（本项目自身用 Agent 开发，有 AGENTS.md/.claude/） | 显式产出：Claude Code 失败模式观察报告 | E3 |
 | **Python + 系统级语言** | Python ✅；TypeScript ⚠️（前端仅 ~430 行） | TS 加厚：报告生成 + 跨 Agent 对比视图 | D4；不建议为打勾现学 Go |
-| **软件工程素养**（设计模式、规范、自动化测试） | 94 测试 + ruff ✅；adapter Protocol 已落地；仍**无 CI** | CI 门禁 + 检测器插件化 | A5 |
+| **软件工程素养**（设计模式、规范、自动化测试） | 156 测试 + ruff ✅；adapter Protocol + CI 三门禁已落地 | + 检测器插件化 | A5 |
 | **评测与数据思维** | 方法论文档 ✅、kappa meta-eval ✅ | + 置信区间、配对检验、分层统计、预注册假设 | D1 |
 | 加分：**开源经历** | ❌ 未公开 | 清理后 public，含架构图与对比报告 | E4 |
-| 加分：**平台工程** | ⚠️ | 并行调度 + checkpoint + 环境清单 + CI | A4, A5 |
-| 加分：**Benchmark 设计 / 回归体系 / CI/CD / 容器化** | Benchmark ✅；回归 ✅（边界门禁 + nightly）；CI ✅（配置就绪，待首跑）；容器 ⚠️（CI 内 build，待首跑确认） | 四项全覆盖 | A5, C5, D3 |
+| 加分：**平台工程** | ✅ 并行调度 + checkpoint + 环境清单 + CI 均已落地 | 已达成 | A4, A5 |
+| 加分：**Benchmark 设计 / 回归体系 / CI/CD / 容器化** | ✅ 四项全覆盖：Benchmark、边界门禁 + nightly、CI 三门禁全绿、容器内断网实跑 | 已达成 | A5, C5, D3 |
 | 加分：**产品化思维** | ⚠️ | 横向对比 → Agent 产品能力缺口建议书 | E3 |
 
 **结论**：V3 完成后，JD 的 5 条职责、5 条资格、4 条加分项**全部有对应可展示物**；其中职责 2、3、4 从"零/浅"变为主要卖点。
@@ -81,12 +82,12 @@
 
 | ID | 差距 | 严重度 | 根因 |
 |---|---|---|---|
-| G1 | Adapter 抽象与 MiniAgentAdapter 已落地；尚无外部 Agent adapter | 🟠 高 | W1-2 已消除硬耦合，W1-3 待接首个外部 Agent |
+| G1 | ClaudeCodeAdapter 已落地但**未 live 验证**（本机无 CLI）；第二个开源 adapter 未接 | 🟠 高 | 代码就绪，待真实 CLI 核对 schema/flag |
 | G2 | 无 context/memory/plan/multi-turn 四项能力 | 🔴 致命 | JD 职责 1 逐字要求 |
 | G3 | `mini_store_long` 已落地并达到动作中位数 30；尚未用于 context/memory/plan 消融 | 🟠 高 | 数据前置完成，能力实验待 W1-4/W2 |
 | G4 | 三类失败模式（指令偏移/上下文遗忘/测试投机）无检测器 | 🟠 高 | JD 职责 4 逐字要求 |
 | G5 | 测试文件是**禁止修改**而非**允许并检测** | 🟠 高 | 设计取向问题：禁止后永远测不到该维度 |
-| G6 | 无 CI、Docker 从未 build、runner 串行 | 🟠 高 | 三个加分项同时缺失 |
+| G6 | ~~无 CI、Docker 从未 build、runner 串行~~ **已关闭** | ✅ | CI 三门禁全绿；容器内断网实跑；进程池 + 断点续跑 |
 | G7 | SWE-bench 仅自建兼容样例，无官方实例 | 🟠 高 | 面试判断近似二值 |
 | G8 | 已有离线 wheel + CLI 交付 case；仍无部署类 case | 🟡 中 | build 已覆盖，deploy 仍缺 |
 | G9 | 强模型下 8/9 case 饱和，V1→V2 仅 +0.02 | 🟡 中 | 系统维度太少（仅 2 个 harness、1 个模型） |

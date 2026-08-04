@@ -6,11 +6,11 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ## 1. 当前总体状态
 
-闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1/W1-2/W1-3/W1-5 已完成**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter（代码层完成，**尚未 live 验证**——本机无 `claude` CLI）。
+闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1/W1-2/W1-3/W1-5/W1-6 已完成**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter（代码层完成，**尚未 live 验证**——本机无 `claude` CLI）。
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**140 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**156 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -121,6 +121,18 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 - nightly 的纪律：**只对基础设施故障失败，不对模型答错失败**。以成功率作为 nightly 门禁会训练出"把 case 改简单来修红灯"的行为，而这正是 benchmark 要检测的失败模式。runner 的退出码 3（infra-invalid）恰好是正确语义。
 - `scripts/check_bounds.py`：新增的 benchmark 健康门禁。selfcheck 验单个 case，它验**流水线**——reference 低于 1.00 说明 suite 不可解或 grader 坏了，none 高于 0.00 说明有 case 不干活也能过；两者都是单测抓不到的静默失效。
 - `.dockerignore`：把 `.venv`（约 660MB）、缓存和 artifacts 挡在构建上下文外。
+- **CI 首跑三个 job 全绿**，含 `sandbox-image`：镜像 build 成功，并在 `--network none` 下跑通 selfcheck 与确定性边界。容器化评测由此不再是设计文档。
+
+### V3 W1-6 · 并行执行 + trial 级断点续跑
+
+- **调度与检查点的单位都是 trial**：`--workers N` 用进程池并发 N 个 trial；每个 trial 最后写 `trial-complete.json` 标记，`--resume <experiment_id>` 只重跑缺失的部分。
+- **并行是调度细节，不是语义**：聚合始终按 suite 顺序而非完成顺序，实测 workers=1 与 workers=8 的 summary 逐字段一致（仅 experiment_id / created_at / workers / duration 这些本就该变的字段不同）。实测短程 9 case × 2 repeats：**17.0s → 4.26s（4.0×，565% CPU）**。
+- **默认 `--workers 1`**：并行会改变 provider 的限流行为，因此并行是显式选项，已校准的基线保持逐位可复现。
+- 修掉一个并行才会暴露的缺陷：`materialize_case` 原先按 `build_root/<case_id>` 建仓，同一 case 的并发 repeats 会互相覆盖。改为每个 trial 独立 build 目录。
+- **断点续跑必须诚实**：`manifest.json` 固定实验身份（agent/suite/repeats/cases/run_config），`--resume` 遇到配置不符直接拒绝（退出码 2）——否则会把两套配置的 trial 平均进同一个 summary，而这是下游任何检查都发现不了的溯源失效。
+- 完成标记最后写，所以中途被打断的 trial 目录**永远不会被 resume 采纳**；`trial.json`（不含 events，events 从 `trajectory.jsonl` 还原）保证恢复出来的不只是分数，还包括工具调用/测试次数等轨迹派生指标。
+- **崩掉的 trial 是缺失证据，不是 Agent 失败**：worker 内部吞掉异常并记为 infra-invalid（形状合法的零分产物），第 47 个 trial 崩了不会丢掉前 46 个，也不会被算成 Agent 答错。进程池整体死亡（OOM/信号）在父进程侧按同样口径记录。
+- `scripts/check_bounds.py` 与 CI 的边界门禁改用 `--workers 2`，CI 顺带覆盖并行路径。
 
 ## 5. 最近一次验证结果
 
@@ -160,15 +172,15 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 - **覆盖范围有限**：仍只有 Python 小仓库；虽已补 API refactor 与 build/CLI，但 review/test-generation/performance/security/multi-turn 与多语言仍缺。
 - **ClaudeCodeAdapter 未 live 验证**：本机无 `claude` CLI，stream-json 记录结构与 flag 集按官方文档实现 + 容错解析，测试以 CLI stand-in 驱动。**接触真实 CLI 后必须先 probe + 单 case 冒烟核对 schema/flag，再产出任何横向数据**；在此之前不得声称已具备横向评测结果。
 - **成本不可用**：当前 DeepSeek 费率环境变量为 0，产物诚实记录 `null/unavailable`；W1-7 需完成跨 provider 成本口径。Claude Code 侧仅在官方端点下报 native 成本。
-- **CI 尚未在 GitHub 上实跑**：workflow 已就绪，三个 job 中 quality/console 已在本地干净 venv 与 npm 中逐步验证通过；**`sandbox-image` 的 `docker build` 本机无 daemon 无法验证，首次 push 后需确认该 job 变绿**再宣称"容器化评测已落地"。
-- **沙箱网络隔离**：MVP 是命令层（拦网络工具），非内核级；内核级隔离由 CI 的 `--network none` 容器执行覆盖，本地开发路径仍是命令层。
+- **沙箱网络隔离**：MVP 是命令层（拦网络工具），非内核级；内核级隔离由 CI 的 `--network none` 容器执行覆盖（已实跑验证），本地开发路径仍是命令层。
+- **并行下的成本/限流未验证**：4.0× 加速是在确定性 reference/none 上测的（CPU-bound）。真实 LLM trial 是 I/O-bound，加速比可能更高，但会撞 provider 限流；首次并行跑真实模型前需要观察 429 与重试行为。
 - pytest 结果解析基于 `-v` 文本，未来接 pytest-json 更稳。
 - 前端 `TestClient` 有 starlette httpx deprecation warning（无害）。
 
 ## 8. 建议下一步
 
-1. **push 并确认 CI 变绿**，尤其是 `sandbox-image` 的 docker build 与容器内断网执行。
-2. **V3 W1-6 · runner 并行 + checkpoint**：长程 trial 单次 3–8 分钟，串行跑不完横向矩阵，这是前置而非优化。
-3. **V3 W1-4 · planner/v3 prompt**；**W1-7 · GLM 模型阶梯 + 成本表**。
+1. **V3 W1-7 · GLM 模型阶梯 + 成本表**：接 GLM provider，补齐跨 provider 成本口径（当前成本仍为 `null/unavailable`）。
+2. **V3 W1-4 · planner/v3 prompt**：`update_plan` 工具 + plan 遵守率打点，解锁 Agent 框架线。
+3. **首次并行跑真实模型**：先小规模观察限流与成本，再决定横向矩阵的并发度。
 4. **ClaudeCodeAdapter live 验证**：一旦有可用 CLI，先 probe + 单 case 冒烟核对 stream-json schema 与 flag 集。
 4. **公开 benchmark**：SWE-bench 官方 Smoke Slice 仍是后续 P0，但不冒充全量榜单。

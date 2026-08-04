@@ -12,7 +12,7 @@ any work. Both are silent failures that a passing unit-test suite would not catc
 why this runs in CI rather than living in a runbook.
 
     python scripts/check_bounds.py --suite datasets/mini_store_suite
-    python scripts/check_bounds.py --suite datasets/mini_store_long --out artifacts/ci
+    python scripts/check_bounds.py --suite datasets/mini_store_long --workers 4
 """
 
 from __future__ import annotations
@@ -27,11 +27,13 @@ from codeagent_eval.runner import run_experiment
 EXPECTED = {"reference": 1.0, "none": 0.0}
 
 
-def check_suite(suite_dir: Path, out_root: Path, *, keep: bool = False) -> list[str]:
+def check_suite(
+    suite_dir: Path, out_root: Path, *, keep: bool = False, workers: int = 1
+) -> list[str]:
     """Run both deterministic tiers over ``suite_dir``; return a list of failure messages."""
     failures: list[str] = []
     for tier, expected in EXPECTED.items():
-        summary = run_experiment(tier, suite_dir, None, 1, None, out_root)
+        summary = run_experiment(tier, suite_dir, None, 1, None, out_root, workers=workers)
 
         actual = summary["suite_task_success"]
         if actual is None or abs(actual - expected) > 1e-9:
@@ -61,11 +63,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--suite", action="append", required=True, type=Path)
     parser.add_argument("--out", type=Path, default=Path("artifacts/bounds"))
     parser.add_argument("--keep", action="store_true", help="retain the produced experiments")
+    parser.add_argument(
+        "--workers", type=int, default=1, help="parallel trials; both tiers are deterministic"
+    )
     args = parser.parse_args(argv)
 
     failures: list[str] = []
     for suite_dir in args.suite:
-        failures.extend(check_suite(suite_dir, args.out, keep=args.keep))
+        failures.extend(check_suite(suite_dir, args.out, keep=args.keep, workers=args.workers))
 
     if failures:
         print("\nFAILED: deterministic bounds violated", file=sys.stderr)

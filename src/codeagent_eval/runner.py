@@ -2,6 +2,8 @@
 
     python -m codeagent_eval.runner --agent v1 --suite datasets/mini_store_suite --repeats 3
     python -m codeagent_eval.runner --adapter mini_agent --harness v2 --suite datasets/mini_store_suite
+    python -m codeagent_eval.runner --adapter claude_code --suite datasets/mini_store_long --workers 8
+    python -m codeagent_eval.runner --agent v2 --suite ... --resume v2-20260804T050844Z
 
 Agent kinds:
   v1 / v2      MiniAgent (needs an LLM provider configured in .env)
@@ -11,6 +13,12 @@ Agent kinds:
 Per trial we persist config.json / trajectory.jsonl / patch.diff / grader-results.json under
 artifacts/runs/<experiment_id>/<case_id>/rep<k>/, and write summary.json + summary.csv with
 mean+variance and pass@k (capability) vs pass^k (reliability).
+
+Trials are the unit of scheduling and of checkpointing: each one materializes its own repo,
+so `--workers N` runs N at a time, and each writes a completion marker last, so `--resume`
+re-runs only what is missing. `--workers` defaults to 1 because parallelism changes provider
+rate-limit behavior; aggregation always follows suite order, so a parallel run and a serial
+run over the same trials produce identical summaries.
 """
 
 from __future__ import annotations
@@ -22,8 +30,11 @@ import shutil
 import statistics
 import sys
 import tempfile
+import traceback
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from codeagent_eval import __version__
 from codeagent_eval.adapters import (
@@ -48,12 +59,19 @@ from codeagent_eval.failure_taxonomy import (
     canonical_stop_reason,
 )
 from codeagent_eval.graders import combine, grade_constraints, grade_patch, grade_tests
-from codeagent_eval.graders.pytest_run import run_pytest
+from codeagent_eval.graders.constraint_grader import ConstraintGrade
+from codeagent_eval.graders.patch_grader import PatchGrade
+from codeagent_eval.graders.pytest_run import PytestOutcome, run_pytest
 from codeagent_eval.graders.result import GradeResult
+from codeagent_eval.graders.test_grader import TestGrade
 from codeagent_eval.models import AgentTask, TraceEvent, TraceEventType, utc_now_iso
 from codeagent_eval.sandbox import WorktreeSandbox
 
 AGENT_KINDS = ("v1", "v2", "reference", "none")
+
+#: Bumped when a persisted trial's on-disk shape changes, so `--resume` refuses to mix
+#: artifacts it cannot interpret rather than silently aggregating stale ones.
+TRIAL_SCHEMA_VERSION = 1
 
 
 # --------------------------------------------------------------------------- #
@@ -291,6 +309,10 @@ def _read_agents_md(root: Path) -> str | None:
     return p.read_text() if p.exists() else None
 
 
+def trial_dir(out_dir: Path, case_id: str, repeat: int) -> Path:
+    return out_dir / case_id / f"rep{repeat}"
+
+
 def _persist_trial(
     trial_dir: Path, config_meta: dict[str, Any], trial: TrialResult, grade: GradeResult,
     attribution: FailureAttribution, *, adapter_result: AgentRunResult | None = None,
@@ -303,9 +325,47 @@ def _persist_trial(
             fh.write(ev.model_dump_json() + "\n")
     (trial_dir / "grader-results.json").write_text(grade.model_dump_json(indent=2))
     (trial_dir / "failure-tags.json").write_text(attribution.model_dump_json(indent=2))
+    # Everything aggregation reads, minus the events already written to trajectory.jsonl.
+    # Without this a resumed experiment could only recover scores, not the trajectory-derived
+    # metrics (tool calls, test runs, tokens), and its summary would silently differ.
+    (trial_dir / "trial.json").write_text(trial.model_dump_json(indent=2, exclude={"events"}))
     if adapter_result is not None:
         adapter_result = _relocate_native_trajectory(adapter_result, trial_dir)
         (trial_dir / "agent-result.json").write_text(adapter_result.model_dump_json(indent=2))
+    # Written last, on purpose: a trial interrupted mid-write leaves no marker and is re-run,
+    # so `--resume` can never adopt a half-written directory.
+    (trial_dir / "trial-complete.json").write_text(
+        json.dumps({"schema_version": TRIAL_SCHEMA_VERSION, "completed_at": utc_now_iso()}, indent=2)
+    )
+
+
+def load_completed_trial(
+    trial_dir: Path,
+) -> tuple[GradeResult, TrialResult, FailureAttribution] | None:
+    """Rehydrate a finished trial, or return None if it must be re-run.
+
+    Any missing/unreadable artifact or an unknown schema version means re-run: adopting a
+    partially written trial would corrupt the experiment in a way no later check could detect.
+    """
+    marker = trial_dir / "trial-complete.json"
+    if not marker.is_file():
+        return None
+    try:
+        if json.loads(marker.read_text()).get("schema_version") != TRIAL_SCHEMA_VERSION:
+            return None
+        grade = GradeResult.model_validate_json((trial_dir / "grader-results.json").read_text())
+        attribution = FailureAttribution.model_validate_json(
+            (trial_dir / "failure-tags.json").read_text()
+        )
+        payload = json.loads((trial_dir / "trial.json").read_text())
+        payload["events"] = [
+            json.loads(line)
+            for line in (trial_dir / "trajectory.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        return grade, TrialResult.model_validate(payload), attribution
+    except (OSError, ValueError):
+        return None
 
 
 def _relocate_native_trajectory(result: AgentRunResult, trial_dir: Path) -> AgentRunResult:
@@ -327,6 +387,205 @@ def _relocate_native_trajectory(result: AgentRunResult, trial_dir: Path) -> Agen
         if companion.is_file():
             shutil.move(str(companion), native_dir / companion.name)
     return result.model_copy(update={"native_trajectory_path": str(destination)})
+
+
+# --------------------------------------------------------------------------- #
+# Trial scheduling: one picklable work unit per (case, repeat)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class TrialSpec:
+    """A single trial, fully described by values that survive a process boundary.
+
+    Live objects (the LLM provider holds an HTTP client) are deliberately absent: each worker
+    builds its own, which is also the only safe arrangement — sharing one client across
+    processes is not defined behavior.
+    """
+
+    kind: str
+    case_id: str
+    suite_dir: str
+    out_dir: str
+    build_root: str
+    repeat: int
+    max_completion_tokens: int = 2048
+    adapter_config: Any = None
+
+
+class TrialOutcome(NamedTuple):
+    case_id: str
+    repeat: int
+    grade: GradeResult
+    trial: TrialResult
+    attribution: FailureAttribution
+
+
+#: Per-process caches. Loading the suite and constructing a provider once per worker keeps a
+#: pool of long-lived processes from repeating that work on every trial.
+_WORKER_CACHE: dict[Any, Any] = {}
+
+
+def _worker_suite(suite_dir: str):
+    key = ("suite", suite_dir)
+    if key not in _WORKER_CACHE:
+        _WORKER_CACHE[key] = load_suite(Path(suite_dir))
+    return _WORKER_CACHE[key]
+
+
+def _worker_provider(kind: str):
+    if kind not in ("v1", "v2"):
+        return None
+    if "provider" not in _WORKER_CACHE:
+        from codeagent_eval.llm import LlmProvider
+        from codeagent_eval.settings import load_settings
+
+        _WORKER_CACHE["provider"] = LlmProvider(load_settings())
+    return _WORKER_CACHE["provider"]
+
+
+def execute_trial(spec: TrialSpec) -> TrialOutcome:
+    """Run one trial. Never raises: a crash becomes an infra-invalid trial.
+
+    A harness crash on trial 47 must not discard the 46 completed ones, and it must not be
+    scored as the agent failing the case either — it is missing evidence, which is exactly
+    what the infra-invalid tier records.
+    """
+    out_dir = Path(spec.out_dir)
+    case: EvalCase | None = None
+    try:
+        suite = _worker_suite(spec.suite_dir)
+        case = next(c for c in suite.cases if c.case_id == spec.case_id)
+        grade, trial, attribution = run_trial(
+            spec.kind,
+            case,
+            Path(spec.suite_dir),
+            suite.repo,
+            _worker_provider(spec.kind),
+            Path(spec.build_root) / f"{spec.case_id}-rep{spec.repeat}",
+            out_dir,
+            spec.repeat,
+            spec.max_completion_tokens,
+            adapter_config=spec.adapter_config,
+        )
+    except Exception as exc:  # noqa: BLE001 - deliberately broad; see docstring
+        # Loading the suite is inside the try as well, so even an unresolvable case_id becomes
+        # a recorded infra failure rather than a raise that the pool would surface as a dead
+        # worker.
+        case = case or placeholder_case(spec.case_id)
+        grade, trial, attribution = harness_failure(case, spec, exc)
+        _persist_trial(
+            trial_dir(out_dir, spec.case_id, spec.repeat),
+            {
+                "agent": spec.kind,
+                "case_id": spec.case_id,
+                "task_type": case.task_type,
+                "repeat": spec.repeat,
+                "stop_reason": trial.stop_reason,
+                "canonical_stop_reason": trial.canonical_stop_reason,
+                "harness_error": trial.completion_checks.get("harness_error"),
+            },
+            trial,
+            grade,
+            attribution,
+        )
+    return TrialOutcome(spec.case_id, spec.repeat, grade, trial, attribution)
+
+
+def placeholder_case(case_id: str) -> EvalCase:
+    """Stand-in used only when a failure record is needed but the real case is unavailable."""
+    return EvalCase(case_id=case_id, task_type="bugfix", instruction="<case unresolved>")
+
+
+def harness_failure(
+    case: EvalCase, spec: TrialSpec, exc: BaseException
+) -> tuple[GradeResult, TrialResult, FailureAttribution]:
+    """Zero-valued but structurally valid artifacts for a trial the harness could not run."""
+    empty = PytestOutcome(node_ids=[], exit_code=None)
+    grade = combine(
+        case.case_id,
+        TestGrade(
+            target=empty,
+            regression=empty,
+            hidden=empty,
+            target_passed=False,
+            regression_passed=False,
+            hidden_passed=False,
+            functional_success=False,
+        ),
+        ConstraintGrade(
+            forbidden_paths_touched=[],
+            changed_file_count=0,
+            over_file_limit=False,
+            added_dependencies=False,
+            ran_tests_before_finish=False,
+            denied_command_used=False,
+            violations=["harness failure: trial did not run"],
+            passed=False,
+        ),
+        PatchGrade(
+            has_patch=False,
+            applies_cleanly=False,
+            changed_files=[],
+            changed_file_count=0,
+            insertions=0,
+            deletions=0,
+            modified_tests=False,
+            modified_test_files=[],
+            passed=False,
+        ),
+    )
+    detail = f"{type(exc).__name__}: {exc}"
+    trial = TrialResult(
+        stop_reason="harness_error",
+        canonical_stop_reason="error",
+        events=[
+            TraceEvent(
+                step=0,
+                type=TraceEventType.ERROR,
+                name="harness_error",
+                payload={"error": detail, "traceback": _short_traceback(exc)},
+            )
+        ],
+        completion_checks={"provider_error": True, "harness_error": detail},
+        started_at=utc_now_iso(),
+        finished_at=utc_now_iso(),
+    )
+    return grade, trial, attribute_failure(case, trial, grade)
+
+
+def _short_traceback(exc: BaseException, limit: int = 4000) -> str:
+    text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    return text if len(text) <= limit else f"…{text[-limit:]}"
+
+
+def _run_specs(specs: list[TrialSpec], workers: int, suite, on_outcome) -> None:
+    """Execute specs serially (workers=1) or across a process pool, streaming outcomes."""
+    if workers == 1:
+        for spec in specs:
+            on_outcome(execute_trial(spec))
+        return
+
+    cases = {c.case_id: c for c in suite.cases}
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(execute_trial, spec): spec for spec in specs}
+        for future in as_completed(futures):
+            spec = futures[future]
+            try:
+                outcome = future.result()
+            except Exception as exc:  # noqa: BLE001 - a dead worker must not kill the run
+                # execute_trial swallows its own errors, so reaching here means the process
+                # itself died (OOM, signal, BrokenProcessPool). Record it the same way.
+                case = cases.get(spec.case_id) or placeholder_case(spec.case_id)
+                grade, trial, attribution = harness_failure(case, spec, exc)
+                _persist_trial(
+                    trial_dir(Path(spec.out_dir), spec.case_id, spec.repeat),
+                    {"agent": spec.kind, "case_id": spec.case_id, "repeat": spec.repeat,
+                     "stop_reason": trial.stop_reason, "harness_error": str(exc)},
+                    trial,
+                    grade,
+                    attribution,
+                )
+                outcome = TrialOutcome(spec.case_id, spec.repeat, grade, trial, attribution)
+            on_outcome(outcome)
 
 
 # --------------------------------------------------------------------------- #
@@ -396,6 +655,54 @@ def _format_rate(value: float | None) -> str:
     return "n/a" if value is None else str(value)
 
 
+def _experiment_fingerprint(
+    kind: str, suite_name: str, repeats: int, cases: list[EvalCase], run_config: dict[str, Any]
+) -> dict[str, Any]:
+    """The identity a resumed run must match to be the same experiment."""
+    return {
+        "agent": kind,
+        "suite": suite_name,
+        "repeats": repeats,
+        "cases": [c.case_id for c in cases],
+        "run_config": run_config,
+    }
+
+
+def _write_or_verify_manifest(out_dir: Path, fingerprint: dict[str, Any], *, resuming: bool) -> None:
+    """Pin an experiment's identity so `--resume` cannot silently blend configurations.
+
+    Resuming with a different model, harness or case set would produce one summary averaged
+    over trials that were never comparable — a provenance failure invisible in the output.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = out_dir / "manifest.json"
+    if resuming and manifest_path.is_file():
+        previous = json.loads(manifest_path.read_text())
+        if previous.get("fingerprint") != fingerprint:
+            differing = sorted(
+                key
+                for key in set(fingerprint) | set(previous.get("fingerprint", {}))
+                if previous.get("fingerprint", {}).get(key) != fingerprint.get(key)
+            )
+            raise ValueError(
+                f"cannot resume {out_dir.name}: configuration differs from the original run "
+                f"({', '.join(differing)}). Start a new experiment instead."
+            )
+        return
+    if resuming:
+        raise ValueError(f"cannot resume {out_dir.name}: no manifest.json found in {out_dir}")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": TRIAL_SCHEMA_VERSION,
+                "created_at": utc_now_iso(),
+                "fingerprint": fingerprint,
+            },
+            indent=2,
+        )
+    )
+
+
 def _summary_adapter_name(kind: str) -> str:
     if kind in ("v1", "v2"):
         return "mini_agent"
@@ -413,43 +720,83 @@ def run_experiment(
     out_root: Path,
     max_completion_tokens: int = 2048,
     adapter_config=None,
+    workers: int = 1,
+    resume_experiment_id: str | None = None,
 ) -> dict[str, Any]:
+    if workers < 1:
+        raise ValueError("workers must be >= 1")
     suite = load_suite(suite_dir)
-    clean_repo = suite.repo
     cases = [c for c in suite.cases if not case_filter or c.case_id in case_filter]
-    experiment_id = f"{kind}-{utc_now_iso().replace(':', '').replace('-', '')}"
+    run_config = _run_config(kind, provider, max_completion_tokens, adapter_config=adapter_config)
+
+    experiment_id = resume_experiment_id or f"{kind}-{utc_now_iso().replace(':', '').replace('-', '')}"
     out_dir = out_root / experiment_id
+    fingerprint = _experiment_fingerprint(kind, suite.name, repeats, cases, run_config)
+    _write_or_verify_manifest(out_dir, fingerprint, resuming=resume_experiment_id is not None)
     build_root = Path(tempfile.mkdtemp(prefix="cae-run-"))
 
-    print(f"Experiment {experiment_id}: {len(cases)} cases x {repeats} repeats (agent={kind})")
+    # Reuse finished trials before scheduling anything, so a resumed run costs only what is
+    # actually missing.
+    completed: dict[tuple[str, int], TrialOutcome] = {}
+    specs: list[TrialSpec] = []
+    for case in cases:
+        for repeat in range(repeats):
+            done = load_completed_trial(trial_dir(out_dir, case.case_id, repeat))
+            if done is not None:
+                completed[(case.case_id, repeat)] = TrialOutcome(case.case_id, repeat, *done)
+                continue
+            specs.append(
+                TrialSpec(
+                    kind=kind,
+                    case_id=case.case_id,
+                    suite_dir=str(suite_dir),
+                    out_dir=str(out_dir),
+                    build_root=str(build_root),
+                    repeat=repeat,
+                    max_completion_tokens=max_completion_tokens,
+                    adapter_config=adapter_config,
+                )
+            )
+
+    total = len(cases) * repeats
+    print(
+        f"Experiment {experiment_id}: {len(cases)} cases x {repeats} repeats (agent={kind}, "
+        f"workers={workers})"
+    )
+    if completed:
+        print(f"  resumed: {len(completed)}/{total} trials already complete")
+
+    finished = len(completed)
+
+    def on_outcome(outcome: TrialOutcome) -> None:
+        nonlocal finished
+        finished += 1
+        completed[(outcome.case_id, outcome.repeat)] = outcome
+        status = "task=1" if outcome.grade.task_success else "task=0"
+        if _is_infra_invalid(outcome.trial):
+            status = f"INFRA ({outcome.trial.stop_reason})"
+        print(f"  [{finished}/{total}] {outcome.case_id} rep{outcome.repeat}: {status}", flush=True)
+
+    _run_specs(specs, workers, suite, on_outcome)
+    shutil.rmtree(build_root, ignore_errors=True)
+
+    # Aggregate in suite order regardless of completion order, so a parallel run and a serial
+    # run over the same trials produce byte-identical summaries.
     per_case: list[dict[str, Any]] = []
     suite_trials: list[TrialResult] = []
     for case in cases:
-        grades, trials, attrs = [], [], []
-        for r in range(repeats):
-            grade, trial, attribution = run_trial(
-                kind,
-                case,
-                suite_dir,
-                clean_repo,
-                provider,
-                build_root,
-                out_dir,
-                r,
-                max_completion_tokens,
-                adapter_config=adapter_config,
-            )
-            grades.append(grade)
-            trials.append(trial)
-            attrs.append(attribution)
-            suite_trials.append(trial)
-        agg = _aggregate_case(case.case_id, grades, trials, attrs)
+        outcomes = [completed[(case.case_id, r)] for r in range(repeats)]
+        agg = _aggregate_case(
+            case.case_id,
+            [o.grade for o in outcomes],
+            [o.trial for o in outcomes],
+            [o.attribution for o in outcomes],
+        )
         per_case.append(agg)
+        suite_trials.extend(o.trial for o in outcomes)
         print(f"  {case.case_id}: task={_format_rate(agg['task_success_rate'])} "
               f"strict={_format_rate(agg['strict_success_rate'])} "
               f"(pass@k={agg['pass_at_k']} pass^k={agg['pass_pow_k']}, tools≈{agg['tool_calls_mean']})")
-
-    shutil.rmtree(build_root, ignore_errors=True)
 
     case_task_rates = [c["task_success_rate"] for c in per_case if c["task_success_rate"] is not None]
     case_strict_rates = [c["strict_success_rate"] for c in per_case if c["strict_success_rate"] is not None]
@@ -477,11 +824,11 @@ def run_experiment(
         "harness": kind if kind in ("v1", "v2") else None,
         "suite": suite.name,
         "repeats": repeats,
+        "workers": workers,
+        "resumed_trials": len(cases) * repeats - len(specs),
         # Run provenance — constant across the experiment, so a V1/V2 comparison is only valid
         # when these match (same model / provider / temperature / sampling).
-        "run_config": _run_config(
-            kind, provider, max_completion_tokens, adapter_config=adapter_config
-        ),
+        "run_config": run_config,
         "cases": per_case,
         "total_trials": total_trials,
         "valid_trials": valid_trials,
@@ -541,6 +888,19 @@ def main(argv: list[str] | None = None) -> int:
         default=2048,
         help="per-model-turn output-token cap for MiniAgent (default preserves V1/V2 history)",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="parallel trials (default 1: serial, so calibrated baselines stay reproducible; "
+             "parallelism changes provider rate-limit behavior and is therefore opt-in)",
+    )
+    parser.add_argument(
+        "--resume",
+        metavar="EXPERIMENT_ID",
+        default=None,
+        help="continue an experiment under --out, re-running only its incomplete trials",
+    )
     claude = parser.add_argument_group("claude_code adapter")
     claude.add_argument("--claude-cli", default="claude", help="path to the claude executable")
     claude.add_argument("--claude-model", default=None, help="--model passed to the CLI")
@@ -595,17 +955,25 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.max_completion_tokens < 1:
         parser.error("--max-completion-tokens must be positive")
+    if args.workers < 1:
+        parser.error("--workers must be positive")
 
-    summary = run_experiment(
-        kind,
-        Path(args.suite),
-        provider,
-        args.repeats,
-        args.cases,
-        Path(args.out),
-        args.max_completion_tokens,
-        adapter_config=adapter_config,
-    )
+    try:
+        summary = run_experiment(
+            kind,
+            Path(args.suite),
+            provider,
+            args.repeats,
+            args.cases,
+            Path(args.out),
+            args.max_completion_tokens,
+            adapter_config=adapter_config,
+            workers=args.workers,
+            resume_experiment_id=args.resume,
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     return _experiment_exit_code(summary)
 
 

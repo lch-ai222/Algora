@@ -86,7 +86,7 @@ jobs:
       - name: Deterministic bounds inside the container, network cut
         run: |
           docker run --rm --network none --cpus 2 --memory 2g codeagent-eval-sandbox:ci \
-            python scripts/check_bounds.py \
+            python scripts/check_bounds.py --workers 2 \
               --suite datasets/mini_store_suite \
               --suite datasets/mini_store_long
 
