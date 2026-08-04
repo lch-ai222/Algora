@@ -6,12 +6,14 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ## 1. 当前总体状态
 
-闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1/W1-2 已完成**：V3 已有长程 suite 和可扩展的 AgentAdapter 接入层，外部 Agent 尚未接入。
+闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1/W1-2/W1-3/W1-5 已完成**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter（代码层完成，**尚未 live 验证**——本机无 `claude` CLI）。
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**94 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**140 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
+- 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
+- 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
 - benchmark 自检：短程 **9/9 valid**、长程 **4/4 valid**；HumanEval canonical 自检 **10/10**。
 - 官方 EvalPlus Smoke Slice：固定 5 个 HumanEval+ 官方任务，canonical oracle Base/Plus **1.00/1.00**；DeepSeek v4-flash **Base 1.00 / Plus 0.80**。
 - 前端：TypeScript 干净，`npm run build` 干净（48.75 kB gzip），浏览器实测无 console 报错。
@@ -100,6 +102,26 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 - V2 完成门禁：provider 暴露 `finish_reason`；截断、空 summary、无改动、未跑测试或末次测试失败不会被误判为正常结束。V1 的刻意薄基线保持不变。
 - 聚合：provider/网络失败记为 infra-invalid，不进入成功率分母；summary 增加动作、模型轮次、测试次数中位数；成本费率缺失时为 `null/unavailable`。
 
+### V3 W1-3 · ClaudeCodeAdapter（headless）
+
+- `adapters/claude_code.py`：`claude -p --output-format stream-json --verbose` 调用；纯函数 `parse_stream_json` 把 system/assistant/user/result 记录归一化为 `TraceEvent`。未知记录类型与畸形行只计数不中断（CLI 升级只应降级轨迹，不应中断已花预算的 trial）。
+- `adapters/normalize.py`：跨框架共享的工具语义表（Read→FILE_READ、Bash+pytest→TEST_RESULT、TodoWrite→PLAN_UPDATE…），供 aider/mini-swe-agent 复用；`is_test_command` 有防漂移测试锁定与 MiniAgent loop 的判定一致。
+- 三条评测有效性红线：**配置隔离**（每 trial 独立 `CLAUDE_CONFIG_DIR`，操作者真实 `~/.claude` 的 settings/hooks/MCP 不参与）、**成本溯源**（`ANTHROPIC_BASE_URL` 指向第三方端点时 `total_cost_usd` 语义错误，降级为 `unavailable` 而非当作 native）、**原始轨迹留档**（边流边落盘，预算 kill 后仍保留部分轨迹）。
+- 预算：wall-clock 用进程组 SIGTERM→SIGKILL 硬执行（子进程 pytest/node 一并终止）；`max_steps`→`--max-turns`；成本/总 token 上限 CLI 无法执行，明确 `UnsupportedCapability` 而非静默忽略。
+- 归一化边界如实标注：stream-json 只报 `is_error` 布尔，派生的 `exit_code` 附 `exit_code_source=inferred_from_is_error`；`.claude/` 等 CLI 自建脚手架在导出 patch 前剥离并登记，否则 changed-files 口径跨 adapter 不可比。
+- `runner.py`：`--adapter claude_code` 使外部 adapter 成为独立 agent 标签（不再折进 v1/v2 harness 轴）；实验开始前 fail-fast probe；trial 目录自包含（原始轨迹 relocate 到 `rep<k>/native/`）。
+- **修复跨 Agent 归因缺陷**：`failure_taxonomy` 原按 MiniAgent 原生 `stop_reason` 字符串匹配，外部 Agent 的 `error_max_turns` 等词汇不在表内会被静默误归因。新增 `TrialResult.canonical_stop_reason`，归因改走框架无关语义；旧产物无该字段时按原映射回退，历史归因不变（有回归测试）。
+- 测试：39 条（纯 parser + 用可执行 CLI stand-in 驱动真实 subprocess 的流式落盘、超时进程组 kill、环境白名单、成本降级、脚手架剥离）。
+
+### V3 W1-5 · CI + 容器化评测
+
+- `.github/workflows/ci.yml`：三个独立门禁。**quality**（ruff + pytest + 短/长程 selfcheck）、**sandbox-image**（`docker build` 后在容器内 `--network none` 跑 selfcheck 与确定性边界）、**console**（`tsc && vite build`）。全部无需 LLM key，CI 恒定可跑。
+- `sandbox-image` 的设计要点：只 build 不算数——能 build 但跑不了 trial 的镜像不是隔离层。CI 在容器内、断网条件下跑完整评测流水线，这才把 `docker/sandbox.Dockerfile` 从"设计文档"变成"可执行证据"，也是 MVP worktree 沙箱（命令层拦截）做不到的内核级网络隔离。
+- `.github/workflows/nightly-eval.yml`：**bounds**（不用 pip 缓存的全新依赖解析 + 边界门禁，捕获上游漂移，例如 pytest 输出变化打断 grader 解析）、**evalplus-oracle**（官方 canonical oracle 必须仍为 1.00/1.00）、**llm-smoke**（有 provider key 时才跑，无 key 干净跳过）。
+- nightly 的纪律：**只对基础设施故障失败，不对模型答错失败**。以成功率作为 nightly 门禁会训练出"把 case 改简单来修红灯"的行为，而这正是 benchmark 要检测的失败模式。runner 的退出码 3（infra-invalid）恰好是正确语义。
+- `scripts/check_bounds.py`：新增的 benchmark 健康门禁。selfcheck 验单个 case，它验**流水线**——reference 低于 1.00 说明 suite 不可解或 grader 坏了，none 高于 0.00 说明有 case 不干活也能过；两者都是单测抓不到的静默失效。
+- `.dockerignore`：把 `.venv`（约 660MB）、缓存和 artifacts 挡在构建上下文外。
+
 ## 5. 最近一次验证结果
 
 ### V3 长程校准（正式基线）
@@ -136,14 +158,17 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 - **公开 benchmark 证据等级有限**：HumanEval 是自建/精选 schema 子集，SWE-bench 是自建兼容样例；两者均不得包装成正式排行榜结果。
 - **统计功效有限**：当前私有集共 13 case，长程正式校准仅 n=1/case，不能把 1.00 外推成稳定能力；横向对比仍需 repeats 与区间。
 - **覆盖范围有限**：仍只有 Python 小仓库；虽已补 API refactor 与 build/CLI，但 review/test-generation/performance/security/multi-turn 与多语言仍缺。
-- **成本不可用**：当前 DeepSeek 费率环境变量为 0，产物诚实记录 `null/unavailable`；W1-3/W1-7 需完成跨 provider 成本口径。
-- **沙箱网络隔离**是命令层（拦网络工具），非内核级；真隔离要 Docker（C 层只讲/可选）。
+- **ClaudeCodeAdapter 未 live 验证**：本机无 `claude` CLI，stream-json 记录结构与 flag 集按官方文档实现 + 容错解析，测试以 CLI stand-in 驱动。**接触真实 CLI 后必须先 probe + 单 case 冒烟核对 schema/flag，再产出任何横向数据**；在此之前不得声称已具备横向评测结果。
+- **成本不可用**：当前 DeepSeek 费率环境变量为 0，产物诚实记录 `null/unavailable`；W1-7 需完成跨 provider 成本口径。Claude Code 侧仅在官方端点下报 native 成本。
+- **CI 尚未在 GitHub 上实跑**：workflow 已就绪，三个 job 中 quality/console 已在本地干净 venv 与 npm 中逐步验证通过；**`sandbox-image` 的 `docker build` 本机无 daemon 无法验证，首次 push 后需确认该 job 变绿**再宣称"容器化评测已落地"。
+- **沙箱网络隔离**：MVP 是命令层（拦网络工具），非内核级；内核级隔离由 CI 的 `--network none` 容器执行覆盖，本地开发路径仍是命令层。
 - pytest 结果解析基于 `-v` 文本，未来接 pytest-json 更稳。
 - 前端 `TestClient` 有 starlette httpx deprecation warning（无害）。
 
 ## 8. 建议下一步
 
-1. **V3 W1-3 · ClaudeCodeAdapter**：headless + stream-json 归一化，先在 3 条短程 case 验证 patch、轨迹、原生成本。
-2. **V3 W1-4/W1-5**：planner/v3 prompt 与 CI/Docker 实 build；不以文档设计替代真实执行。
-3. **V3 W1-6/W1-7**：runner 并行/checkpoint 与 GLM 模型阶梯/成本表。
+1. **push 并确认 CI 变绿**，尤其是 `sandbox-image` 的 docker build 与容器内断网执行。
+2. **V3 W1-6 · runner 并行 + checkpoint**：长程 trial 单次 3–8 分钟，串行跑不完横向矩阵，这是前置而非优化。
+3. **V3 W1-4 · planner/v3 prompt**；**W1-7 · GLM 模型阶梯 + 成本表**。
+4. **ClaudeCodeAdapter live 验证**：一旦有可用 CLI，先 probe + 单 case 冒烟核对 stream-json schema 与 flag 集。
 4. **公开 benchmark**：SWE-bench 官方 Smoke Slice 仍是后续 P0，但不冒充全量榜单。

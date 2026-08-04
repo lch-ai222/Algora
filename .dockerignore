@@ -1,0 +1,17 @@
+# Keep the build context small and the image reproducible: virtualenvs, caches and run
+# artifacts must never leak into a sandbox image that is supposed to be built from source.
+.git
+.github
+.venv
+.venv-evalplus
+.cache
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.ruff_cache
+artifacts
+frontend/node_modules
+frontend/dist
+.env
+.DS_Store

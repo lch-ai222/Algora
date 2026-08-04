@@ -11,7 +11,12 @@
 - **W1-1 已完成**：`mini_store_long` 4/4 selfcheck，reference/none=1.0/0.0；正式 V2 校准 `v2-20260803T191808Z` 为 Task/Strict 1.00、工具动作中位数 30、模型轮次 13.5、测试运行 3。该数据是 n=1/case 的难度校准，不是稳定成功率结论。
 - **W1-2 已完成**：AgentAdapter/MiniAgentAdapter、预算契约、能力探测、环境清单、归一化结果、runner adapter 路由和 infra-invalid 口径已落地；94 passed/1 skipped。
 - 校准发现并修复 V2 将 token 截断空回复误判为 final 的缺陷；默认 2048 保留，长程校准显式使用 4096 并写入溯源。成本费率未配置，因此正式产物为 `null/unavailable`。
-- **下一项是 W1-3**；Claude Code 等外部 Agent 尚未接入，不能宣称已具备横向评测结果。
+- **W1-3 已完成（代码层）**：`ClaudeCodeAdapter` + stream-json 归一化 + `normalize.py` 共享语义表；runner 支持 `--adapter claude_code`（外部 adapter 成为独立 agent 标签，不再折进 v1/v2 轴）；trial 目录自包含（原始轨迹 relocate 到 `rep<k>/native/`）。133 passed/1 skipped，ruff 全绿，两个 suite selfcheck 9/9 + 4/4。
+- W1-3 期间发现并修复一个跨 Agent 归因缺陷：`failure_taxonomy` 原先按 MiniAgent 的原生 `stop_reason` 字符串做规则匹配，外部 Agent 的 `error_max_turns` 等原生词汇不在该词表内，会被静默误归因为 UNKNOWN。已引入 `TrialResult.canonical_stop_reason`，归因改走框架无关语义；旧产物无该字段时按原映射回退，历史归因结果不变（有回归测试锁定）。
+- ⚠️ **W1-3 尚未 live 验证**：本机未安装 `claude` CLI。stream-json 记录结构与 flag 集按官方文档实现并做了容错解析（未知记录类型/畸形行只计数不中断），测试用可执行的 CLI stand-in 驱动真实 subprocess 路径（流式落盘、wall-clock 终止、进程组 kill、环境白名单）。**接触到真实 CLI 后必须先跑 `probe()` 与单 case 冒烟，核对 schema 与 flag 后再产出任何横向数据。**
+- **W1-5 已完成（配置层）**：`ci.yml` 三门禁（quality / sandbox-image / console）+ `nightly-eval.yml` 三 job（bounds / evalplus-oracle / llm-smoke）+ `scripts/check_bounds.py` 确定性边界门禁 + `.dockerignore`。CI 全程不需要 LLM key；140 passed/1 skipped。已在干净 venv（仅 `pip install -e ".[dev,api]"`）逐步验证 ruff/pytest/selfcheck/check_bounds，并本地验证 `npm ci && npm run build`。
+- ⚠️ **`sandbox-image` job 未验证**：本机无 Docker daemon，`docker build` 与容器内断网执行只能由 CI 首跑确认。在该 job 变绿前，"容器化评测"仍属未落地。
+- **下一项是 W1-6**（runner 并行 + checkpoint）；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
 
 ---
 
@@ -44,7 +49,7 @@
 | **评测与数据思维** | 方法论文档 ✅、kappa meta-eval ✅ | + 置信区间、配对检验、分层统计、预注册假设 | D1 |
 | 加分：**开源经历** | ❌ 未公开 | 清理后 public，含架构图与对比报告 | E4 |
 | 加分：**平台工程** | ⚠️ | 并行调度 + checkpoint + 环境清单 + CI | A4, A5 |
-| 加分：**Benchmark 设计 / 回归体系 / CI/CD / 容器化** | Benchmark ✅；回归 ⚠️；CI ❌；容器 ❌（未 build） | 四项全覆盖 | A5, C5, D3 |
+| 加分：**Benchmark 设计 / 回归体系 / CI/CD / 容器化** | Benchmark ✅；回归 ✅（边界门禁 + nightly）；CI ✅（配置就绪，待首跑）；容器 ⚠️（CI 内 build，待首跑确认） | 四项全覆盖 | A5, C5, D3 |
 | 加分：**产品化思维** | ⚠️ | 横向对比 → Agent 产品能力缺口建议书 | E3 |
 
 **结论**：V3 完成后，JD 的 5 条职责、5 条资格、4 条加分项**全部有对应可展示物**；其中职责 2、3、4 从"零/浅"变为主要卖点。

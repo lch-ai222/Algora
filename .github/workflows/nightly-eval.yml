@@ -1,0 +1,126 @@
+name: Nightly eval
+
+# CI proves the code is correct against pinned expectations. This proves the *evaluation
+# apparatus* still works against the outside world: fresh dependency resolution, the official
+# EvalPlus oracle, and — when a provider key is configured — a real LLM round trip.
+#
+# Health, not capability: these jobs fail on infrastructure breakage (harness errors, a broken
+# oracle, an unreachable provider). They deliberately do NOT fail when a model gets a case
+# wrong. Gating nightly on success rate would train us to "fix" red builds by weakening cases,
+# which is the exact failure mode the benchmark exists to detect.
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # 03:17 UTC daily
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  bounds:
+    name: Deterministic bounds against fresh dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # No pip cache on purpose: an unpinned resolution is what surfaces upstream breakage
+      # (a pytest output change silently breaking the grader's parser, for example).
+      - name: Install (uncached resolution)
+        run: pip install -e ".[dev,api]"
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Bounds (short + long)
+        run: |
+          python scripts/check_bounds.py \
+            --suite datasets/mini_store_suite \
+            --suite datasets/mini_store_long \
+            --out artifacts/nightly --keep
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-bounds
+          path: artifacts/nightly
+          retention-days: 14
+
+  evalplus-oracle:
+    name: EvalPlus official oracle still validates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install (pinned EvalPlus 0.3.1)
+        run: pip install -e ".[dev,evalplus]"
+
+      # Runs canonical solutions only — no model, no generated code executed. If this stops
+      # scoring 1.00/1.00 the public-benchmark path is broken and any number produced from it
+      # would be meaningless, so it must be caught before it is quoted anywhere.
+      - name: Canonical oracle gate
+        run: python scripts/run_evalplus_smoke.py --selfcheck --out artifacts/nightly-evalplus
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-evalplus
+          path: artifacts/nightly-evalplus
+          retention-days: 14
+
+  llm-smoke:
+    name: Real provider round trip (skipped without a key)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install
+        run: pip install -e ".[dev,api]"
+
+      # Secrets cannot be referenced in a job-level `if`, so the guard is a step that other
+      # steps read. A fork PR or an unconfigured repo skips cleanly instead of failing red.
+      - id: guard
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ -z "$DEEPSEEK_API_KEY" ]; then
+            echo "No provider key configured; skipping the live round trip." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Exit code 3 means infra-invalid trials (provider/adapter failures), which is the only
+      # thing this job asserts. A graded task failure exits 0 and is reported, not enforced.
+      - name: V2 on two short cases
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          LLM_ENABLE: "true"
+          LLM_PROVIDER: deepseek
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          python -m codeagent_eval.runner \
+            --adapter mini_agent --harness v2 \
+            --suite datasets/mini_store_suite \
+            --cases bugfix-pricing-tax bugfix-cart-merge \
+            --repeats 1 --out artifacts/nightly-llm
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.guard.outputs.skip != 'true'
+        with:
+          name: nightly-llm-smoke
+          path: artifacts/nightly-llm
+          retention-days: 14

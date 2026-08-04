@@ -11,7 +11,10 @@
 #     codeagent-eval-sandbox \
 #     python -m codeagent_eval.runner --agent v2 --suite datasets/mini_store_suite --cases <id>
 #
-# NOTE: not built in this environment (no Docker daemon); provided as a validated design.
+# Built and exercised by `.github/workflows/ci.yml` (the `sandbox-image` job): CI builds the
+# image, then runs the per-case selfcheck and the deterministic bounds inside it with
+# `--network none`. An image that builds but cannot run a trial is not an isolation layer, and
+# offline execution is the claim the MVP worktree sandbox cannot make on its own.
 
 FROM python:3.11-slim
 
