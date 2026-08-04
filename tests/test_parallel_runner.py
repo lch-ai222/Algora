@@ -258,3 +258,37 @@ def test_infra_failures_are_excluded_from_the_denominator_and_flagged(tmp_path):
     assert agg["infra_failures"] == 1
     assert agg["task_success_rate"] == 1.0  # the crash is not scored as a failure
     assert _experiment_exit_code({"infra_failures": 1}) == 3
+
+
+# --------------------------------------------------------------------------- #
+# Step budget as an experimental variable
+# --------------------------------------------------------------------------- #
+@pytest.mark.slow
+def test_max_steps_override_replaces_the_case_budget_and_is_recorded(tmp_path):
+    """A suite every model saturates still discriminates once the budget is tight enough, so
+    the step budget has to be settable per experiment and visible in provenance afterwards."""
+    summary = run_experiment(
+        "reference", SUITE, None, 1, CASES[:1], tmp_path / "out", max_steps_override=3
+    )
+    config = json.loads(
+        (tmp_path / "out" / summary["experiment_id"] / CASES[0] / "rep0" / "config.json").read_text()
+    )
+
+    assert config["max_steps"] == 3
+    assert config["case_max_steps"] == 20, "the case's own default stays visible for contrast"
+    assert summary["run_config"]["max_steps_override"] == 3
+
+
+@pytest.mark.slow
+def test_runs_at_different_budgets_are_different_experiments(tmp_path):
+    """Two budgets are two experiments. Resuming across them would average trials that were
+    never comparable, which is exactly what the manifest fingerprint exists to prevent."""
+    first = run_experiment(
+        "reference", SUITE, None, 1, CASES[:1], tmp_path / "out", max_steps_override=8
+    )
+
+    with pytest.raises(ValueError, match="configuration differs"):
+        run_experiment(
+            "reference", SUITE, None, 1, CASES[:1], tmp_path / "out",
+            max_steps_override=4, resume_experiment_id=first["experiment_id"],
+        )

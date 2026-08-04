@@ -90,6 +90,7 @@ def _run_adapter_trial(
     adapter_name: str = "mini_agent",
     max_completion_tokens: int = 2048,
     adapter_config=None,
+    max_steps: int | None = None,
 ) -> tuple[TrialResult, AgentRunResult]:
     adapter = create_adapter(
         adapter_name,
@@ -103,7 +104,7 @@ def _run_adapter_trial(
         raise RuntimeError(probe.detail or f"adapter {adapter_name} is unavailable")
     budget = BudgetContract(
         max_wall_clock_s=case.timeout_seconds,
-        max_steps=case.max_steps,
+        max_steps=max_steps or case.max_steps,
     )
     adapter.prepare(sandbox.root, task, budget, runtime=sandbox)
     try:
@@ -226,7 +227,11 @@ def run_trial(
     repeat: int,
     max_completion_tokens: int = 2048,
     adapter_config=None,
+    max_steps_override: int | None = None,
 ) -> tuple[GradeResult, TrialResult, FailureAttribution]:
+    # The step budget is an experimental variable, not a case constant: a suite every model
+    # saturates still discriminates once the budget is tight enough to matter.
+    step_budget = max_steps_override or case.max_steps
     repo = materialize_case(suite_dir, clean_repo, case, build_root=build_root)
     try:
         with WorktreeSandbox(repo) as sb:
@@ -235,7 +240,7 @@ def run_trial(
                 instruction=case.render_instruction(),
                 workspace_path=str(sb.root),
                 case_id=case.case_id,
-                max_steps=case.max_steps,
+                max_steps=step_budget,
                 timeout_seconds=case.timeout_seconds,
                 project_instructions=project_instructions,
                 harness_version=kind if kind in ("v1", "v2") else None,
@@ -249,6 +254,7 @@ def run_trial(
                     case,
                     provider,
                     max_completion_tokens=max_completion_tokens,
+                    max_steps=step_budget,
                 )
             elif kind in EXTERNAL_ADAPTERS:
                 trial, adapter_result = _run_adapter_trial(
@@ -258,6 +264,7 @@ def run_trial(
                     None,
                     adapter_name=kind,
                     adapter_config=adapter_config,
+                    max_steps=step_budget,
                 )
             elif kind == "reference":
                 trial = _run_reference_trial(sb, suite_dir, clean_repo, case)
@@ -288,7 +295,8 @@ def run_trial(
                     adapter_config=adapter_config,
                     adapter_result=adapter_result,
                 ),
-                "max_steps": case.max_steps,       # step budget
+                "max_steps": step_budget,          # step budget (may be overridden)
+                "case_max_steps": case.max_steps,  # the case's own default, for contrast
                 "timeout_seconds": case.timeout_seconds,  # wall-clock budget
                 "repeat": repeat,
                 "stop_reason": trial.stop_reason,
@@ -420,6 +428,7 @@ class TrialSpec:
     max_completion_tokens: int = 2048
     adapter_config: Any = None
     model_override: str | None = None
+    max_steps_override: int | None = None
 
 
 class TrialOutcome(NamedTuple):
@@ -477,6 +486,7 @@ def execute_trial(spec: TrialSpec) -> TrialOutcome:
             spec.repeat,
             spec.max_completion_tokens,
             adapter_config=spec.adapter_config,
+            max_steps_override=spec.max_steps_override,
         )
     except Exception as exc:  # noqa: BLE001 - deliberately broad; see docstring
         # Loading the suite is inside the try as well, so even an unresolvable case_id becomes
@@ -734,12 +744,16 @@ def run_experiment(
     adapter_config=None,
     workers: int = 1,
     resume_experiment_id: str | None = None,
+    max_steps_override: int | None = None,
 ) -> dict[str, Any]:
     if workers < 1:
         raise ValueError("workers must be >= 1")
     suite = load_suite(suite_dir)
     cases = [c for c in suite.cases if not case_filter or c.case_id in case_filter]
     run_config = _run_config(kind, provider, max_completion_tokens, adapter_config=adapter_config)
+    # Part of run_config so it lands in provenance *and* in the resume fingerprint: two runs
+    # at different budgets are different experiments and must never merge.
+    run_config["max_steps_override"] = max_steps_override
 
     experiment_id = resume_experiment_id or f"{kind}-{utc_now_iso().replace(':', '').replace('-', '')}"
     out_dir = out_root / experiment_id
@@ -768,6 +782,7 @@ def run_experiment(
                     max_completion_tokens=max_completion_tokens,
                     adapter_config=adapter_config,
                     model_override=getattr(provider, "model_override", None),
+                    max_steps_override=max_steps_override,
                 )
             )
 
@@ -908,6 +923,13 @@ def main(argv: list[str] | None = None) -> int:
              "exactly this flag, and the choice is recorded in run provenance",
     )
     parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="override every case's step budget; use it as an experimental variable to get "
+             "discrimination out of a suite that saturates at the default budget",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=1,
@@ -976,6 +998,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--max-completion-tokens must be positive")
     if args.workers < 1:
         parser.error("--workers must be positive")
+    if args.max_steps is not None and args.max_steps < 1:
+        parser.error("--max-steps must be positive")
 
     try:
         summary = run_experiment(
@@ -989,6 +1013,7 @@ def main(argv: list[str] | None = None) -> int:
             adapter_config=adapter_config,
             workers=args.workers,
             resume_experiment_id=args.resume,
+            max_steps_override=args.max_steps,
         )
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
