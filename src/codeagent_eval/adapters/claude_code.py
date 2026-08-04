@@ -667,6 +667,10 @@ class ClaudeCodeAdapter:
         if self._config_dir is not None:
             env["CLAUDE_CONFIG_DIR"] = str(self._config_dir)
         # Deterministic, non-interactive output regardless of the operator's shell.
+        # PYTHONDONTWRITEBYTECODE matches the MiniAgent sandbox: bytecode written by a test
+        # run is build residue, not the agent's change, and letting one adapter emit it and
+        # not the other would make changed-file counts incomparable.
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["CI"] = "1"
         env["NO_COLOR"] = "1"
         env["TERM"] = "dumb"

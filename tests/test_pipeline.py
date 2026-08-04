@@ -60,3 +60,25 @@ def test_constraint_grader_flags_forbidden_and_file_limit():
     assert grade.passed is False
     assert grade.forbidden_paths_touched == ["tests/test_pricing.py"]
     assert grade.over_file_limit is True
+
+
+def test_a_materialized_repo_ignores_build_residue(tmp_path):
+    """Running pytest writes bytecode under tests/. Without a .gitignore git reports it as a
+    change, so an agent that actually runs the tests gets charged with editing test files and
+    exceeding the changed-file limit — which penalizes exactly the behaviour the harness wants.
+    """
+    from codeagent_eval.benchmark import load_suite, materialize_case
+    from codeagent_eval.sandbox import WorktreeSandbox
+
+    suite = load_suite("datasets/mini_store_suite")
+    case = suite.cases[0]
+    repo = materialize_case("datasets/mini_store_suite", suite.repo, case, build_root=tmp_path)
+
+    assert (repo / ".gitignore").is_file()
+    with WorktreeSandbox(repo) as sandbox:
+        cache = sandbox.root / "tests" / "__pycache__"
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "test_x.cpython-311-pytest-9.1.1.pyc").write_bytes(b"\x00bytecode")
+
+        assert sandbox.changed_files() == [], "build residue is not a repository change"
+        assert ".pyc" not in sandbox.export_patch()

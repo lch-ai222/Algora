@@ -17,6 +17,22 @@ from codeagent_eval.benchmark.case import EvalCase
 
 _IGNORE = shutil.ignore_patterns(".git", "__pycache__", "*.pyc", ".pytest_cache", ".ruff_cache")
 
+#: Every real Python repo carries something like this, and without it the case repo has no way
+#: to say what is source and what is build residue. Running pytest writes bytecode under
+#: tests/, which git then reports as a change — so an agent that actually runs the tests gets
+#: charged with editing test files and blowing the changed-file limit. The MiniAgent never hit
+#: it only because its sandbox sets PYTHONDONTWRITEBYTECODE; an external agent runs in its own
+#: environment, so the fix has to live in the repository rather than in one runner's env.
+_DEFAULT_GITIGNORE = """__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+"""
+
 
 def _git(args: list[str], cwd: Path) -> None:
     subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True)
@@ -43,6 +59,10 @@ def materialize_case(
                 dest = repo / src.relative_to(defect_dir)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dest)
+
+    gitignore = repo / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text(_DEFAULT_GITIGNORE)
 
     _git(["init", "-q"], repo)
     _git(["config", "user.email", "bench@codeagent.eval"], repo)
