@@ -20,8 +20,10 @@
 - **W1-7 已完成（机制层）**：`ProviderSpec` 表取代三处平行 if-chain 并接入 GLM（重构时发现 `_expected_model` 正是漏改的第三处）；`--model` 一个 flag 切换阶梯并写入溯源；`pricing.py` + `config/pricing.json` 每模型费率表，未定价报 `None` 而非 `0.0`、费率须带 source/as_of、CNY 不做隐式汇率换算、缓存命中分档计价、trial 内部分定价即整体不可用。182 passed/1 skipped。
 - **费率已填（2026-08-04）**：DeepSeek（USD）与 GLM（CNY）均带 source URL 与日期；新增 `aliases` 与 `tiered` 两个字段。实时 API 验证发现 `deepseek-reasoner` 解析到 v4-flash，因此修掉两个缺陷：`DEEPSEEK_MODEL_PRO` 默认使 pro 档成为静默空操作；`last_model` 只记请求名会让产物声称跑了一个从未运行的模型（现记录实际服务模型 + `requested_model`）。GLM 型号已换代，阶梯更新为 glm-5.2 / glm-4.5-air / glm-4.7-flash（免费）。191 passed/1 skipped。
 - **首次真实成本测量**：DeepSeek v4-flash vs v4-pro，短程 2 case，Task 均 1.00，成本 **$0.000791 vs $0.004163（5.26×）**——H1 saturation 首次带上成本维度。缓存分档计价把某 trial 的成本从 $0.002047 修正到 $0.000414（避免 4.94× 高估）。
-- ⚠️ **H2 仍未检验**：`ZHIPU_API_KEY` 未配置，模型阶梯的弱档跑不了；DeepSeek 只有两档且都饱和。**这是当前唯一被外部条件卡住的一项。**
-- **下一项：配 GLM key 跑弱档验 H2 → W1-4 planner**；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
+- **H2 已证伪（2026-08-04）**：GLM-4.5-air 在短程 suite 上 45/45 全部 1.00、每 case pass^k=1；DeepSeek 两档同样 1.00。模型阶梯**没有**恢复区分度。结论指向 benchmark 而非模型：难度天花板太低，且长程 suite 对 V2+DeepSeek 也是 1.00（n=1），因此 **H3（compaction 消融）面临同样的不可测风险**。
+- **由此产生的方案修正**：区分度最便宜的来源是**预算**而不是新 case。实测工具调用 7–14.6 对 `max_steps=20`，冗余 30–65%；压到 8–10 即可让重工具的 case 对弱档失败、对强档通过。§6.3 的"预算约束成功率"应从指标升格为**实验变量**。
+- 运行纪律新发现：GLM 免费档限流极严（workers=4 → 44/45 触发 429），付费档 workers=3 下 infra=0。并行度须按档位设定。
+- **下一项：预算收紧实验 → W1-4 planner**；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
 
 ---
 
