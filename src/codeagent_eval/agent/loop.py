@@ -85,6 +85,11 @@ class TrialResult(BaseModel):
     changed_files: list[str] = Field(default_factory=list)
     events: list[TraceEvent] = Field(default_factory=list)
     llm_calls: list[LlmCallRecord] = Field(default_factory=list)
+    # Normalized totals are first-class because an external framework can report aggregate
+    # usage without exposing one LlmCallRecord per turn.  Keeping only llm_calls made those
+    # runs look like they used zero tokens in experiment summaries.
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
     cached_tokens: int = 0
     cost_usd: float | None = None
     cost_source: str = "unavailable"
@@ -93,6 +98,13 @@ class TrialResult(BaseModel):
     started_at: str = ""
     finished_at: str = ""
     duration_ms: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        explicit = self.prompt_tokens + self.completion_tokens
+        # Backward compatibility for schema-v1 trials and direct MiniAgent fixtures, whose
+        # usage lived only in llm_calls. New normalized trials always populate the totals.
+        return explicit if explicit else sum(call.total_tokens for call in self.llm_calls)
 
 
 @dataclass

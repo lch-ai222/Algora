@@ -6,11 +6,11 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ## 1. 当前总体状态
 
-闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1 到 W1-7 全部完成 + W2-1 上下文管理**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter（代码层完成，**尚未 live 验证**——本机无 `claude` CLI）。
+闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1 到 W1-7 全部完成 + W2-1 上下文管理**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter。Claude Code 2.1.220 已完成真实 probe、智谱 GLM-5.2 协议流和一个获授权的 repo case 全链路；这仍只是集成 smoke，不是横向评测结果。
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**252 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**254 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -18,14 +18,31 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 - 官方 EvalPlus Smoke Slice：固定 5 个 HumanEval+ 官方任务，canonical oracle Base/Plus **1.00/1.00**；DeepSeek v4-flash **Base 1.00 / Plus 0.80**。
 - 前端：TypeScript 干净，`npm run build` 干净（48.75 kB gzip），浏览器实测无 console 报错。
 
+### 本轮迭代摘要（15 commits）
+
+- 测试从 **94 → 252**；落地 Claude Code adapter、CI/容器门禁、并行续跑、模型费率、预算实验变量、planner 与 deterministic compaction。
+- H2：模型阶梯只在最弱的 `glm-4.7-flash` 上产生有限区分度（1.00→0.84）；H2 的强信号来自预算收紧，同一 suite 的模型差距由 0.00 放大到 0.85。
+- 首次成本测量：DeepSeek flash/pro 成功率相同，成本差 5.26×；缓存分档避免一次 trial 成本被高估 4.94×。
+- 修正后 H3：compaction 是全部成功效应（1.00→0.33），planner 对成功率中性但工具调用约 +18%。
+- 本轮发现 8 个自身缺陷：外部 stop reason 误归因、resume 冻结 infra trial、pro 模型别名静默失效、requested/served model 混淆、并行 materialize 目录冲突、context budget 未约束对照组、V3 丢失 V2 守卫、plan id 改名击穿遵守率。后三项会静默改变实验结论，必须作为评测有效性缺陷而不只是工程 bug 对待。
+
+### Claude live preflight 查证（2026-08-04）
+
+- Anthropic 当前官方推荐 macOS 使用 native installer，也正式支持 Homebrew cask；为保持安装可追踪、版本不自动漂移且便于卸载，本项目选择 stable cask `brew install --cask claude-code`，不用 `curl | bash`。卸载命令为 `brew uninstall --cask claude-code`。
+- 智谱官方文档已确认 Claude/Anthropic API 兼容端点：国内开放平台为 `https://open.bigmodel.cn/api/anthropic`，可使用 `glm-5.2`；Z.AI Coding Plan 另有 `https://api.z.ai/api/anthropic`。因此“统一 GLM 模型的 Claude Code 对比”在协议层可行，但仍须真实 CLI 验证 tool use、stream-json、模型映射与限流，不能仅凭接口文档认定实验可比。
+- 当前机器通过 Homebrew stable cask 安装 Claude Code **2.1.220**（`/opt/homebrew/bin/claude`）；真实 adapter `probe()` 通过。无认证 stream-json 流和智谱 GLM-5.2 单回合协议流均已验证；该版本 `--help` 不列 `--max-turns`，但实跑接受，证明 capability probe 不能只解析 help。
+- 获得明确数据披露授权后，`claude_code-20260804T113926Z` 在 `bugfix-pricing-tax` 上完成真实 repo smoke：Task/Strict 1.00，6 次工具调用、8 个模型轮次，仅修改 `mini_store/pricing.py`，target/regression/hidden 分别 2/2、2/2、3/3；原始轨迹和评分前轨迹均未出现 hidden 测试，artifact 未检出 API key。该 n=1 结果只证明 patch/grade/artifact 链路可执行。
+- CLI 返回了 24,588 input、430 output、128,896 cached tokens；第三方 endpoint 的 native USD 成本语义不可信，adapter 按设计将成本降级为 `null/unavailable`。repo live 同时暴露并修复两个溯源缺陷：实验级 `adapter_version` 曾为 null，外部 Agent 汇总 token 曾因没有逐调用 `LlmCallRecord` 而显示 0；现在 CLI 版本进入 manifest/resume 指纹，归一化 token 总量直接进入 `TrialResult` 和 summary。
+- 随后的复验两次遇到智谱端点 `ENOTFOUND`，均被正确记为 infra-invalid 且 resume 会重跑，不进入能力分母。这说明统一模型路径协议上可行，但正式矩阵前仍需做 endpoint 稳定性和并发校准。
+
 ## 2. 当前技术栈
 
-- Python 3.11、pydantic v2、openai SDK（OpenAI 兼容，DeepSeek/OpenAI 可切）。
+- Python 3.11、pydantic v2、openai SDK（OpenAI 兼容，DeepSeek/OpenAI/智谱可切）。
 - 评测：自建确定性 pipeline（pytest 子进程执行 + 静态规则）。
 - 后端：FastAPI + uvicorn（只读 API over artifacts）。
 - 前端：Vite 5 + React 18 + TypeScript 5（features/views 结构）。
-- 沙箱：临时 git worktree + subprocess + timeout + 命令白名单（Docker 后置为“只讲/可选”）。
-- 复用 `ft_diag_agent`：`llm.py`（provider）、`observability.py`（拷贝）、`judge_meta_eval` 叙事（待 M5）、FastAPI/React 结构。
+- 沙箱：本地为临时 git worktree + subprocess + timeout + 命令白名单；CI 镜像内以 `--network none` 执行完整确定性评测门禁。
+- 复用 `ft_diag_agent`：`llm.py`（provider）、`observability.py`、Judge meta-eval 方法与 FastAPI/React 结构。
 
 ## 3. 当前数据资产
 
@@ -81,10 +98,10 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 - 结果：CORRECTNESS/EDGE_CASES kappa=1.0（gate）、READABILITY kappa=0.62（贴 0.6 门槛）。见 `docs/judge_meta_eval_report_v1.md`。
 - 脚本：`scripts/run_humaneval.py`、`scripts/run_judge_meta_eval.py`。
 
-### C · SWE-bench 适配器 + Docker 设计
+### C · SWE-bench 适配器 + Docker 隔离
 - `benchmark/swebench.py`：读官方 instance schema（`FAIL_TO_PASS`/`PASS_TO_PASS`/`test_patch`/gold `patch`，兼容官方 JSON-string 编码），跑官方 resolve 流程。
 - `datasets/swebench_compat/`：一个 SWE-bench 格式兼容样本（自包含小仓库）。gold 应用后 resolved 1/1；**MiniAgent(V2) 真实修复并 resolved 1/1**。标注 "Compatibility Sample"，非排行榜。
-- `docker/sandbox.Dockerfile` + `docs/swebench_and_docker.md`：Docker 沙箱设计（本机无 daemon，未 build，作设计验证）+ 真实 SWE-bench Lite 接入路径（clone + env 复现）。
+- `docker/sandbox.Dockerfile` + `docs/swebench_and_docker.md`：CI 已完成镜像 build，并在 `--network none` 下运行短/长 selfcheck 与确定性边界；本机工作流仍使用命令层隔离。文档另保留真实 SWE-bench Lite 的 clone + 环境复现路径。
 - 脚本：`scripts/run_swebench.py`（gold/agent 双模式）。
 
 ### B1 · HumanEval+/EvalPlus 官方 Smoke Slice
@@ -333,22 +350,22 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 - **公开 benchmark 证据等级有限**：HumanEval 是自建/精选 schema 子集，SWE-bench 是自建兼容样例；两者均不得包装成正式排行榜结果。
 - **统计功效有限**：当前私有集共 13 case，长程正式校准仅 n=1/case，不能把 1.00 外推成稳定能力；横向对比仍需 repeats 与区间。
 - **覆盖范围有限**：仍只有 Python 小仓库；虽已补 API refactor 与 build/CLI，但 review/test-generation/performance/security/multi-turn 与多语言仍缺。
-- **ClaudeCodeAdapter 未 live 验证**：本机无 `claude` CLI，stream-json 记录结构与 flag 集按官方文档实现 + 容错解析，测试以 CLI stand-in 驱动。**接触真实 CLI 后必须先 probe + 单 case 冒烟核对 schema/flag，再产出任何横向数据**；在此之前不得声称已具备横向评测结果。
+- **Claude Code 只有 n=1 repo smoke，不是横向结论**：单 case patch/grade/artifact 已全链路通过，但后续两次出现 endpoint `ENOTFOUND`。正式横向实验必须先校准稳定性、并行度和 infra 比例；不能把集成成功或网络失败包装成 Agent 能力。
 - **默认预算下两个 suite 近乎饱和**：短程对 DeepSeek 两档与 GLM-4.5-air 全部 1.00，只有最弱的免费档到 0.84；长程对 V2+DeepSeek 也是 1.00（n=1）。**H2 只在最弱档成立且效应很小**；H3（compaction 消融）若在默认预算下做会面临同样风险。优先级最高的补救是把**预算变成实验变量**（max_steps / context budget / wall-clock），其次才是加难 case。
 - **GLM 免费档限流严重**：`glm-4.7-flash` 在 workers=4 下 44/45 触发 429；串行可跑但约 78s/trial。付费档（glm-4.5-air）workers=3 下 infra=0。并行度必须按档位分别设定。
 - **GLM 成本需汇率**：`usd_per_cny` 为 null，GLM 成本按设计报 `unavailable`。填一个带出处和日期的汇率即可启用；汇率每日变动，属于操作者选择而非可以内置的常量。
 - **分档计价是上界**：GLM 4.7 / 4.5-Air 的成本估算标记 `upper_bound`，不是点估计。要精确需按每次调用的输入/输出长度分桶。
 - **沙箱网络隔离**：MVP 是命令层（拦网络工具），非内核级；内核级隔离由 CI 的 `--network none` 容器执行覆盖（已实跑验证），本地开发路径仍是命令层。
-- **并行下的成本/限流未验证**：4.0× 加速是在确定性 reference/none 上测的（CPU-bound）。真实 LLM trial 是 I/O-bound，加速比可能更高，但会撞 provider 限流；首次并行跑真实模型前需要观察 429 与重试行为。
+- **并行度不是跨模型常量**：4.0× 加速是在确定性 reference/none 上测的；真实 LLM 已观察到档位相关限流——GLM 免费档 workers=4 时 429 严重，付费 air 档 workers=3 时 infra=0。横向实验必须为每个 provider 预校准并行度，并把 infra-invalid 排除出能力分母。
 - pytest 结果解析基于 `-v` 文本，未来接 pytest-json 更稳。
 - 前端 `TestClient` 有 starlette httpx deprecation warning（无害）。
 
 ## 8. 建议下一步
 
-1. **扩大样本与条件**：repeats 提到 5、加第二个模型、扫 2–3 档上下文上限，给出置信区间与配对检验（B3）。当前 12 trial/组仍是方向性证据。
-2. **planner 的价值需要能测出它的 case**：当前长程 suite 上它中性。规划的收益应体现在需求分解与跨模块协同上，而现有 case 的分解难度不足以让它显现——这与 H2 的结论同源（约束/难度不到位，能力差异无处显现）。
-2. **后续实验一律带预算维度**：至少 `max_steps` 取紧/松两档，否则强模型之间的差异测不出来。
-3. 长期：按 G1 路线补更难的 case（refactor / 并发 / 欠定义 spec）。预算收紧测的是约束下的效率，不能替代能不能做更难的事。
-4. 需要 GLM 的 USD 成本时，填一个带出处与日期的 `usd_per_cny`。
-4. **ClaudeCodeAdapter live 验证**：一旦有可用 CLI，先 probe + 单 case 冒烟核对 stream-json schema 与 flag 集。
-4. **公开 benchmark**：SWE-bench 官方 Smoke Slice 仍是后续 P0，但不冒充全量榜单。
+1. **校准 Claude Code 统一模型路径**：repo smoke 已通过，下一步先用少量重复测 endpoint 稳定性、限流与 infra 比例，再冻结横向矩阵；当前 `ENOTFOUND` 波动不能忽略。
+2. **启动模型受控横向组**：智谱 Anthropic 兼容端点的 tool use、stream-json、实际模型映射已验证；仍把“各自默认模型的真实产品组”单列，避免把产品能力和 scaffold 纯效应混为一谈。
+3. **B3 统计先于扩大结论**：repeats 提到 5、加第二模型、扫 2–3 档上下文上限；报告 cluster bootstrap、exact McNemar、effect size、样本数与成本/成功前沿。
+4. **并行推进失败模式检测器**：优先测试投机，再做上下文遗忘与指令漂移；所有检出必须保留 evidence span 和人工复核入口。
+5. **planner 需要专门任务才能测价值**：当前长程 suite 上它中性。新 case 应考需求分解和跨模块协同，而不是继续靠宽松默认预算制造饱和。
+6. **开源与 Golden Dataset 分离**：可开源框架、adapter、grader 和公开示例 suite；正式私有 suite、hidden tests、reference fix 不公开，避免主动破坏低污染资产。
+7. **公开 benchmark**：SWE-bench 官方 Smoke Slice 仍是 P0，但不冒充全量排行榜；GLM 需要 USD 成本时再填带出处/日期的 `usd_per_cny`。

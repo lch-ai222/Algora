@@ -24,7 +24,12 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | G1 | 私有 Golden Dataset 类型扩充 | P0/P1/P2 | ⬜ 方案完成，待开发 |
 | V3 W1-1 | `mini_store_long` 长程 suite | P0 | ✅ 完成 |
 | V3 W1-2 | AgentAdapter + MiniAgentAdapter + runner 接入 | P0 | ✅ 完成 |
-| V3 W1-3 | ClaudeCodeAdapter | P0 | ⬜ 下一项 |
+| V3 W1-3 | ClaudeCodeAdapter | P0 | ✅ 代码；✅ protocol + repo live |
+| V3 W1-4 | planner + V3 harness | P0 | ✅ 完成 |
+| V3 W1-5 | CI + 容器内断网评测 | P0 | ✅ 完成 |
+| V3 W1-6 | 并行执行 + trial 级续跑 | P0 | ✅ 完成 |
+| V3 W1-7 | GLM provider + 模型阶梯 + 成本溯源 | P0 | ✅ 完成 |
+| V3 W2-1 | 分级截断 + 确定性 compaction | P0 | ✅ 完成 |
 
 ---
 
@@ -47,13 +52,56 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] provider/网络错误作为 infra-invalid 排除出能力分母；compare 拒绝基础设施无效 run。
 - [x] V2 拒绝截断、空回复、无改动、未测试和末次测试失败的假完成；V1 行为不变。
 - [x] 成本费率缺失时记录 `cost_usd=null`、`cost_source=unavailable`，不伪造零成本。
-- **验收**：94 passed/1 skipped，Ruff 全绿；scripted adapter round-trip 与 legacy/default CLI 兼容有单测覆盖。
+- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（254 passed/1 skipped）。
 
-### W1-3 · ClaudeCodeAdapter ⬜
+### W1-3 · ClaudeCodeAdapter ✅（代码 + live）
 
-- [ ] probe 实际 CLI/version/capabilities，不依赖文档猜测。
-- [ ] headless stream-json 解析并保留 native trajectory；归一化为 `AgentRunResult`。
-- [ ] 在 3 条短程 case 跑通 patch/grade/成本；外部 Agent 无法执行的预算必须显式标注。
+- [x] headless stream-json 边流边落盘，保留 native trajectory 并归一化为 `AgentRunResult`。
+- [x] 独立 `CLAUDE_CONFIG_DIR`、环境白名单、进程组超时终止、CLI 脚手架剥离和成本语义降级。
+- [x] 39 条离线测试以可执行 CLI stand-in 覆盖真实 subprocess、流式解析和预算终止路径。
+- [x] 外部 stop reason 先映射 `canonical_stop_reason`，修复跨框架静默误归因。
+- [x] Homebrew stable 安装 Claude Code 2.1.220；真实 `probe()` 通过。
+- [x] 无认证流与智谱 GLM-5.2 协议流均返回有效 stream-json；`--max-turns` 虽未显示在 help 中但真实可用。
+- [x] 获得明确数据披露授权后完成 `bugfix-pricing-tax` repo smoke：Task/Strict 1.00，6 tools / 8 model turns，hidden 仅评分时可见。
+- [x] 修复 live 暴露的两项溯源丢失：CLI 版本进入实验 manifest/resume 指纹；外部 adapter 总 token 进入统一 trial 与 summary。
+- [ ] 正式横向结果前先做 endpoint 稳定性/限流校准；后续两次 `ENOTFOUND` 均须保持 infra-invalid，不得计入能力分母。
+
+### W1-4 · Planner + V3 harness ✅
+
+- [x] `update_plan` 工具、状态机、计划修订轨迹和 V3 prompt。
+- [x] 遵守率以文件写入/测试等仓库动作验证，不接受 Agent 自我声明作为证据。
+- [x] `AgentConfig.for_harness()` 集中定义 V1/V2/V3 身份，防止新 harness 静默丢失旧守卫。
+- [x] 修复 item id 改名造成的遵守率假象，新增 `plan_done_unverified` 与改名计数。
+- **实验结论**：修正后 planner 对 Task/Strict 中性，但工具调用约增加 18%。
+
+### W1-5 · CI + 容器化评测 ✅
+
+- [x] quality / sandbox-image / console 三门禁与 bounds / EvalPlus oracle / LLM smoke 三个 nightly job。
+- [x] CI 首跑全绿；镜像内以 `--network none` 跑短程、长程 selfcheck 和确定性边界。
+- [x] `check_bounds.py` 对 reference=1.00 / none=0.00 逐 case 校验。
+
+### W1-6 · 并行 + trial 级续跑 ✅
+
+- [x] `--workers N` 进程池并行；短程 9×2 实测 17.0s → 4.26s（4.0×）。
+- [x] trial 完成标记、manifest 指纹和聚合顺序稳定性；配置不符拒绝 resume。
+- [x] infra-invalid trial 必须重试，不能被冻结成“已完成”证据。
+- [x] 每个 repeat 使用独立 build 目录，修复并行 materialize 覆盖。
+
+### W1-7 · Provider/模型阶梯/成本 ✅
+
+- [x] 单一 `ProviderSpec` 表接入 DeepSeek、OpenAI 兼容和智谱 GLM；`--model` 写入 provenance。
+- [x] 每模型费率含 source/as_of、aliases、tiered/cache 口径；未知价格为 `None`。
+- [x] 记录 requested/served model，修复 `deepseek-reasoner` 解析到 flash 导致的静默错误归因。
+- [x] GLM-4.5-air 与 glm-4.7-flash 已实跑；免费档限流作为 infra-invalid 单独报告。
+- **边界**：`usd_per_cny=null`，GLM USD 成本按设计为 unavailable。
+
+### W2-1 · Context management ✅
+
+- [x] 工具输出分级截断、基于真实 prompt token 的触发条件和确定性 compaction。
+- [x] 保证 assistant tool_calls 与 tool replies 不被切断；每次压缩发 `COMPACTION` 事件。
+- [x] `--context-budget-tokens`、`--context-ceiling-tokens` 与 `--ablate` 写入 provenance/resume 指纹。
+- [x] 上下文硬上限对所有 harness 生效，保证消融组承受相同约束。
+- **修正后 H3**：V3.1=1.00，V3.1−context=0.33；compaction 是全部成功效应，planner 中性。
 
 ---
 
@@ -104,7 +152,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 ## C · 只讲 + 部分落地 ✅（P2）
 - [x] `benchmark/swebench.py`：读官方 schema（`FAIL_TO_PASS`/`PASS_TO_PASS`/`test_patch`/gold `patch`），跑官方 resolve 流程；`scripts/run_swebench.py`（gold/agent）。
 - [x] 兼容样本 `datasets/swebench_compat/`：gold resolved 1/1；**MiniAgent(V2) 真跑 resolved 1/1**；标注 "Compatibility Sample"。
-- [x] Docker：`docker/sandbox.Dockerfile` + `docs/swebench_and_docker.md`（设计验证；本机无 daemon 未 build）。
+- [x] Docker：`docker/sandbox.Dockerfile` + `docs/swebench_and_docker.md`；CI 已 build，并在 `--network none` 下执行评测门禁。
 - [x] 真实 SWE-bench Lite 接入路径写清（clone + env 复现；`materialize_instance` 留 NotImplementedError + 指引）。
 - 仍只讲（不建）：Terminal-Bench/Harbor、PostgreSQL、成本看板全量；通用 adapter 契约与 MiniAgentAdapter 已在 V3 W1-2 落地，外部实现从 W1-3 开始。
 
@@ -164,9 +212,10 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ## 当前推荐执行顺序
 
-V3 W1-1/W1-2 已完成，当前按 [`docs/iteration_plan_v3.md`](docs/iteration_plan_v3.md) 推进：
+V3 W1-1～W1-7 与 W2-1 已完成，当前按 [`docs/iteration_plan_v3.md`](docs/iteration_plan_v3.md) 推进：
 
-1. W1-3 ClaudeCodeAdapter。
-2. W1-4 planner + v3 prompt；W1-5 CI + Docker 真实 build。
-3. W1-6 并行/checkpoint；W1-7 GLM provider 与成本表。
-4. B2 SWE-bench 官方实例 Smoke Slice与 B3 统计增强继续保留，但不抢占 adapter 主线。
+1. Claude Code CLI 的安装、probe、协议流和 repo smoke 已通过；先用少量重复校准智谱 endpoint 稳定性、限流与 infra 比例，再冻结正式矩阵。
+2. 智谱官方两条 Anthropic 兼容路径中，开放平台已实证 tool use、stream-json 和 GLM-5.2 模型映射；下一步做 Claude Code / MiniAgent / 第二外部 Agent 的统一模型受控组，同时保留默认模型真实产品组。
+3. B3 统计增强：cluster bootstrap、exact McNemar、分层与成本/成功前沿。
+4. W2-4 测试投机检测器可并行推进；正式 Golden Dataset/hidden tests 不随开源框架公开。
+5. B2 SWE-bench 官方实例 Smoke Slice保持 P0，但不冒充全量排行榜。

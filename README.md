@@ -20,10 +20,11 @@ tested* under identical conditions.
 
 ## Status
 
-**All 7 original milestones (M0–M5 + C), B1, and V3 foundation W1-1/W1-2 complete.** Verification (current): `94 passed, 1 skipped` (the
-skip is an `RUN_LLM_SMOKE`-gated real-model test) · `ruff` clean · `selfcheck` 9/9 · HumanEval
-canonical 10/10. Per-milestone test/case counts below are cumulative snapshots — the numbers in
-this line and in [PROJECT_STATE.md](PROJECT_STATE.md) are authoritative.
+**All 7 original milestones (M0–M5 + C), B1, V3 W1-1 through W1-7, and W2-1 are complete.**
+Verification (current): `254 passed, 1 skipped` (the skip is an `RUN_LLM_SMOKE`-gated real-model
+test) · `ruff` clean · short/long `selfcheck` 9/9 and 4/4 · deterministic bounds reference=1.00
+and none=0.00 on both suites · HumanEval canonical 10/10. Per-milestone counts below are
+historical snapshots; this line and [PROJECT_STATE.md](PROJECT_STATE.md) are authoritative.
 
 - **V3 W1-1 — long-horizon private suite** ✅ — an independent `mini_store_long` snapshot with
   four hard refactor/spec/cascade/build cases, persistent canaries, hidden tests, and 53 clean-repo
@@ -36,6 +37,26 @@ this line and in [PROJECT_STATE.md](PROJECT_STATE.md) are authoritative.
   and runner support for `--adapter mini_agent --harness v2`. Provider failures are excluded from
   capability denominators, per-turn output limits are explicit, and unavailable pricing is stored
   as `null` with `cost_source=unavailable` rather than a false zero.
+- **V3 W1-3 — Claude Code headless adapter** ✅ code + repo live — stream-json is preserved
+  and normalized into the shared trajectory contract; wall-clock/turn budgets, process-group
+  termination, config isolation, native-cost provenance, and CLI-created scaffold cleanup are
+  covered by 39 offline tests. Homebrew stable Claude Code 2.1.220 is installed; real `probe()`, a
+  no-repository GLM-5.2 protocol call, and an approved repository smoke all pass. The repo smoke
+  fixed `bugfix-pricing-tax` with Task/Strict 1.00 (one trial, six tool calls, eight model turns);
+  it proves the integration path, not a statistically meaningful cross-agent result. Third-party
+  endpoint cost remains deliberately unavailable rather than accepting Claude CLI's USD estimate.
+- **V3 W1-4/W2-1 — planner and context management** ✅ — V3 adds a repository-verified plan
+  tracker plus deterministic tiered truncation/compaction. A corrected 4-case × 3-repeat ablation
+  under a 12k hard context ceiling found compaction to be the full success effect
+  (V3.1 1.00 vs V3.1−context 0.33); the planner was success-neutral but added about 18% tool calls.
+- **V3 W1-5/W1-6 — executable isolation and orchestration** ✅ — GitHub CI runs quality,
+  console, and containerized `--network none` evaluation gates; nightly separates bounds,
+  EvalPlus oracle, and optional LLM smoke. Trial-level process-pool execution measured 4.0× speedup,
+  while checkpoint/resume uses a manifest fingerprint and never adopts infra-invalid trials.
+- **V3 W1-7 — provider ladder and auditable pricing** ✅ — DeepSeek/OpenAI-compatible/GLM
+  providers share a single specification table; `--model`, budgets, ablations, pricing revision,
+  aliases, cache-rate tiers, and requested/served model identities are persisted. Missing prices
+  are `null`, never fake zero; CNY is not silently converted to USD.
 
 - **M0 — scaffold + reused LLM provider** ✅ (`src/codeagent_eval/{settings,models,llm,observability}.py`,
   offline-tested tool-call parsing in `tests/test_llm_provider.py`).
@@ -89,13 +110,14 @@ this line and in [PROJECT_STATE.md](PROJECT_STATE.md) are authoritative.
   phases. DeepSeek v4-flash: Base pass@1 1.00, Plus pass@1 0.80 (one stricter-test failure); this
   is a protocol-learning slice, not a full benchmark score. See
   [docs/evalplus_smoke_report_v1.md](docs/evalplus_smoke_report_v1.md).
-- **C — SWE-bench compatibility adapter + Docker design** ✅ — `benchmark/swebench.py` reads the official
+- **C — SWE-bench compatibility adapter + executable Docker gate** ✅ — `benchmark/swebench.py` reads the official
   SWE-bench instance schema (`FAIL_TO_PASS` / `PASS_TO_PASS` / `test_patch` / gold `patch`) and
   runs the official resolve flow. A **compatibility sample** (`datasets/swebench_compat/`, a
   small self-contained repo) runs end-to-end here: gold patch resolves it, and the MiniAgent
   (V2) resolves it for real. Clearly labelled "Compatibility Sample", not a leaderboard number.
-  Docker sandbox is a validated design (`docker/sandbox.Dockerfile` + design doc) — not built
-  here (no daemon). See [docs/swebench_and_docker.md](docs/swebench_and_docker.md).
+  The sandbox image is built in CI and executes both deterministic suites with `--network none`;
+  the local worktree path remains command-policy isolation rather than a kernel boundary. See
+  [docs/swebench_and_docker.md](docs/swebench_and_docker.md).
 
 The public-benchmark goal is protocol learning rather than an expensive full leaderboard run:
 use a small number of official instances while preserving the official data, environment, oracle,
@@ -120,8 +142,11 @@ python -m codeagent_eval.runner --agent none             # lower bound (no LLM)
 python -m codeagent_eval.runner --agent v1 --repeats 5   # minimal baseline (needs API key in .env)
 python -m codeagent_eval.runner --agent v2 --repeats 5   # disciplined harness
 python scripts/selfcheck.py datasets/mini_store_long     # hard gate: all 4 long cases valid
-python -m codeagent_eval.runner --adapter mini_agent --harness v2 \
-  --suite datasets/mini_store_long --max-completion-tokens 4096
+python -m codeagent_eval.runner --adapter mini_agent --harness v3 \
+  --suite datasets/mini_store_long --max-completion-tokens 4096 \
+  --context-budget-tokens 10000 --context-ceiling-tokens 12000 --workers 2
+python scripts/check_bounds.py \
+  --suite datasets/mini_store_suite --suite datasets/mini_store_long --workers 2
 python scripts/compare_runs.py <v1_run_dir> <v2_run_dir> # Version Compare (improved/regressed/stable)
 ```
 
@@ -154,5 +179,6 @@ cp .env.example .env   # fill in DEEPSEEK_API_KEY (or set LLM_PROVIDER=openai + 
 .venv/bin/python -m pytest -q
 ```
 
-The LLM provider is OpenAI-compatible; `LLM_PROVIDER` selects `deepseek` or `openai`. Tests run
-offline (no API key) via a fake client.
+The in-process LLM provider is OpenAI-compatible; `LLM_PROVIDER` selects `deepseek`, `openai`, or
+`zhipu`, and `--model` pins the requested ladder rung in run provenance. Tests run offline (no API
+key) via fake clients and executable CLI stand-ins.

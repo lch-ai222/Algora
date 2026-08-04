@@ -24,6 +24,7 @@ from codeagent_eval.runner import (
     _experiment_exit_code,
     _resolve_agent_kind,
     _run_adapter_trial,
+    _run_config,
 )
 from codeagent_eval.sandbox import WorktreeSandbox
 
@@ -125,6 +126,34 @@ def test_cli_selection_preserves_legacy_default_and_adapter_v2_default():
     assert _resolve_agent_kind(None, "mini_agent", "v2") == "v2"
     with pytest.raises(ValueError, match="mutually exclusive"):
         _resolve_agent_kind("v1", "mini_agent", "v2")
+
+
+def test_external_adapter_version_is_experiment_provenance():
+    config = _run_config(
+        "claude_code",
+        None,
+        adapter_version="2.1.220 (Claude Code)",
+    )
+
+    assert config["adapter_version"] == "2.1.220 (Claude Code)"
+    assert config["provider"] == "external_cli"
+
+
+def test_external_aggregate_usage_does_not_require_per_call_records():
+    grade = GradeResult.model_construct(task_success=True, strict_success=True)
+    trial = TrialResult(
+        stop_reason="success",
+        canonical_stop_reason="final",
+        prompt_tokens=24_588,
+        completion_tokens=430,
+        llm_calls=[],
+    )
+    attribution = FailureAttribution(case_id="c", failed=False)
+
+    aggregate = _aggregate_case("c", [grade], [trial], [attribution])
+
+    assert trial.total_tokens == 25_018
+    assert aggregate["tokens_mean"] == 25_018
 
 
 def test_provider_failure_is_infra_invalid_not_zero_capability():

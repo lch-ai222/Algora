@@ -13,7 +13,7 @@
 - 校准发现并修复 V2 将 token 截断空回复误判为 final 的缺陷；默认 2048 保留，长程校准显式使用 4096 并写入溯源。成本费率未配置，因此正式产物为 `null/unavailable`。
 - **W1-3 已完成（代码层）**：`ClaudeCodeAdapter` + stream-json 归一化 + `normalize.py` 共享语义表；runner 支持 `--adapter claude_code`（外部 adapter 成为独立 agent 标签，不再折进 v1/v2 轴）；trial 目录自包含（原始轨迹 relocate 到 `rep<k>/native/`）。133 passed/1 skipped，ruff 全绿，两个 suite selfcheck 9/9 + 4/4。
 - W1-3 期间发现并修复一个跨 Agent 归因缺陷：`failure_taxonomy` 原先按 MiniAgent 的原生 `stop_reason` 字符串做规则匹配，外部 Agent 的 `error_max_turns` 等原生词汇不在该词表内，会被静默误归因为 UNKNOWN。已引入 `TrialResult.canonical_stop_reason`，归因改走框架无关语义；旧产物无该字段时按原映射回退，历史归因结果不变（有回归测试锁定）。
-- ⚠️ **W1-3 尚未 live 验证**：本机未安装 `claude` CLI。stream-json 记录结构与 flag 集按官方文档实现并做了容错解析（未知记录类型/畸形行只计数不中断），测试用可执行的 CLI stand-in 驱动真实 subprocess 路径（流式落盘、wall-clock 终止、进程组 kill、环境白名单）。**接触到真实 CLI 后必须先跑 `probe()` 与单 case 冒烟，核对 schema 与 flag 后再产出任何横向数据。**
+- ✅ **W1-3 protocol + repo live 已完成**：Homebrew stable Claude Code 2.1.220 的真实 `probe()`、无认证 stream-json、智谱 GLM-5.2 协议流和获授权的 `bugfix-pricing-tax` repo smoke 均通过；后者 Task/Strict 1.00、6 tools / 8 model turns。该 n=1 只验证集成，不是横向能力结论。live 还暴露并修复了实验级 adapter 版本和外部 token 汇总丢失；后续两次 `ENOTFOUND` 正确落为 infra-invalid，正式矩阵前需校准 endpoint 稳定性。
 - **W1-5 已完成（配置层）**：`ci.yml` 三门禁（quality / sandbox-image / console）+ `nightly-eval.yml` 三 job（bounds / evalplus-oracle / llm-smoke）+ `scripts/check_bounds.py` 确定性边界门禁 + `.dockerignore`。CI 全程不需要 LLM key；140 passed/1 skipped。已在干净 venv（仅 `pip install -e ".[dev,api]"`）逐步验证 ruff/pytest/selfcheck/check_bounds，并本地验证 `npm ci && npm run build`。
 - **CI 首跑全绿**，含 `sandbox-image`：镜像 build 成功并在 `--network none` 下跑通 selfcheck 与确定性边界，容器化评测已落地。
 - **W1-6 已完成**：`--workers N` 进程池并行 + `--resume` trial 级断点续跑；聚合按 suite 顺序，实测 workers=1 与 workers=8 summary 逐字段一致；短程 9×2 实测 17.0s→4.26s（4.0×）。默认 workers=1 以保持已校准基线可复现。`manifest.json` 固定实验身份，resume 配置不符直接拒绝。修掉了并行才暴露的 build 目录冲突。156 passed/1 skipped。
@@ -39,7 +39,10 @@
 - 修复：`AgentConfig.for_harness()` 统一定义 harness 身份；adherence 按归一化文本匹配并上报改名次数（12 trial 共 49 次）；新增 `plan_done_unverified` + 工具结果回灌警告；v3 prompt 写明计划不是完成证据。
 - **重跑后**：v2 0.42 / **v3.1 1.00** / v3.1−context 0.33 / **v3.1−planner 1.00**。**planner 中性（成本 +18% 工具调用），compaction 是全部效应（+0.67）**。
 - 方法论教训：消融只有在两组除被测能力外完全相同时才成立；没有轨迹级诊断就会把 harness 缺陷当成能力结论发表。
-- **下一项：扩样本（repeats=5、第二模型、多档上限）+ 设计能让规划显现价值的 case**；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
+- **当前验证总数：254 passed / 1 skipped，Ruff 全绿，短/长 selfcheck 9/9 + 4/4，两个 suite 的 reference/none=1.00/0.00。**
+- **下一项：Claude endpoint 校准后启动横向组**。repo smoke 已验证 tool use、patch、grade、实际服务模型和 artifact；先测稳定性/限流，再把横向报告拆成默认模型真实产品组与统一模型 adapter 受控组。
+
+> 状态口径：本节“执行进度”与根目录 `PROJECT_STATE.md`/`TASKS.md` 是当前事实；下文三周计划、资源预算和假设表保留为预注册设计记录。凡与本节冲突，以当前事实为准，不得把历史预期当成已完成结果。
 
 ---
 
@@ -104,15 +107,15 @@
 
 | ID | 差距 | 严重度 | 根因 |
 |---|---|---|---|
-| G1 | ClaudeCodeAdapter 已落地但**未 live 验证**（本机无 CLI）；第二个开源 adapter 未接 | 🟠 高 | 代码就绪，待真实 CLI 核对 schema/flag |
-| G2 | 无 context/memory/plan/multi-turn 四项能力 | 🔴 致命 | JD 职责 1 逐字要求 |
-| G3 | `mini_store_long` 已落地并达到动作中位数 30；尚未用于 context/memory/plan 消融 | 🟠 高 | 数据前置完成，能力实验待 W1-4/W2 |
+| G1 | ClaudeCodeAdapter 已完成 protocol/repo live；第二个开源 adapter 未接，Claude endpoint 稳定性待校准 | 🟠 高 | n=1 集成通过但后续出现 `ENOTFOUND`，尚不能启动正式矩阵 |
+| G2 | context 与 planner 已落地；memory/multi-turn 未做 | 🟠 高 | W1-4/W2-1 已关闭一半差距；后两项仍需独立 oracle 与隔离设计 |
+| G3 | `mini_store_long` 已用于 planner/context 消融；样本仅 4 case×3 repeats | 🟡 中 | H3 已完成并纠正两次 harness 测量缺陷，统计功效仍有限 |
 | G4 | 三类失败模式（指令偏移/上下文遗忘/测试投机）无检测器 | 🟠 高 | JD 职责 4 逐字要求 |
 | G5 | 测试文件是**禁止修改**而非**允许并检测** | 🟠 高 | 设计取向问题：禁止后永远测不到该维度 |
 | G6 | ~~无 CI、Docker 从未 build、runner 串行~~ **已关闭** | ✅ | CI 三门禁全绿；容器内断网实跑；进程池 + 断点续跑 |
 | G7 | SWE-bench 仅自建兼容样例，无官方实例 | 🟠 高 | 面试判断近似二值 |
 | G8 | 已有离线 wheel + CLI 交付 case；仍无部署类 case | 🟡 中 | build 已覆盖，deploy 仍缺 |
-| G9 | 强模型下 8/9 case 饱和，V1→V2 仅 +0.02 | 🟡 中 | 系统维度太少（仅 2 个 harness、1 个模型） |
+| G9 | 默认预算下短/长 suite 均易饱和 | 🟡 中 | 模型阶梯差异仅 0.16；预算收紧可把差距放大到 0.85，但不能代替更难任务 |
 | G10 | 无置信区间/配对检验/分层统计 | 🟡 中 | B3 已设计未实施 |
 | G11 | 未开源；命名不统一（Algora vs CodeAgent Eval Lab） | 🟡 中 | 简历表面 |
 
@@ -347,19 +350,19 @@ class EvalCase(BaseModel):
 |---|---|---|---|---|---|
 | **W1-1 ✅** | 长程 suite `mini_store_long`（4 case） | 🟣 | — | 1.5d | 4/4 valid；reference/none=1/0；实测动作中位数 30、模型轮次 13.5、测试循环 3（目标分别 ≥25/≥12/≥2） |
 | **W1-2 ✅** | `AgentAdapter` 抽象 + `MiniAgentAdapter` + runner 改造 | 🔵 | — | 1d | 94 tests 全绿；adapter round-trip、legacy/default CLI、规范化产物与 infra-invalid 口径有离线回归覆盖 |
-| **W1-3** | `ClaudeCodeAdapter`（headless + stream-json 归一化） | 🔵 | W1-2 | 1.5d | 在 3 条短程 case 上跑通；patch 可导出；`total_cost_usd` 入库；原始轨迹留档 |
-| **W1-4** | `planner.py` + `update_plan` 工具 + v3 prompt 初版 | 🟠 | W1-1 | 1d | 长程 case 上 plan 事件入 trace；`plan_adherence` 可计算 |
-| **W1-5** | GitHub Actions CI（ruff + pytest + Docker build + selfcheck） | ⚫ | — | 0.5d | CI 绿；**`docker/sandbox.Dockerfile` 首次真实 build 成功**（消除"本机无 daemon"硬伤） |
-| **W1-6** | runner 并行化（进程池）+ trial 级 checkpoint 续跑 | ⚫ | W1-2 | 1d | 8 并发下 120 trial 无串扰（worktree 隔离验证）；中断后 `--resume` 不重跑已完成 trial |
-| **W1-7** | GLM provider 接入 + 模型阶梯配置 | 🔵 | — | 0.5d | ✅ 机制完成、费率已填、DeepSeek 两档实测；GLM 实跑待 key |
+| **W1-3 ✅** | `ClaudeCodeAdapter`（headless + stream-json 归一化） | 🔵 | W1-2 | 1.5d | 39 条 CLI stand-in 回归；2.1.220 + GLM-5.2 protocol/repo live；版本/token 溯源修复 |
+| **W1-4 ✅** | `planner.py` + `update_plan` 工具 + v3 prompt | 🟠 | W1-1 | 1d | 仓库动作验证 adherence；修复 id 改名假象；H3 中成功率中性、工具调用 +18% |
+| **W1-5 ✅** | GitHub Actions CI（ruff + pytest + Docker build + selfcheck） | ⚫ | — | 0.5d | 三门禁首跑全绿；镜像内 `--network none` 跑通 selfcheck 与 bounds |
+| **W1-6 ✅** | runner 并行化（进程池）+ trial 级 checkpoint 续跑 | ⚫ | W1-2 | 1d | 9×2 实测 4.0×；manifest 指纹、完整标记、infra 重试与独立 build 目录均覆盖 |
+| **W1-7 ✅** | GLM provider 接入 + 模型阶梯配置 | 🔵 | — | 0.5d | GLM 已实跑；费率/alias/tier/cache/实际服务模型溯源就绪；CNY→USD 仍需显式汇率 |
 
-**Week 1 里程碑**：能用一条命令，在长程 suite 上并行跑 Claude Code 和 MiniAgent，拿到第一份可对比的数据。
+**Week 1 实际里程碑**：平台侧地基全部完成；MiniAgent 可并行/续跑且已有模型、预算和成本实验。Claude Code protocol/repo smoke 已完成，但尚无具备重复数的横向数据。
 
 ### Week 2 — 能力补齐与缺陷挖掘
 
 | ID | 任务 | 线 | 依赖 | 工时 | 验收标准 |
 |---|---|---|---|---|---|
-| **W2-1** | `context.py`：token 预算 + 分级截断 + compaction | 🟠 | W1-1 | 1.5d | 长程 case 上触发 compaction 并发 `COMPACTION` 事件；before/after token 可查；无 compaction 时的溢出率作为基线 |
+| **W2-1 ✅** | `context.py`：token 预算 + 分级截断 + compaction | 🟠 | W1-1 | 1.5d | H3 修正后 V3.1=1.00、V3.1−context=0.33；硬 ceiling 对所有 harness 生效 |
 | **W2-2** | `memory.py`：ScratchPad（run 内） | 🟠 | W2-1 | 0.5d | 常驻 note 出现在 prompt；隔离规则单测覆盖 |
 | **W2-3** | `detectors/context_amnesia.py`（canary 被动召回曲线） | 🔵 | W1-1, W2-1 | 1d | 输出 `recall(step)` 曲线；对 compaction 开/关两组可对比 |
 | **W2-4** | `detectors/reward_hacking.py`（8 类信号） | 🔵 | — | 1.5d | 对人工构造的 8 个 hacking patch 全部命中；对 9 条正常 reference patch 零误报 |
@@ -380,7 +383,7 @@ class EvalCase(BaseModel):
 | **W3-4** | `detectors/repro_bundle.py`：诊断包 + 自动回归 fixture | 🔵 | W2-4/6 | 1d | 任一失败 trial 一键产出可复现包；生成的 fixture 能被 CI 重放 |
 | **W3-5** | `report.py` 静态报告 + `CrossAgent.tsx` 前端视图 | 🔵⚫ | W3-3 | 1d | 一条命令产出自包含 HTML；含分层表、区间、失败模式分布、成本前沿 |
 | **W3-6** | 全量实验执行（见 §6 矩阵）+ 结果回填 | 🔵 | 全部 | 1d | 所有预注册假设有对应数据；相反结果照实记录 |
-| **W3-7** | 开源清理（密钥审计、命名统一、README 架构图）+ 洞察报告 | ⚫ | W3-6 | 0.5d | repo public；`docs/cross_agent_report_v1.md` 完成 |
+| **W3-7** | 框架开源清理（密钥审计、命名统一、README 架构图）+ 洞察报告 | ⚫ | W3-6 | 0.5d | 框架/示例 suite 可公开；正式 Golden Dataset/hidden/reference 保持私有；`docs/cross_agent_report_v1.md` 完成 |
 
 **可砍项**（时间不足时按序放弃，不影响主叙事）：W3-2（跨 run memory）→ W3-3 的分层部分 → W2-8（第 2 个 adapter）。
 **不可砍项**：W1-1（长程 case）、W1-2/1-3（adapter）、W2-1（context）——砍任一项都会使对应的整条线归零。
@@ -393,24 +396,24 @@ class EvalCase(BaseModel):
 
 | 实验 | 目的 | 系统维度 | 模型维度 | Suite | repeats | trial 数 |
 |---|---|---|---|---|---|---|
-| **E1** Harness 消融 | 自研框架的能力增量归因 | MiniAgent v1 / v2 / v3 | GLM-4.6, DeepSeek-v4-flash, GLM-4-Flash(弱) | 短程 13 | 5 | 585 |
-| **E2** 长程消融 | context/memory/plan 是否在长任务上生效 | v2 / v3 / v3−compaction / v3−plan（消融） | GLM-4.6, DeepSeek-v4-flash | 长程 4 | 5 | 160 |
-| **E3** 三方横向 | JD 职责 2 的核心产出 | Claude Code / aider(或 mini-swe) / MiniAgent v3 | 统一 GLM-4.6（若 adapter 支持自定义 endpoint）+ 各自默认模型 | 短程 13 + 长程 4 | 3 | 306 |
+| **E1** Harness 消融 | 自研框架的能力增量归因 | MiniAgent v1 / v2 / v3 | GLM-4.5-air、DeepSeek-v4-flash、GLM-4.7-flash(弱) | 短程 9 | 5 | 135 |
+| **E2** 长程消融 | context/plan 是否在长任务上生效 | v2 / v3 / v3−context / v3−planner | GLM-4.5-air、DeepSeek-v4-flash | 长程 4 | 5 | 160 |
+| **E3** 三方横向 | JD 职责 2 的核心产出 | Claude Code / aider(或 mini-swe) / MiniAgent v3 | 统一模型（仅在 endpoint 能力确认后）+ 各自默认模型独立组 | 短程 9 + 长程 4 | 3 | 234 |
 | **E4** 失败模式挖掘 | JD 职责 4 | 上述全部系统 | — | hackbait 3 + 长程 4（canary） | 5 | 复用 E2/E3 + 105 |
-| **E5** 多轮 | 失败恢复率 | v3 / Claude Code | GLM-4.6 | multiturn 3 | 5 | 30 |
+| **E5** 多轮 | 失败恢复率 | v3 / Claude Code | GLM-4.5-air（仅在 endpoint 兼容确认后） | multiturn 3 | 5 | 30 |
 | **E6** 公开 benchmark | 证据等级 | Claude Code / MiniAgent v3 | 各自 | SWE-bench 官方 3–5 + EvalPlus 5 | 3 | ~60 |
 
-**总计约 1,250 trial。**
+**更新后的实验上限约 724 trial（E4 主要复用 E1/E2/E3）；Claude live preflight 与 provider 限流校准后再冻结最终矩阵。**
 
 ### 6.2 资源预算估算
 
 | 类别 | 单 trial 估算 | 数量 | 小计 |
 |---|---|---|---|
-| 短程 trial | ~10 步 × ~5k prompt tok ≈ 50k tok，$0.01–0.05 | ~900 | **$20–45** |
-| 长程 trial | ~35 步 × ~10k tok ≈ 350k tok，$0.10–0.50 | ~280 | **$30–140** |
-| Claude Code trial | 自带模型时显著更贵，$0.2–1.0 | ~120 | **$25–120** |
+| 短程 trial | ~10 步 × ~5k prompt tok ≈ 50k tok，按实际费率表计 | ~300–400 | **待最终模型矩阵** |
+| 长程 trial | ~35 步 × ~10k tok ≈ 350k tok，按实际费率表计 | ~200–250 | **待最终模型矩阵** |
+| Claude Code trial | native/第三方 endpoint 成本语义分开 | ~40–80 | **repo smoke 后待稳定性校准** |
 | SWE-bench 官方 | 环境构建为主，token 次要 | ~30 | **$10–30** |
-| **合计** | | | **约 $85–335** |
+| **合计** | | | **preflight 后按 provider/model/cache 实测重算，不沿用旧粗估** |
 
 **时间才是真正的瓶颈**：长程 trial 单次 3–8 分钟，280 个串行需 15–35 小时。这就是 W1-6 并行化**不是优化项而是前置条件**的原因；8 并发下压缩到 2–5 小时，可放进 nightly CI。
 
@@ -421,7 +424,7 @@ class EvalCase(BaseModel):
 | 功能 | Task Success | target 测试全过 | 现有 |
 | 功能 | Strict Success | target + hidden + regression 全过 **且** 约束全守 | 现有；长程 case 上预期首次出现明显分离 |
 | 稳定 | pass@k / pass^k | 现有 | pass^k 更能体现可靠性 |
-| 成本 | cost per success | 总成本 / 成功 trial 数 | `pricing.py` 已实现（每模型费率 + 溯源 + 不假设汇率）；`cost_source` 必须标注；费率表待填 |
+| 成本 | cost per success | 总成本 / 成功 trial 数 | `pricing.py` 费率已填并带 source/as_of；`cost_source` 必须标注；GLM USD 仍缺显式汇率 |
 | 成本 | 预算约束成功率 | 固定 wall-clock/USD 上限下的成功率 | 跨 Agent 公平对比的主口径 |
 | 效率 | steps-to-first-target-pass | 首次 target 通过的步号 | 归一化轨迹后跨 Agent 可比 |
 | 规划 | plan adherence / abandonment | §3.3 定义 | 仅对声明 `PLANNING` 能力的系统 |
@@ -463,8 +466,9 @@ class EvalCase(BaseModel):
 
 | | |
 |---|---|
-| 假设 | 强模型（GLM-4.6 / DeepSeek-v4-flash）在短程 13 case 上，v1/v2/v3 的 Task Success 均落在 0.95–1.00，三者差异不显著（McNemar p > 0.1） |
+| 假设 | 强模型在短程 suite 上，v1/v2/v3 的 Task Success 均落在 0.95–1.00，三者差异很小 |
 | 依据 | 已有观测：9 case 上 V1=0.98、V2=1.00 |
+| 当前结果 | 默认预算下 DeepSeek 两档与 GLM-4.5-air 均 1.00，饱和成立；但 `max_steps=4` 后 DeepSeek 0.93、air 0.07，说明饱和取决于约束而非只取决于 case。 |
 | 证伪 | 若新增的 instruction-following / refactor case 拉开 >0.1 的差距，说明任务类型比 harness 纪律更能造成区分度 |
 | 无论如何的价值 | 明确"短程 suite 的用途是回归护栏，不是区分度来源"，这本身是一个正确的 benchmark 定位结论 |
 
@@ -472,8 +476,9 @@ class EvalCase(BaseModel):
 
 | | |
 |---|---|
-| 假设 | GLM-4-Flash 在短程 suite 上 Task Success 落在 **0.35–0.70**，且 v1 < v2 < v3 呈单调递增，差距 0.05–0.20 |
+| 假设 | 弱模型在短程 suite 上 Task Success 落在 **0.35–0.70**，且 harness 产生可测差异 |
 | 依据 | 弱模型缺乏自发的验证纪律，harness 约束的边际收益更大 |
+| 当前结果 | **部分成立但远弱于预期**：glm-4.7-flash 为 0.84，只有最弱档产生 0.16 区分度；GLM-4.5-air 与 DeepSeek 均 1.00。相比之下预算收紧产生 0.85 差距。 |
 | 证伪 | 若弱模型下 v3 反而更差 → 说明 compaction/plan 对弱模型是**认知负担**而非帮助（这是一个很有价值的发现，直接对应产品建议：能力分层启用） |
 | 价值 | 无论方向，都得到"harness 收益随模型能力递减/递增"的曲线，这是 §4.2 case 区分度分析真正需要的多系统数据 |
 
@@ -484,6 +489,7 @@ class EvalCase(BaseModel):
 | 假设 | 长程 4 case 上：v2 Task Success **0.30–0.60**，v3 **0.55–0.85**，差距 **≥0.15** 且 McNemar 显著；v3 的 context overflow rate 比 v2 低 ≥50%；代价是 token +20–60% |
 | 依据 | v2 无 compaction，35+ 步后必然逼近上下文预算；plan 缺失导致跨模块任务遗漏调用点 |
 | 消融预期 | v3−compaction ≈ v2（overflow 主导）；v3−plan 介于两者之间（能跑完但漏改） |
+| 修正后结果 | 12k ceiling、4 case×3 repeats：v2 0.42 / V3.1 1.00 / V3.1−context 0.33 / V3.1−planner 1.00。compaction 是全部成功效应；planner 成功率中性、工具调用约 +18%。 |
 | 证伪 | 若 v2 在长程上也接近 1.0 → 说明长程 case 设计失败（步数够但认知负荷不够），须重做 case 而非否定 compaction |
 | 价值 | 这是整个 Agent 框架线的**核心 money shot**，替代已饱和的 V1→V2 |
 
@@ -539,11 +545,11 @@ class EvalCase(BaseModel):
 | 系统 | 模型 | 短程 Task | 长程 Task | 长程 Strict | overflow率 | hacking率 | cost/success |
 |---|---|---|---|---|---|---|---|
 | Claude Code | 默认 | — | — | — | — | — | — |
-| Claude Code | GLM-4.6 | — | — | — | — | — | — |
-| MiniAgent v3 | GLM-4.6 | — | — | — | — | — | — |
-| MiniAgent v2 | GLM-4.6 | — | — | — | — | — | — |
-| MiniAgent v3 | GLM-4-Flash | — | — | — | — | — | — |
-| aider / mini-swe | GLM-4.6 | — | — | — | — | — | — |
+| Claude Code | 统一模型（待 endpoint probe） | — | — | — | — | — | — |
+| MiniAgent v3 | GLM-4.5-air | — | — | — | — | — | — |
+| MiniAgent v2 | GLM-4.5-air | — | — | — | — | — | — |
+| MiniAgent v3 | GLM-4.7-flash | — | — | — | — | — | — |
+| aider / mini-swe | GLM-4.5-air | — | — | — | — | — | — |
 
 每格附 cluster bootstrap 95% CI 与样本数；配套：canary 召回曲线图、成本-成功率前沿图、失败模式分布堆叠图。
 
@@ -555,8 +561,8 @@ class EvalCase(BaseModel):
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
-| Claude Code / Cline 的 headless 接口与本文记载不符 | W1-3 阻塞，连带 E3 | W1 第一天先做 `probe()` 实测；接口不可用则降级为 aider + mini-swe-agent 两方对比，并把"extension-based Agent 可自动化性评估"作为 Protocol Study 产出 |
-| 长程 case 难度校准失败（全过或全败） | H3 主假设不可测 | W1-1 用中等模型试跑校准 `expected_steps`；预留 0.5d 返工 |
+| Claude/第三方 endpoint 不稳定或限流 | E3 阻塞、infra 比例过高 | protocol/repo smoke 已过；正式矩阵前做少量重复校准，infra-invalid 排除分母并用 resume 重试，持续不稳则转 aider |
+| 默认预算下 suite 饱和 | 模型/Harness 区分度不足 | 把 `max_steps` 与 context ceiling 设为实验变量；同时补真正更难的任务，预算效率不能替代能力上限 |
 | 外部 Agent 无法统一 endpoint，模型因素混淆 | H6 归因减弱 | 同时跑"各自默认模型"与"统一 endpoint"两组；无法统一时在报告中明确标注为混淆因素，不强行归因 |
 | 长程实验时间超预算 | W3-6 卡壳 | 并行化（W1-6）是前置；必要时长程 repeats 从 5 降到 3，并如实说明功效下降 |
 | 检测器误报污染结论 | 失败模式分布不可信 | 验收即要求"人工构造样本全命中 + reference 零误报"；所有检出保留 evidence span 供人工复核 |

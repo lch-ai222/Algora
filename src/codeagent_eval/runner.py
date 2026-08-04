@@ -73,7 +73,7 @@ HARNESS_KINDS = ("v1", "v2", "v3")
 
 #: Bumped when a persisted trial's on-disk shape changes, so `--resume` refuses to mix
 #: artifacts it cannot interpret rather than silently aggregating stale ones.
-TRIAL_SCHEMA_VERSION = 1
+TRIAL_SCHEMA_VERSION = 2
 
 
 # --------------------------------------------------------------------------- #
@@ -147,6 +147,7 @@ def _run_config(
     *,
     adapter_config=None,
     adapter_result: AgentRunResult | None = None,
+    adapter_version: str | None = None,
 ) -> dict[str, Any]:
     """Provenance recorded on every trial + experiment: model / provider / temperature / sampling.
     Reference/none are deterministic (no model), so those fields are null."""
@@ -154,7 +155,9 @@ def _run_config(
         manifest = adapter_result.env_manifest if adapter_result else {}
         return {
             "adapter": kind,
-            "adapter_version": adapter_result.adapter_version if adapter_result else None,
+            "adapter_version": (
+                adapter_result.adapter_version if adapter_result else adapter_version
+            ),
             "harness": None,
             # An external framework owns its own model client; the OpenAI-compatible provider
             # used by V1/V2 is not in the loop, and saying otherwise would make a cross-agent
@@ -648,7 +651,7 @@ def _aggregate_case(
     strict = [g.strict_success for g in valid_grades]
     tool_calls = [t.tool_call_count for t in valid_trials]
     durations = [t.duration_ms for t in valid_trials]
-    tokens = [sum(c.total_tokens for c in t.llm_calls) for t in valid_trials]
+    tokens = [t.total_tokens for t in valid_trials]
     model_steps = [t.steps for t in valid_trials]
     test_runs = [sum(event.type == TraceEventType.TEST_RESULT for event in t.events) for t in valid_trials]
     failed_test_runs = [
@@ -792,12 +795,27 @@ def run_experiment(
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
     context_ceiling_tokens: int | None = None,
+    adapter_version: str | None = None,
 ) -> dict[str, Any]:
     if workers < 1:
         raise ValueError("workers must be >= 1")
     suite = load_suite(suite_dir)
     cases = [c for c in suite.cases if not case_filter or c.case_id in case_filter]
-    run_config = _run_config(kind, provider, max_completion_tokens, adapter_config=adapter_config)
+    if kind in EXTERNAL_ADAPTERS and adapter_version is None:
+        # Programmatic callers do not pass through main(), so probe here as well. The exact
+        # executable version is experiment identity: resuming after a CLI upgrade would
+        # otherwise blend two different systems under one result.
+        probe = create_adapter(kind, config=adapter_config).probe()
+        if not probe.available:
+            raise ValueError(f"adapter={kind} unavailable. {probe.detail}")
+        adapter_version = probe.version
+    run_config = _run_config(
+        kind,
+        provider,
+        max_completion_tokens,
+        adapter_config=adapter_config,
+        adapter_version=adapter_version,
+    )
     # Part of run_config so it lands in provenance *and* in the resume fingerprint: two runs
     # at different budgets are different experiments and must never merge.
     run_config["max_steps_override"] = max_steps_override
@@ -1103,6 +1121,7 @@ def main(argv: list[str] | None = None) -> int:
             ablate=frozenset(args.ablate),
             context_budget_tokens=args.context_budget_tokens,
             context_ceiling_tokens=args.context_ceiling_tokens,
+            adapter_version=probe.version if kind == "claude_code" else None,
         )
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

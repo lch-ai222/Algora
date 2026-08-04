@@ -127,6 +127,8 @@ class AgentRunResult(BaseModel):
             changed_files=self.changed_files,
             events=self.events,
             llm_calls=self.llm_calls,
+            prompt_tokens=self.prompt_tokens,
+            completion_tokens=self.completion_tokens,
             cached_tokens=self.cached_tokens,
             cost_usd=self.cost_usd,
             cost_source=self.cost_source,

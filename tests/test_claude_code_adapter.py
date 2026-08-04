@@ -364,6 +364,9 @@ def test_result_round_trips_into_the_grading_contract(fake_claude, git_repo, tmp
     assert trial.stop_reason == "success"          # native vocabulary preserved
     assert trial.canonical_stop_reason == "final"  # comparison vocabulary carried alongside
     assert canonical_stop_reason(trial) == "final"
+    assert trial.prompt_tokens == result.prompt_tokens
+    assert trial.completion_tokens == result.completion_tokens
+    assert trial.total_tokens == result.total_tokens
 
 
 def test_max_turns_exhaustion_maps_to_budget_steps(fake_claude, git_repo, tmp_path):
