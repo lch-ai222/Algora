@@ -190,6 +190,29 @@ DeepSeek，V2 harness，短程 2 case × 1 repeat，workers=2，费率表 `2026-
 
 **区分度的最便宜来源是预算而不是新 case**：当前 `max_steps=20`，而实测工具调用只用到 7–14.6，冗余 30–65%。把预算压到 8–10，`spec-place-order`（14.6）和 `regtrap-loyalty-bonus`（13.2）会对 GLM-4.5-air 失败而 DeepSeek（7.0）仍通过——**不写一条新 case 就能得到区分度**。"预算约束成功率"本来就在方法论的指标清单里，只是还没当成实验变量用。
 
+### V3 预算收紧实验：区分度不来自更难的 case，来自更紧的预算（2026-08-04）
+
+同一个短程 suite（9 case × 3 repeats = 27 trial/格），V2 harness，只改 `--max-steps`：
+
+| `max_steps` | DeepSeek v4-flash | GLM-4.5-air | 差距 |
+|---|---|---|---|
+| 20（case 默认） | 1.00 | 1.00 | **0.00** |
+| 12 | 1.00 | — | |
+| 8 | 1.00 | 0.78 | 0.22 |
+| 6 | 1.00 | 0.81 | 0.19 |
+| 4 | 0.93 | **0.07** | **0.85** |
+
+**同一套 case，预算从 20 收到 4，区分度从 0 变成 0.85。一条新 case 都没写。**
+
+两个反直觉的观察：
+
+1. **模型会适应预算，而不是消耗预算。** DeepSeek 在 20 步预算下只用 7 步，但把预算压到 6 仍然 1.00 —— 说明"用了 7 步"是选择而非需求。因此"实测步数 / 预算"的冗余比**不能**用来预测收紧后会不会失败，只有真跑才知道。
+2. **是断崖不是渐变。** DeepSeek 在 8/6 都满分，4 才破；air 在 8/6 徘徊 0.78–0.81（n=3 下这两点只差 1 个 trial，属噪声），4 直接崩到 0.07。
+
+方法论修正：`max_steps` 从 case 常量升格为**实验变量**（`--max-steps`，写入 provenance 与 resume 指纹）。饱和不等于"case 太简单"—— 是**预算太松，让能力差异没有地方显现**。被测的维度其实是"约束下的效率"，而它此前完全不可见。
+
+这条直接改善 H3 的可测性：V2→V3 的 compaction 消融应当在收紧预算下做，而不是在默认预算下期待差异。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：
@@ -230,9 +253,9 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **预算收紧实验**（新增，P0）：同一 suite 用 `max_steps` 8/12/20 三档重跑，验证预算能否在不写新 case 的情况下产生区分度。这是 H3 可测性的前提。
-2. **V3 W1-4 · planner/v3 prompt**：`update_plan` 工具 + plan 遵守率打点，解锁 Agent 框架线。
-3. 长期：按 G1 路线补更难的 case（refactor / 并发 / 欠定义 spec），预算收紧只是权宜之计。
+1. **V3 W1-4 · planner/v3 prompt**：`update_plan` 工具 + plan 遵守率打点，解锁 Agent 框架线。
+2. **后续实验一律带预算维度**：至少 `max_steps` 取紧/松两档，否则强模型之间的差异测不出来。
+3. 长期：按 G1 路线补更难的 case（refactor / 并发 / 欠定义 spec）。预算收紧测的是约束下的效率，不能替代能不能做更难的事。
 4. 需要 GLM 的 USD 成本时，填一个带出处与日期的 `usd_per_cny`。
 4. **ClaudeCodeAdapter live 验证**：一旦有可用 CLI，先 probe + 单 case 冒烟核对 stream-json schema 与 flag 集。
 4. **公开 benchmark**：SWE-bench 官方 Smoke Slice 仍是后续 P0，但不冒充全量榜单。
