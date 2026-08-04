@@ -625,6 +625,7 @@ class ClaudeCodeAdapter:
             env_manifest=self._env_manifest(parsed, outcome, removed_artifacts),
             steps=parsed.model_turns,
             tool_call_count=parsed.tool_calls,
+            plan=_plan_from_events(parsed),
             final_message=parsed.final_message,
             completion_checks={
                 "has_changes": bool(changed_files),
@@ -761,6 +762,29 @@ class ClaudeCodeAdapter:
             "stderr_bytes": len(outcome.stderr.encode("utf-8")),
             "repo_commit": _git_head(self._workdir) if self._workdir else None,
         }
+
+
+def _plan_from_events(parsed: ParsedStream) -> dict[str, Any]:
+    """Claude Code's last TodoWrite, in the same shape the MiniAgent planner reports.
+
+    Only the plan itself is recovered. Adherence is intentionally not computed here: the
+    MiniAgent's figure is derived from a tracker that watched every repo action as it
+    happened, and reconstructing an equivalent from a normalized trace would produce a
+    number that looks comparable without being so.
+    """
+    updates = [e for e in parsed.events if e.type is TraceEventType.PLAN_UPDATE]
+    if not updates:
+        return {}
+    latest = updates[-1].payload.get("plan")
+    return {
+        "items": latest if isinstance(latest, list) else [],
+        "stats": {
+            "plan_declared": True,
+            "plan_revisions": len(updates),
+            "plan_adherence": None,
+            "plan_adherence_unavailable_reason": "native plan; adherence is not reconstructed",
+        },
+    }
 
 
 def _git_head(workdir: Path) -> str | None:

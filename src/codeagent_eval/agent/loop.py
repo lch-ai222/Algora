@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from codeagent_eval.agent.planner import PlanTracker, parse_plan_items
 from codeagent_eval.agent.prompts import build_system_prompt
 from codeagent_eval.llm import LlmCallRecord, LlmProvider, llm_trace_scope
 from codeagent_eval.models import AgentTask, TraceEvent, TraceEventType, utc_now_iso
@@ -33,6 +34,9 @@ class AgentConfig:
     # V2-only guards (kept off in V1 so its failure modes are real):
     detect_repeated_actions: bool = False
     repeated_action_limit: int = 3
+    # V3-only: offers update_plan and tracks adherence. Off elsewhere so V1/V2 keep exactly
+    # the toolset their calibrated baselines were measured with.
+    enable_planner: bool = False
 
 
 class TrialResult(BaseModel):
@@ -52,6 +56,7 @@ class TrialResult(BaseModel):
     cost_usd: float | None = None
     cost_source: str = "unavailable"
     completion_checks: dict[str, Any] = Field(default_factory=dict)
+    plan: dict[str, Any] = Field(default_factory=dict)
     started_at: str = ""
     finished_at: str = ""
     duration_ms: int = 0
@@ -68,6 +73,10 @@ class _RunState:
     blocked_commands: int = 0
     premature_final_attempts: int = 0
     action_signatures: list[str] = field(default_factory=list)
+    planner: PlanTracker = field(default_factory=PlanTracker)
+    #: Repo-affecting actions (edits and test runs) seen so far. Plan adherence is judged
+    #: against this rather than against the agent's own claim that an item is finished.
+    repo_actions: int = 0
 
     def emit(self, type_: TraceEventType, name: str | None = None, **payload: Any) -> None:
         self.events.append(TraceEvent(step=self.step, type=type_, name=name, payload=payload))
@@ -82,7 +91,9 @@ class MiniAgent:
     ):
         self.provider = provider
         self.config = config or AgentConfig()
-        self.registry = registry or ToolRegistry(default_tools())
+        self.registry = registry or ToolRegistry(
+            default_tools(planning=self.config.enable_planner)
+        )
 
     def run(self, task: AgentTask, sandbox: WorktreeSandbox, *, case_id: str | None = None) -> TrialResult:
         system_prompt = build_system_prompt(self.config.version, task.project_instructions)
@@ -178,6 +189,8 @@ class MiniAgent:
 
                     result = self.registry.dispatch(ctx, call.name, call.arguments)
                     _record_side_events(state, call.name, call.arguments, result)
+                    if call.name == "update_plan" and result.ok:
+                        _record_plan(state, result)
                     messages.append(_tool_message(call.call_id, result.content))
 
                 if looped:
@@ -204,6 +217,7 @@ class MiniAgent:
             "provider_error": stop_reason == "provider_error",
             "premature_final_attempts": state.premature_final_attempts,
         }
+        plan_stats = state.planner.stats() if self.config.enable_planner else {}
         return TrialResult(
             stop_reason=stop_reason,
             steps=state.step,
@@ -214,6 +228,12 @@ class MiniAgent:
             events=state.events,
             llm_calls=list(llm_records),
             completion_checks=checks,
+            plan=(
+                {"items": [i.model_dump(mode="json") for i in state.planner.current_items],
+                 "stats": plan_stats}
+                if self.config.enable_planner
+                else {}
+            ),
             started_at=started_at,
             finished_at=utc_now_iso(),
             duration_ms=int((time.monotonic() - started) * 1000),
@@ -293,6 +313,18 @@ def _is_repeated(state: _RunState, signature: str, config: AgentConfig) -> bool:
     return len(recent) == config.repeated_action_limit - 1 and all(s == signature for s in recent)
 
 
+def _record_plan(state: _RunState, result) -> None:
+    """Fold an accepted plan revision into the tracker, timestamped by repo actions so far."""
+    items = parse_plan_items(result.data.get("plan"))
+    revision = state.planner.record(state.step, items, state.repo_actions)
+    state.emit(
+        TraceEventType.PLAN_UPDATE,
+        name=f"revision_{len(state.planner.revisions)}",
+        items=[i.model_dump(mode="json") for i in revision.items],
+        actions_at_revision=revision.actions_at_revision,
+    )
+
+
 def _record_side_events(state: _RunState, name: str, args: dict[str, Any], result) -> None:
     """Emit domain-specific trace events (richer than the generic TOOL_RESULT) so the trace
     viewer and graders can reason about tests/edits/commands directly."""
@@ -301,6 +333,7 @@ def _record_side_events(state: _RunState, name: str, args: dict[str, Any], resul
         command = str(args.get("command", ""))
         if command.strip().startswith("pytest") or "pytest" in command:
             state.ran_tests = True
+            state.repo_actions += 1
             state.last_test_exit = exit_code
             state.emit(TraceEventType.TEST_RESULT, name=command, exit_code=exit_code, ok=result.ok)
         else:
@@ -309,6 +342,8 @@ def _record_side_events(state: _RunState, name: str, args: dict[str, Any], resul
         if result.data.get("blocked"):
             state.blocked_commands += 1
     elif name == "apply_patch":
+        if result.ok:
+            state.repo_actions += 1
         if result.data.get("forbidden"):
             state.forbidden_attempts += 1
         state.emit(TraceEventType.FILE_WRITE, name=str(args.get("path")), ok=result.ok)

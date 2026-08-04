@@ -67,7 +67,8 @@ from codeagent_eval.graders.test_grader import TestGrade
 from codeagent_eval.models import AgentTask, TraceEvent, TraceEventType, utc_now_iso
 from codeagent_eval.sandbox import WorktreeSandbox
 
-AGENT_KINDS = ("v1", "v2", "reference", "none")
+AGENT_KINDS = ("v1", "v2", "v3", "reference", "none")
+HARNESS_KINDS = ("v1", "v2", "v3")
 
 #: Bumped when a persisted trial's on-disk shape changes, so `--resume` refuses to mix
 #: artifacts it cannot interpret rather than silently aggregating stale ones.
@@ -78,7 +79,11 @@ TRIAL_SCHEMA_VERSION = 1
 # One trial
 # --------------------------------------------------------------------------- #
 def _agent_config(kind: str) -> AgentConfig:
-    return AgentConfig(version=kind, detect_repeated_actions=(kind == "v2"))
+    return AgentConfig(
+        version=kind,
+        detect_repeated_actions=kind in ("v2", "v3"),
+        enable_planner=kind == "v3",
+    )
 
 
 def _run_adapter_trial(
@@ -157,7 +162,7 @@ def _run_config(
             "complexity": None,
             "max_tokens": None,
         }
-    if kind in ("v1", "v2") and provider is not None:
+    if kind in HARNESS_KINDS and provider is not None:
         cfg = _agent_config(kind)
         return {
             "adapter": "mini_agent",
@@ -235,7 +240,7 @@ def run_trial(
     repo = materialize_case(suite_dir, clean_repo, case, build_root=build_root)
     try:
         with WorktreeSandbox(repo) as sb:
-            project_instructions = _read_agents_md(sb.root) if kind == "v2" else None
+            project_instructions = _read_agents_md(sb.root) if kind in ("v2", "v3") else None
             task = AgentTask(
                 instruction=case.render_instruction(),
                 workspace_path=str(sb.root),
@@ -243,11 +248,11 @@ def run_trial(
                 max_steps=step_budget,
                 timeout_seconds=case.timeout_seconds,
                 project_instructions=project_instructions,
-                harness_version=kind if kind in ("v1", "v2") else None,
+                harness_version=kind if kind in HARNESS_KINDS else None,
                 require_tests_run_before_finish=case.constraints.require_tests_run_before_finish,
             )
             adapter_result: AgentRunResult | None = None
-            if kind in ("v1", "v2"):
+            if kind in HARNESS_KINDS:
                 trial, adapter_result = _run_adapter_trial(
                     task,
                     sb,
@@ -340,6 +345,8 @@ def _persist_trial(
     # Without this a resumed experiment could only recover scores, not the trajectory-derived
     # metrics (tool calls, test runs, tokens), and its summary would silently differ.
     (trial_dir / "trial.json").write_text(trial.model_dump_json(indent=2, exclude={"events"}))
+    if trial.plan:
+        (trial_dir / "plan.json").write_text(json.dumps(trial.plan, indent=2))
     if adapter_result is not None:
         adapter_result = _relocate_native_trajectory(adapter_result, trial_dir)
         (trial_dir / "agent-result.json").write_text(adapter_result.model_dump_json(indent=2))
@@ -452,7 +459,7 @@ def _worker_suite(suite_dir: str):
 
 
 def _worker_provider(kind: str, model_override: str | None = None):
-    if kind not in ("v1", "v2"):
+    if kind not in HARNESS_KINDS:
         return None
     key = ("provider", model_override)
     if key not in _WORKER_CACHE:
@@ -636,6 +643,14 @@ def _aggregate_case(
         )
         for t in valid_trials
     ]
+    # Only trials from a planner-equipped harness carry adherence; averaging over the rest
+    # would dilute the metric with systems that were never asked to plan.
+    planned = [t for t in valid_trials if t.plan.get("stats", {}).get("plan_declared")]
+    adherence = [
+        t.plan["stats"]["plan_adherence"]
+        for t in planned
+        if t.plan["stats"].get("plan_adherence") is not None
+    ]
     costs = [t.cost_usd for t in valid_trials if t.cost_usd is not None]
     cost_sources = sorted({t.cost_source for t in valid_trials})
     valid_count = len(valid_trials)
@@ -664,6 +679,20 @@ def _aggregate_case(
         "tokens_mean": round(statistics.mean(tokens), 1) if valid_count else None,
         "cost_usd_mean": round(statistics.mean(costs), 6) if len(costs) == valid_count and costs else None,
         "cost_sources": cost_sources,
+        "plan_declared_rate": round(len(planned) / valid_count, 4) if valid_count else None,
+        "plan_adherence_mean": round(statistics.mean(adherence), 4) if adherence else None,
+        "plan_items_mean": (
+            round(statistics.mean(t.plan["stats"]["plan_items"] for t in planned), 2)
+            if planned else None
+        ),
+        "plan_revisions_mean": (
+            round(statistics.mean(t.plan["stats"]["plan_revisions"] for t in planned), 2)
+            if planned else None
+        ),
+        # Items claimed done with no file write or test run in between: plan theatre.
+        "plan_done_without_action_total": sum(
+            t.plan["stats"]["plan_done_without_action"] for t in planned
+        ),
         "failure_tags": failure_tags,
     }
 
@@ -726,7 +755,7 @@ def _write_or_verify_manifest(out_dir: Path, fingerprint: dict[str, Any], *, res
 
 
 def _summary_adapter_name(kind: str) -> str:
-    if kind in ("v1", "v2"):
+    if kind in HARNESS_KINDS:
         return "mini_agent"
     if kind in EXTERNAL_ADAPTERS:
         return kind
@@ -849,7 +878,7 @@ def run_experiment(
         "experiment_id": experiment_id,
         "agent": kind,
         "adapter": _summary_adapter_name(kind),
-        "harness": kind if kind in ("v1", "v2") else None,
+        "harness": kind if kind in HARNESS_KINDS else None,
         "suite": suite.name,
         "repeats": repeats,
         "workers": workers,
@@ -905,7 +934,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="CodeAgent Eval Lab runner")
     parser.add_argument("--agent", choices=AGENT_KINDS, default=None, help="legacy V1/V2 or baseline selector")
     parser.add_argument("--adapter", choices=ADAPTER_NAMES, default=None)
-    parser.add_argument("--harness", choices=("v1", "v2"), default="v2")
+    parser.add_argument("--harness", choices=HARNESS_KINDS, default="v2")
     parser.add_argument("--suite", default="datasets/mini_store_suite")
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--cases", nargs="*", help="filter to these case_ids")
@@ -984,7 +1013,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"adapter={kind} version={probe.version}")
 
     provider = None
-    if kind in ("v1", "v2"):
+    if kind in HARNESS_KINDS:
         from codeagent_eval.llm import LlmProvider
         from codeagent_eval.settings import load_settings
 

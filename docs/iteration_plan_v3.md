@@ -25,7 +25,9 @@
 - 运行纪律新发现：GLM 免费档限流极严（workers=4 → 44/45 触发 429），付费档 workers=3 下 infra=0。并行度须按档位设定。
 - **预算收紧实验已完成并证实假设**：同一 suite 只改 `--max-steps`，DeepSeek vs GLM-4.5-air 的差距从 20 步时的 **0.00** 变成 4 步时的 **0.85**（1.00/1.00 → 0.93/0.07），一条新 case 都没写。两个反直觉观察：模型会**适应**预算而非消耗预算（DeepSeek 给 20 用 7，压到 6 仍满分），所以冗余比不能预测收紧后的表现；曲线是**断崖**不是渐变。
 - **方案修正**：`max_steps` 从 case 常量升格为实验变量，写入 provenance 与 resume 指纹。§7 的 H3 应在收紧预算下检验，否则大概率复现 H2 的 0 差异。
-- **下一项：W1-4 planner**；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
+- **W1-4 已完成**：`update_plan` 工具 + PlanTracker + v3 prompt（V3 = V2 + planner，其余不变）。遵守率对着仓库动作核验而非 agent 自述——标 done 但期间无文件写入/测试运行的项记为 `plan_done_without_action` 并排除出 adherence。219 passed/1 skipped。
+- **实测：给了 planner 不等于会规划。** DeepSeek v4-flash 在短程 case（7–17 动作）上完全不调用 `update_plan`；长程 case 上主动规划（3 项/3 修订 adherence 1.00；7 项/2 修订 adherence 0.71），且无计划表演。**推论：planner 的消融只能在长程上做**，短程上 V2/V3 必然无差异。
+- **下一项：W2-1 context/compaction**，在长程 + 收紧预算下做消融；在 Claude Code live 验证完成前，不能宣称已具备横向评测结果。
 
 ---
 

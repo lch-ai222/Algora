@@ -86,6 +86,10 @@ class AgentRunResult(BaseModel):
     final_message: str | None = None
     llm_calls: list[LlmCallRecord] = Field(default_factory=list)
     completion_checks: dict[str, Any] = Field(default_factory=dict)
+    #: The agent's own task plan plus its adherence stats, when the framework exposes one.
+    #: Empty for frameworks without a planner, which is distinct from a planner that produced
+    #: nothing — the capability set says which case applies.
+    plan: dict[str, Any] = Field(default_factory=dict)
     started_at: str = ""
     finished_at: str = ""
 
@@ -125,6 +129,7 @@ class AgentRunResult(BaseModel):
             cost_usd=self.cost_usd,
             cost_source=self.cost_source,
             completion_checks=self.completion_checks,
+            plan=self.plan,
             started_at=self.started_at,
             finished_at=self.finished_at,
             duration_ms=self.duration_ms,

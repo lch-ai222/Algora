@@ -6,11 +6,11 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ## 1. 当前总体状态
 
-闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1/W1-2/W1-3/W1-5/W1-6/W1-7 已完成**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter（代码层完成，**尚未 live 验证**——本机无 `claude` CLI）。
+闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1 到 W1-7 全部完成**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter（代码层完成，**尚未 live 验证**——本机无 `claude` CLI）。
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**191 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**219 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -217,6 +217,25 @@ DeepSeek，V2 harness，短程 2 case × 1 repeat，workers=2，费率表 `2026-
 
 这条直接改善 H3 的可测性：V2→V3 的 compaction 消融应当在收紧预算下做，而不是在默认预算下期待差异。
 
+### V3 W1-4 · 任务规划（planner）
+
+- `agent/planner.py` + `tools/planning_tools.py` + v3 prompt：`update_plan` 工具、计划状态机、逐修订记录。V3 = V2 + planner，**其他一律不变**，所以 V2/V3 的差异只能归因到 planner。
+- **遵守率对着仓库算，不对着 agent 的声明算。** 计划是自述的：agent 可以把每项都标成 done 而一个字都没写，"5/5 完成"会把它评成完美规划。因此每次 `done` 转换都要检查期间是否发生过真实仓库动作（文件写入或跑测试）；没有的就记为 `plan_done_without_action`——计划表演，单独计数且不计入 adherence。
+- 工具只做校验与回显，**状态与指标由 loop 持有**——否则一次工具调用就能悄悄抬高 agent 自己的规划分。
+- 指标：`plan_declared` / `plan_adherence` / `plan_abandonment` / `plan_done_without_action` / `plan_done_retroactively`（首次出现即 done 的项算记账不算规划）/ `plan_revisions`。聚合只在**声明过计划的 trial** 上取平均，避免被从未被要求规划的系统稀释。
+- Claude Code 的 TodoWrite 归一化为同一形状，但 **adherence 显式留空**并给出原因：MiniAgent 的数字来自全程观察仓库动作的 tracker，从归一化轨迹重建一个"看起来可比"的值是假可比。
+
+**实测发现：给了 planner 不等于会规划，采用与否取决于任务长度。**
+
+| suite | case | 工具动作 | 是否规划 | items | adherence |
+|---|---|---|---|---|---|
+| 短程 | bugfix-pricing-tax | 7 | **否** | — | — |
+| 短程 | spec-place-order | 17 | **否** | — | — |
+| 长程 | long-refactor-pricing-api | — | 是 | 3（3 次修订） | 1.00 |
+| 长程 | long-crossmodule-returns | 32 | 是 | 7（2 次修订） | 0.71 |
+
+DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个工具确实提供、v3 prompt 确实生效，不是接线问题），长程上则主动规划且无计划表演（`done_without_action=0`）。这条本身就是 planner 消融的第一份数据：**短程上 V2/V3 不可能有差异，因为 V3 根本没启用它的新能力**。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：
@@ -257,7 +276,7 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **V3 W1-4 · planner/v3 prompt**：`update_plan` 工具 + plan 遵守率打点，解锁 Agent 框架线。
+1. **V3 W2-1 · context 管理 / compaction**：长程 + 收紧预算下做 V2/V3/V3−compaction 消融（planner 已就位，且实测只在长程被采用）。
 2. **后续实验一律带预算维度**：至少 `max_steps` 取紧/松两档，否则强模型之间的差异测不出来。
 3. 长期：按 G1 路线补更难的 case（refactor / 并发 / 欠定义 spec）。预算收紧测的是约束下的效率，不能替代能不能做更难的事。
 4. 需要 GLM 的 USD 成本时，填一个带出处与日期的 `usd_per_cny`。

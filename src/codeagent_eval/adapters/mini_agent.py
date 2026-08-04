@@ -15,6 +15,7 @@ from codeagent_eval.adapters.base import (
     UnsupportedCapability,
 )
 from codeagent_eval.agent.loop import AgentConfig, MiniAgent, TrialResult
+from codeagent_eval.agent.prompts import PROMPT_VERSIONS
 from codeagent_eval.models import AgentTask
 from codeagent_eval.sandbox import WorktreeSandbox
 
@@ -31,8 +32,10 @@ class MiniAgentAdapter:
     name = "mini_agent"
 
     def __init__(self, provider, *, harness: str = "v2", max_completion_tokens: int = 2048) -> None:
-        if harness not in {"v1", "v2"}:
-            raise ValueError(f"unsupported MiniAgent harness: {harness}")
+        if harness not in PROMPT_VERSIONS:
+            raise ValueError(
+                f"unsupported MiniAgent harness: {harness} (known: {', '.join(PROMPT_VERSIONS)})"
+            )
         self.provider = provider
         self.harness = harness
         if max_completion_tokens < 1:
@@ -54,9 +57,10 @@ class MiniAgentAdapter:
         )
 
     def capabilities(self) -> set[Capability]:
-        # V2 injects repository instructions, but it has no explicit planner/memory/compaction
-        # subsystem and its provider cost is derived rather than natively reported.
-        return set()
+        # V1/V2 inject repository instructions but have no explicit planner, memory or
+        # compaction subsystem. V3 adds planning and nothing else, which is what makes a
+        # V2/V3 comparison an ablation rather than a version bump.
+        return {Capability.PLANNING} if self.harness == "v3" else set()
 
     def prepare(
         self,
@@ -91,7 +95,8 @@ class MiniAgentAdapter:
         task = self._task.model_copy(update={"instruction": instruction})
         config = AgentConfig(
             version=self.harness,
-            detect_repeated_actions=self.harness == "v2",
+            detect_repeated_actions=self.harness in ("v2", "v3"),
+            enable_planner=self.harness == "v3",
             max_tokens=self.max_completion_tokens,
         )
         trial = MiniAgent(self.provider, config).run(task, self._sandbox, case_id=task.case_id)
@@ -140,6 +145,7 @@ class MiniAgentAdapter:
             final_message=trial.final_message,
             llm_calls=trial.llm_calls,
             completion_checks=trial.completion_checks,
+            plan=trial.plan,
             started_at=trial.started_at,
             finished_at=trial.finished_at,
         )

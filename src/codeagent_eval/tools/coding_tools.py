@@ -235,8 +235,13 @@ class GitDiffTool(Tool):
         )
 
 
-def default_tools() -> list[Tool]:
-    return [
+def default_tools(*, planning: bool = False) -> list[Tool]:
+    """The MiniAgent's toolset.
+
+    ``planning`` is off by default so V1/V2 keep exactly the six tools their calibrated
+    baselines were measured with; V3 opts in, which is what makes the ablation clean.
+    """
+    tools: list[Tool] = [
         ListFilesTool(),
         SearchCodeTool(),
         ReadFileTool(),
@@ -244,6 +249,11 @@ def default_tools() -> list[Tool]:
         RunCommandTool(),
         GitDiffTool(),
     ]
+    if planning:
+        from codeagent_eval.tools.planning_tools import UpdatePlanTool
+
+        tools.append(UpdatePlanTool())
+    return tools
 
 
 # convenience for path handling in graders/tests
