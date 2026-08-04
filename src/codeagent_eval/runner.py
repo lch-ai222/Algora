@@ -97,6 +97,7 @@ def _run_adapter_trial(
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
     context_ceiling_tokens: int | None = None,
+    max_wall_clock_s: int | None = None,
 ) -> tuple[TrialResult, AgentRunResult]:
     adapter = create_adapter(
         adapter_name,
@@ -111,7 +112,7 @@ def _run_adapter_trial(
     if not probe.available:
         raise RuntimeError(probe.detail or f"adapter {adapter_name} is unavailable")
     budget = BudgetContract(
-        max_wall_clock_s=case.timeout_seconds,
+        max_wall_clock_s=max_wall_clock_s or case.timeout_seconds,
         max_steps=max_steps or case.max_steps,
         max_tokens=context_ceiling_tokens,
     )
@@ -243,10 +244,15 @@ def run_trial(
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
     context_ceiling_tokens: int | None = None,
+    max_wall_clock_override: int | None = None,
 ) -> tuple[GradeResult, TrialResult, FailureAttribution]:
     # The step budget is an experimental variable, not a case constant: a suite every model
     # saturates still discriminates once the budget is tight enough to matter.
     step_budget = max_steps_override or case.max_steps
+    # Wall clock is the only budget every framework enforces the same way, which makes it
+    # the fair primary constraint across agents: --max-steps means a different unit per
+    # agent, and the context ceiling cannot bind a CLI that only reports usage totals.
+    wall_clock = max_wall_clock_override or case.timeout_seconds
     repo = materialize_case(suite_dir, clean_repo, case, build_root=build_root)
     try:
         with WorktreeSandbox(repo) as sb:
@@ -256,7 +262,7 @@ def run_trial(
                 workspace_path=str(sb.root),
                 case_id=case.case_id,
                 max_steps=step_budget,
-                timeout_seconds=case.timeout_seconds,
+                timeout_seconds=wall_clock,
                 project_instructions=project_instructions,
                 harness_version=kind if kind in HARNESS_KINDS else None,
                 require_tests_run_before_finish=case.constraints.require_tests_run_before_finish,
@@ -273,6 +279,7 @@ def run_trial(
                     ablate=ablate,
                     context_budget_tokens=context_budget_tokens,
                     context_ceiling_tokens=context_ceiling_tokens,
+                    max_wall_clock_s=wall_clock,
                 )
             elif kind in EXTERNAL_ADAPTERS:
                 trial, adapter_result = _run_adapter_trial(
@@ -315,7 +322,8 @@ def run_trial(
                 ),
                 "max_steps": step_budget,          # step budget (may be overridden)
                 "case_max_steps": case.max_steps,  # the case's own default, for contrast
-                "timeout_seconds": case.timeout_seconds,  # wall-clock budget
+                "timeout_seconds": wall_clock,     # wall-clock budget (may be overridden)
+                "case_timeout_seconds": case.timeout_seconds,  # the case default, for contrast
                 "repeat": repeat,
                 "stop_reason": trial.stop_reason,
                 "canonical_stop_reason": adapter_result.stop_reason if adapter_result else trial.stop_reason,
@@ -452,6 +460,7 @@ class TrialSpec:
     ablate: frozenset[str] = frozenset()
     context_budget_tokens: int = 32_000
     context_ceiling_tokens: int | None = None
+    max_wall_clock_override: int | None = None
 
 
 class TrialOutcome(NamedTuple):
@@ -513,6 +522,7 @@ def execute_trial(spec: TrialSpec) -> TrialOutcome:
             ablate=spec.ablate,
             context_budget_tokens=spec.context_budget_tokens,
             context_ceiling_tokens=spec.context_ceiling_tokens,
+            max_wall_clock_override=spec.max_wall_clock_override,
         )
     except Exception as exc:  # noqa: BLE001 - deliberately broad; see docstring
         # Loading the suite is inside the try as well, so even an unresolvable case_id becomes
@@ -808,6 +818,7 @@ def run_experiment(
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
     context_ceiling_tokens: int | None = None,
+    max_wall_clock_override: int | None = None,
     adapter_version: str | None = None,
 ) -> dict[str, Any]:
     if workers < 1:
@@ -839,6 +850,7 @@ def run_experiment(
     # Unlike the V3-only budget, the ceiling constrains every harness, so it belongs to the
     # experiment rather than to one arm of it.
     run_config["context_ceiling_tokens"] = context_ceiling_tokens
+    run_config["max_wall_clock_override"] = max_wall_clock_override
 
     experiment_id = resume_experiment_id or _new_experiment_id(kind)
     out_dir = out_root / experiment_id
@@ -871,6 +883,7 @@ def run_experiment(
                     ablate=ablate,
                     context_budget_tokens=context_budget_tokens,
                     context_ceiling_tokens=context_ceiling_tokens,
+                    max_wall_clock_override=max_wall_clock_override,
                 )
             )
 
@@ -1026,6 +1039,14 @@ def main(argv: list[str] | None = None) -> int:
              "an experimental variable — a budget nothing reaches measures nothing",
     )
     parser.add_argument(
+        "--max-wall-clock",
+        type=int,
+        default=None,
+        help="override every case's wall-clock budget. The only budget every framework "
+             "enforces identically, so it is the fair primary constraint when comparing "
+             "agents whose step and context semantics differ",
+    )
+    parser.add_argument(
         "--context-ceiling-tokens",
         type=int,
         default=None,
@@ -1115,6 +1136,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--context-budget-tokens must be positive")
     if args.context_ceiling_tokens is not None and args.context_ceiling_tokens < 1:
         parser.error("--context-ceiling-tokens must be positive")
+    if args.max_wall_clock is not None and args.max_wall_clock < 1:
+        parser.error("--max-wall-clock must be positive")
     if args.ablate and kind != "v3":
         parser.error("--ablate applies to the v3 harness only")
 
@@ -1134,6 +1157,7 @@ def main(argv: list[str] | None = None) -> int:
             ablate=frozenset(args.ablate),
             context_budget_tokens=args.context_budget_tokens,
             context_ceiling_tokens=args.context_ceiling_tokens,
+            max_wall_clock_override=args.max_wall_clock,
             adapter_version=probe.version if kind == "claude_code" else None,
         )
     except ValueError as exc:

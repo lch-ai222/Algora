@@ -306,3 +306,31 @@ def test_runs_at_different_budgets_are_different_experiments(tmp_path):
             "reference", SUITE, None, 1, CASES[:1], tmp_path / "out",
             max_steps_override=4, resume_experiment_id=first["experiment_id"],
         )
+
+
+@pytest.mark.slow
+def test_max_wall_clock_override_replaces_the_case_budget_and_is_recorded(tmp_path):
+    """Wall clock is the only budget every framework enforces identically, so it is the fair
+    primary constraint when comparing agents whose step and context semantics differ."""
+    summary = run_experiment(
+        "reference", SUITE, None, 1, CASES[:1], tmp_path / "out", max_wall_clock_override=90
+    )
+    config = json.loads(
+        (tmp_path / "out" / summary["experiment_id"] / CASES[0] / "rep0" / "config.json").read_text()
+    )
+
+    assert config["timeout_seconds"] == 90
+    assert config["case_timeout_seconds"] == 300, "the case default stays visible for contrast"
+    assert summary["run_config"]["max_wall_clock_override"] == 90
+
+
+@pytest.mark.slow
+def test_runs_at_different_wall_clocks_are_different_experiments(tmp_path):
+    first = run_experiment(
+        "reference", SUITE, None, 1, CASES[:1], tmp_path / "out", max_wall_clock_override=120
+    )
+    with pytest.raises(ValueError, match="configuration differs"):
+        run_experiment(
+            "reference", SUITE, None, 1, CASES[:1], tmp_path / "out",
+            max_wall_clock_override=60, resume_experiment_id=first["experiment_id"],
+        )
