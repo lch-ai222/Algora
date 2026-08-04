@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from mini_store.holds import HoldRegistry
 from mini_store.inventory import Inventory
 

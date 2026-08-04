@@ -168,5 +168,6 @@ LLM_PROVIDER=zhipu python -m codeagent_eval.runner --adapter mini_agent --harnes
 
 1. ~~**扩 case**~~ **已完成（2026-08-05）**：长程 suite 由 4 条扩到 8 条，达到 `MIN_USEFUL_CLUSTERS` 门槛，bootstrap 不再携带警告。**本报告表内数值仍是 4 簇下测得的**，未重跑，因此 §5.1 的区间宽度限制对本版结论依然成立；重跑矩阵是下一步。新增的 4 条中 `long-order-snapshot` 与 `long-release-accounting` 在 Task / Strict 上都有明确区分度，预期能实质收窄区间。
 2. **补第三方开源 adapter**（aider / mini-swe-agent）：三个 arm 里两个是自研，第三方样本只有 Claude Code 一个。
-3. **上下文遗忘检测器**：投机与指令偏移已有检测器并完成回扫（见 `scripts/scan_failure_modes.py`），三类失败模式只剩这一个。本报告目前只能报 TIMEOUT 这类机械原因。
+3. ~~**补上下文遗忘检测器**~~ **已完成（2026-08-05）**：三类检测器均已进入 `scripts/scan_failure_modes.py`。历史 artifacts 上 canary 遵守率 1.000、decay +0.000；新增 `long-release-accounting` 后出现首个 early→late 衰减正例，但成因仍只能表述为“遗忘或策略改变”的推断，不能越过可观察证据。
 4. **补齐 Claude Code 宽松档**：待额度恢复后按修复后的预算链路重跑，把 §5.3 的证据等级拉平。
+5. **补交付链**：第二外部 adapter、repro bundle、静态报告/跨 Agent UI 和官方 SWE-bench 实例仍未完成。

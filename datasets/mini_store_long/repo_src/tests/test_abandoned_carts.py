@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from mini_store.abandoned_carts import sweep
 from mini_store.inventory import Inventory
 

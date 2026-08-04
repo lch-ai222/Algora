@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from mini_store.cancellations import cancel_order
 from mini_store.inventory import Inventory
 from mini_store.models import CartItem, Order, Product

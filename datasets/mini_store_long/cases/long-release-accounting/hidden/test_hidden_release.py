@@ -14,7 +14,6 @@ the idempotency guard in ``cancel_order`` leaves every other release path unchec
 from __future__ import annotations
 
 import pytest
-
 from mini_store.abandoned_carts import sweep
 from mini_store.cancellations import cancel_order
 from mini_store.holds import HoldRegistry

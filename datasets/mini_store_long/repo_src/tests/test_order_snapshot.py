@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from mini_store.cart import Cart
 from mini_store.inventory import Inventory
-from mini_store.orders import place_order
 from mini_store.models import Product
+from mini_store.orders import place_order
 
 WIDGET = Product(sku="W-1", name="Widget", price=10.0)
 GADGET = Product(sku="G-1", name="Gadget", price=5.0)

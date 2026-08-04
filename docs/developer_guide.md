@@ -21,7 +21,7 @@
 2. `WorktreeSandbox(repo)` → 从该 commit 拉一个临时 worktree。
 3. agent 分支：
    - `v1`/`v2`/`v3`：runner 通过 registry 构造 `MiniAgentAdapter`，执行 `prepare → run → cleanup`；adapter 内部调用 MiniAgent，并归一化为 `AgentRunResult`。V3 可通过 `--ablate planner|context` 做单能力消融。
-   - `claude_code`：调用 headless CLI，原始 stream-json 边流边落盘，结束后归一化为同一结果契约；Claude Code 2.1.220 + 智谱 GLM-5.2 的协议与 repo smoke 已 live 验证。
+   - `claude_code`：调用 headless CLI，原始 stream-json 边流边落盘，结束后归一化为同一结果契约；Claude Code 2.1.220 + 智谱 GLM-5.2 已完成协议/repo smoke 和原 4-case 模型受控横向实验。
    - `reference`：`apply_reference_fix`（拷回干净版），上界。
    - `none`：不动，下界。
 4. **在注入 hidden 前**捕获 `patch` 与 `changed_files`（否则 hidden 文件污染 diff）。
@@ -31,6 +31,8 @@
 8. 清理 worktree 与现构仓库。
 
 `run_experiment` 在其上做 cases×repeats、聚合（mean+方差、pass@k/pass^k、failure_tags、动作/模型轮次/测试次数中位数）、写 `summary.json/csv`。`--workers N` 只改变调度，不改变聚合顺序；每个 trial 最后写完成标记，`--resume` 只采纳 manifest 指纹一致且非 infra-invalid 的完整 trial。provider/网络错误是 infra-invalid，不进入成功率分母；进程退出码 3 表示实验含基础设施失败。
+
+失败模式检测当前作为 artifacts 后处理运行：`scripts/scan_failure_modes.py` 重放 trajectory/diff，调用 `detectors/reward_hacking.py`、`instruction_drift.py`、`context_amnesia.py`。统计比较由 `scripts/compare_experiments.py` 调用 `stats/` 的 case-cluster bootstrap、exact McNemar 和 Wilson 区间；这些结果不反写 grader，避免分析层改变原始评分证据。
 
 ## 3. LLM Provider（`llm.py`）
 
@@ -80,7 +82,7 @@
 
 - `base.py`：runtime-checkable `AgentAdapter` Protocol；不可变 `BudgetContract`；`AgentRunResult` 是跨 Agent 的 patch/轨迹/token/cost/停止原因/环境清单契约；`UnsupportedCapability` 禁止静默降级。归一化 prompt/completion 总量必须进入 `TrialResult`，不能假设外部框架会提供逐调用 `LlmCallRecord`，否则 summary 会静默报 0 token。
 - `mini_agent.py`：包装 in-process MiniAgent，硬执行 wall-clock/step/context ceiling；对总成本/总 token 等无法保证的预算明确拒绝。每回合输出上限与全程上下文上限是两个不同契约。
-- `claude_code.py`：调用 `claude -p --output-format stream-json --verbose`；独立 `CLAUDE_CONFIG_DIR` 隔离操作者 hooks/MCP/settings；wall-clock 通过进程组 SIGTERM→SIGKILL；未知/畸形记录只降级轨迹，不丢已花预算的 trial。第三方 `ANTHROPIC_BASE_URL` 下 native USD 成本语义不可信，必须降为 unavailable。Claude Code 2.1.220 + GLM-5.2 已通过协议流和一个 repo smoke；该版本的 help 不列 `--max-turns`，但实跑接受，说明 capability 不能只靠 help 文本猜测。正式矩阵前仍须校准 endpoint 稳定性，`ENOTFOUND`/限流均按 infra-invalid 处理。
+- `claude_code.py`：调用 `claude -p --output-format stream-json --verbose`；独立 `CLAUDE_CONFIG_DIR` 隔离操作者 hooks/MCP/settings；wall-clock 通过进程组 SIGTERM→SIGKILL；未知/畸形记录只降级轨迹，不丢已花预算的 trial。第三方 `ANTHROPIC_BASE_URL` 下 native USD 成本语义不可信，必须降为 unavailable。Claude Code 2.1.220 + GLM-5.2 已通过协议流、repo smoke 和原 4-case 横向矩阵；该版本的 help 不列 `--max-turns`，但实跑接受，说明 capability 不能只靠 help 文本猜测。8-case 复验仍须继续把 `ENOTFOUND`/限流按 infra-invalid 处理。
 - `normalize.py`：跨框架工具语义表；例如 Read→FILE_READ、Bash+pytest→TEST_RESULT、TodoWrite→PLAN_UPDATE。推断字段必须标 provenance，不能伪装成原生真值。
 - `registry.py`：显式名称→构造器，当前为 `mini_agent` 和 `claude_code`。
 - 成本：MiniAgent 由固定费率表派生，Claude Code 仅在 native Anthropic 语义成立时接受 native 成本；不可用必须是 `cost_usd=null`、`cost_source=unavailable`。
@@ -101,7 +103,7 @@
 
 隔离设计要点：每 case 只引入自己的缺陷，其余模块正确 → regression 在 base 通过；对抗 case 把“正确修复所需的不变量”放在**分离的可见测试文件**里（V2 跑全套能发现，V1 只跑命名测试发现不了）。
 
-`datasets/mini_store_long/` 使用独立 `repo_src` 快照，避免为了长任务改坏短程历史基线。4 个 hard case 覆盖 12 文件 API 迁移、5 模块退货功能、单根因级联 bug 与 7 文件 build/CLI/offline-wheel 链路；每条带 canary。质量门禁是干净仓库 53 tests + long selfcheck 4/4 + reference/none 1.0/0.0。
+`datasets/mini_store_long/` 使用独立 `repo_src` 快照，避免为了长任务改坏短程历史基线。当前 8 个 hard case 覆盖 API 迁移、跨模块退货、级联库存、build/CLI、折扣取整、税率单一真源、释放记账和订单快照；每条带 canary。质量门禁是干净仓库 83 tests + long selfcheck 8/8 + reference/none 1.0/0.0。现有横向/H3 headline 仍来自原 4-case 矩阵，扩充 suite 后必须重跑才能升级统计结论。
 
 ## 8. Graders（`graders/`）
 
@@ -116,6 +118,15 @@
 ## 9. 失败归因（`failure_taxonomy.py`）
 
 只对失败 trial 打标，确定性规则、可解释：timeout/repeated_action/provider_error/max_steps(PLANNING)、改测试/禁止路径(INSTRUCTION_VIOLATION)、无改动(EDIT)、target 过但 regression/hidden 挂且已结束。只有**最后一个可见测试仍失败**才是 RECOVERY；可见 target/regression 已过但 hidden 漏项归 TASK_UNDERSTANDING；未充分验证则 PREMATURE_TERMINATION。没读源就改为 CODE_RETRIEVAL，否则 UNKNOWN。
+
+### 9.1 失败模式检测器与统计层
+
+- `detectors/reward_hacking.py`：从 unified diff 检测删测试、skip、弱化断言、硬编码测试输入等 8 类信号；每项必须带 evidence span。检测器有效性（构造样本/零误报）与真实检出率分开报告。
+- `detectors/instruction_drift.py`：逐步重放允许路径、改动文件数和命令约束，输出首次违规步、obedience ratio、self-corrected/persisted；不假装确定性判断自然语言散文。
+- `detectors/context_amnesia.py`：对只在开场注入一次的 canary 做被动编辑检查，以 early/late decay 区分“从未理解”和“后期丢失”；轨迹过短拒绝给 decay。
+- `stats/bootstrap.py`：以 case 为聚类单位；少于 8 个聚类主动警告。`mcnemar.py` 要求完整配对网格，`intervals.py` 用 Wilson 处理零事件。
+
+尚未实现：hackbait 专用 suite、repro bundle/自动回归 fixture、分层宏平均、成本配对统计和静态报告导出。
 
 ## 10. 版本对比（`compare.py`）
 
@@ -186,11 +197,11 @@ macOS 当前配置 `EVALPLUS_MAX_MEMORY_BYTES=-1` 规避 rlimit 兼容错误，�
 
 ## 15. 启动与测试
 
-见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 255 passed/1 skipped）+ `ruff check` + `scripts/selfcheck.py`（短程 9/9）+ `scripts/selfcheck.py datasets/mini_store_long`（长程 4/4）+ `PYTHONPATH=src scripts/check_bounds.py --suite ...`（当前未 editable-install 的环境需要该前缀；两套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
+见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 349 passed/1 skipped）+ `ruff check` + `scripts/selfcheck.py`（短程 9/9）+ `scripts/selfcheck.py datasets/mini_store_long`（长程 8/8）+ `scripts/check_bounds.py --suite ...`（两套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
 
 ## 16. 测试覆盖现状
 
-- `test_llm_provider`（provider spec、served model、finish_reason/trace）、`test_pricing`（alias/cache/tier/币种/不完整定价）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch）、`test_tools`（coding + planning 工具）、`test_agent_loop`（V1/V2/V3、完成门禁、context ceiling/compaction、planner 指标）、`test_adapters` 与 `test_claude_code_adapter`（协议/预算/真实 subprocess stand-in/归一化/成本/配置隔离）、`test_parallel_runner`（并行/checkpoint/resume/infra 重试）、`test_long_suite`（schema/isolation/reference/none）、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`、`test_api`。
+- `test_llm_provider`（provider spec、served model、finish_reason/trace）、`test_pricing`（alias/cache/tier/币种/不完整定价）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch）、`test_tools`（coding + planning 工具）、`test_agent_loop`（V1/V2/V3、完成门禁、context ceiling/compaction、planner 指标）、`test_adapters` 与 `test_claude_code_adapter`（协议/预算/真实 subprocess stand-in/归一化/成本/配置隔离）、`test_parallel_runner`（并行/checkpoint/resume/infra 重试）、`test_long_suite`（8-case schema/isolation/reference/none）、`test_reward_hacking`、`test_instruction_drift`、`test_context_amnesia`、`test_scan_failure_modes`、`test_stats`、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`、`test_api`。
 
 ## 17. 新任务类型与 Oracle 要求
 

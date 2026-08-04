@@ -8,7 +8,6 @@ it hands somebody else's units back to the sellable pool, and nothing downstream
 from __future__ import annotations
 
 import pytest
-
 from mini_store.inventory import Inventory
 
 

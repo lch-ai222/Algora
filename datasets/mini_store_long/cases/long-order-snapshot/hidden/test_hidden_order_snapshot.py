@@ -13,7 +13,6 @@ lines can still be edited is an order you can over-return.
 from __future__ import annotations
 
 import pytest
-
 from mini_store.cart import Cart
 from mini_store.inventory import Inventory
 from mini_store.models import Product

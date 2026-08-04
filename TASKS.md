@@ -18,10 +18,10 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | DOC | 长期文档（本批） | — | ✅ 完成 |
 | B1 | HumanEval+/EvalPlus 官方 Smoke Slice | P0 | ✅ 完成 |
 | B2 | SWE-bench 官方实例 Smoke Slice | P0 | ⬜ 待开发 |
-| B3 | 统计增强与分层报告 | P0/P1 | ⬜ 方案完成，待开发 |
+| B3 | 统计增强与分层报告 | P0/P1 | 🟨 统计核心完成，分层/成本待补 |
 | B4 | Terminal-Bench/Harbor Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
 | B5 | OctoBench Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
-| G1 | 私有 Golden Dataset 类型扩充 | P0/P1/P2 | ⬜ 方案完成，待开发 |
+| G1 | 私有 Golden Dataset 类型扩充 | P0/P1/P2 | 🟨 长程 8-case 完成，其他类型待补 |
 | V3 W1-1 | `mini_store_long` 长程 suite | P0 | ✅ 完成 |
 | V3 W1-2 | AgentAdapter + MiniAgentAdapter + runner 接入 | P0 | ✅ 完成 |
 | V3 W1-3 | ClaudeCodeAdapter | P0 | ✅ 代码；✅ protocol + repo live |
@@ -30,6 +30,20 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W1-6 | 并行执行 + trial 级续跑 | P0 | ✅ 完成 |
 | V3 W1-7 | GLM provider + 模型阶梯 + 成本溯源 | P0 | ✅ 完成 |
 | V3 W2-1 | 分级截断 + 确定性 compaction | P0 | ✅ 完成 |
+| V3 W2-2 | run 内 ScratchPad | P1 | ⬜ 未开始 |
+| V3 W2-3 | 上下文遗忘检测器 | P0 | ✅ 核心完成 |
+| V3 W2-4 | 测试投机检测器 | P0 | ✅ 完成 |
+| V3 W2-5 | hackbait 专用 suite | P1 | ⬜ 未开始 |
+| V3 W2-6 | 指令偏移检测器 | P0 | ✅ 完成 |
+| V3 W2-7 | SWE-bench 官方 Smoke Slice | P0 | ⬜ 未开始 |
+| V3 W2-8 | 第二外部 Agent adapter | P0 | ⬜ 未开始 |
+| V3 W3-1 | 确定性 multi-turn + 3 case | P0 | ⬜ 未开始 |
+| V3 W3-2 | 跨 run RepoMemory | P1 | ⬜ 未开始 |
+| V3 W3-3 | 统计增强 | P0/P1 | 🟨 bootstrap/McNemar/Wilson 完成 |
+| V3 W3-4 | repro bundle + 回归 fixture | P0 | ⬜ 未开始 |
+| V3 W3-5 | 静态报告 + 跨 Agent UI | P0 | ⬜ 未开始 |
+| V3 W3-6 | 全量实验与假设回填 | P0 | 🟨 4-case 矩阵完成，8-case 待重跑 |
+| V3 W3-7 | 开源清理 + 洞察报告 | P1 | 🟨 README/横向报告部分完成 |
 
 ---
 
@@ -37,10 +51,10 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ### W1-1 · `mini_store_long` ✅
 
-- [x] 独立 `repo_src` 快照，避免修改历史短程基线；干净仓库 53 tests。
-- [x] 4 个 hard case：12 文件 API 迁移、5 模块退货功能、单根因级联 bug、7 文件 build/CLI 交付链。
+- [x] 独立 `repo_src` 快照，避免修改历史短程基线；当前干净仓库 83 tests。
+- [x] 4 个地基 hard case，后续扩到 8 个：API 迁移、跨模块退货、级联库存、build/CLI、折扣取整、税率真源、释放记账、订单快照。
 - [x] `Horizon`、`CanarySpec`、`expected_steps`、`expected_tool_calls`、build/multi-turn task type 等 schema。
-- [x] short 9/9、long 4/4 selfcheck；reference=1.0、none=0.0。
+- [x] short 9/9、long 8/8 selfcheck；reference=1.0、none=0.0。
 - [x] 正式校准 `v2-20260803T191808Z`：Task/Strict 1.00，动作中位数 30，模型轮次 13.5，测试循环 3，infra 0/4。
 - **边界**：每 case 仅 1 次，数字只证明轨迹长度和闭环可执行，不代表稳定能力估计。
 
@@ -52,7 +66,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] provider/网络错误作为 infra-invalid 排除出能力分母；compare 拒绝基础设施无效 run。
 - [x] V2 拒绝截断、空回复、无改动、未测试和末次测试失败的假完成；V1 行为不变。
 - [x] 成本费率缺失时记录 `cost_usd=null`、`cost_source=unavailable`，不伪造零成本。
-- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（255 passed/1 skipped）。
+- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（349 passed/1 skipped）。
 
 ### W1-3 · ClaudeCodeAdapter ✅（代码 + live）
 
@@ -103,6 +117,26 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] `--context-budget-tokens`、`--context-ceiling-tokens` 与 `--ablate` 写入 provenance/resume 指纹。
 - [x] 上下文硬上限对所有 harness 生效，保证消融组承受相同约束。
 - **修正后 H3**：V3.1=1.00，V3.1−context=0.33；compaction 是全部成功效应，planner 中性。
+
+### Week 2 其余任务
+
+- [ ] **W2-2 ScratchPad**：run 内显式工作记忆尚未实现；跨 run memory 不得先于 trial 隔离设计。
+- [x] **W2-3 Context amnesia**：被动 canary 检测、early/late split、短轨迹拒绝给 decay、跨 adapter 路径归一化均已完成；正式曲线报告仍归 W3-5。
+- [x] **W2-4 Reward hacking**：8 类信号、evidence span、人工 hack 样本全命中、reference 零误报与历史回扫均已完成。
+- [ ] **W2-5 Hackbait suite**：未实现；当前只有 16 个未被沙箱强制拦截的 Claude Code trial，零检出上界仍宽。
+- [x] **W2-6 Instruction drift**：轨迹重放、首次违规步、obedience ratio、self-corrected/persisted 已完成。
+- [ ] **W2-7 官方 SWE-bench Smoke Slice**：仍只有 schema-compatible 自建样例。
+- [ ] **W2-8 第二外部 adapter**：aider / mini-swe-agent 尚未接入。
+
+### Week 3 · 统计、产品化与收口
+
+- [ ] **W3-1 Multi-turn**：确定性反馈驱动与 3 条多轮 case 未实现。
+- [ ] **W3-2 RepoMemory**：跨任务记忆与 trial 间清空验证未实现。
+- 🟨 **W3-3（部分）**：cluster bootstrap、exact McNemar、Wilson 区间已实现并应用；分层宏平均、成本配对统计仍未实现。
+- [ ] **W3-4 Repro bundle**：诊断包与自动回归 fixture 未实现。
+- [ ] **W3-5 Report/UI**：静态 HTML/MD 报告和专用 CrossAgent 视图未实现；现有通用控制台可读 artifacts。
+- 🟨 **W3-6（部分）**：4-case 模型受控横向矩阵、H2/H3 和检测器历史回扫已有数据；8-case 矩阵、第二模型/第二外部 Agent 和全部预注册假设未完成。
+- 🟨 **W3-7（部分）**：README 与 `cross_agent_report_v1.md` 已完成；开源状态核验、命名统一和完整 capability-gap/failure-atlas 文档未完成。
 
 ---
 
@@ -183,10 +217,11 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [ ] 区分环境、oracle、Agent、patch apply、超时和 grader 失败。
 - **验收**：至少一个真实官方实例完成 oracle + candidate 全流程；结果明确标注 official-instance smoke slice。
 
-## B3 · 统计增强与分层报告 ⬜（P0/P1）
+## B3 · 统计增强与分层报告 🟨（P0/P1）
 
-- [ ] P0：case-level/cluster bootstrap 置信区间；二项指标可补 Wilson 区间。
-- [ ] P0：V1/V2 exact McNemar；成本使用配对 bootstrap/置换检验。
+- [x] P0：case-level/cluster bootstrap 置信区间 + Wilson 区间。
+- [x] P0：Task/Strict exact McNemar。
+- [ ] P0：成本配对 bootstrap/置换检验。
 - [ ] P0：按 difficulty/task_type/repo/language 分层，报告宏平均与样本数。
 - [ ] P0：token/cost/tool/time per successful trial 与预算约束成功率。
 - [ ] P1：first target/full-suite pass time、测试失败恢复率、case 区分度。
@@ -213,10 +248,11 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ## 当前推荐执行顺序
 
-V3 W1-1～W1-7 与 W2-1 已完成，当前按 [`docs/iteration_plan_v3.md`](docs/iteration_plan_v3.md) 推进：
+V3 W1 全部完成，W2-1/3/4/6 完成，W3-3/6/7 部分完成。当前顺序：
 
-1. Claude Code CLI 的安装、probe、协议流和 repo smoke 已通过；先用少量重复校准智谱 endpoint 稳定性、限流与 infra 比例，再冻结正式矩阵。
-2. 智谱官方两条 Anthropic 兼容路径中，开放平台已实证 tool use、stream-json 和 GLM-5.2 模型映射；下一步做 Claude Code / MiniAgent / 第二外部 Agent 的统一模型受控组，同时保留默认模型真实产品组。
-3. B3 统计增强：cluster bootstrap、exact McNemar、分层与成本/成功前沿。
-4. W2-4 测试投机检测器可并行推进；正式 Golden Dataset/hidden tests 不随开源框架公开。
-5. B2 SWE-bench 官方实例 Smoke Slice保持 P0，但不冒充全量排行榜。
+1. 在当前 8-case 长程 suite 上重跑 Claude Code / MiniAgent 模型受控矩阵，替换旧 4-case 的统计瓶颈。
+2. 接入 aider 或 mini-swe-agent 作为第二外部 Agent；同时保留默认模型真实产品组与统一模型 scaffold 受控组。
+3. 完成 W3-1 multi-turn、W3-4 repro bundle、W3-5 静态报告/跨 Agent UI，直接补齐 JD 尚缺的交付物。
+4. 完成 B2 官方 SWE-bench Smoke Slice；至少一个官方实例走通 gold oracle + candidate，全程明确非排行榜。
+5. 先实现 run 内 ScratchPad，再评估跨 run memory；任何持久记忆都必须有 trial 隔离和泄漏单测。
+6. B3 补分层宏平均、成本配对统计与成本/成功前沿；正式 Golden Dataset/hidden/reference 不随开源框架公开。

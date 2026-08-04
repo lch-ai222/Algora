@@ -2,29 +2,39 @@
 
 Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完成一个里程碑或有重要验证结果时更新。规则见 [`AGENTS.md`](AGENTS.md)，任务见 [`TASKS.md`](TASKS.md)。
 
-最后更新：2026-08-04。
+最后更新：2026-08-05。
 
 ## 1. 当前总体状态
 
-闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1 到 W1-7 全部完成 + W2-1 上下文管理**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter。Claude Code 2.1.220 已完成真实 probe、智谱 GLM-5.2 协议流和一个获授权的 repo case 全链路；这仍只是集成 smoke，不是横向评测结果。
+闭环已跑通并用真实 LLM 验证。**原 7/7 里程碑 + B1 + V3 Week 1 全部完成；Week 2 完成 W2-1/3/4/6；Week 3 的统计、全量实验和开源收口均为部分完成**。当前已有 8 条长程 case、可扩展的 AgentAdapter、Claude Code headless adapter、三类失败模式检测器，以及模型受控的 Claude Code / MiniAgent 横向实验。横向 headline 仍来自原 4-case 矩阵，8-case 扩展后尚未重跑，不能把数据资产升级写成结论升级。
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**255 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**349 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
-- benchmark 自检：短程 **9/9 valid**、长程 **4/4 valid**；HumanEval canonical 自检 **10/10**。
+- benchmark 自检：短程 **9/9 valid**、长程 **8/8 valid**；长程干净仓库 **83 passed**；HumanEval canonical 自检 **10/10**。
 - 官方 EvalPlus Smoke Slice：固定 5 个 HumanEval+ 官方任务，canonical oracle Base/Plus **1.00/1.00**；DeepSeek v4-flash **Base 1.00 / Plus 0.80**。
 - 前端：TypeScript 干净，`npm run build` 干净（48.75 kB gzip），浏览器实测无 console 报错。
 
-### 本轮迭代摘要（15 commits）
+### V3 迭代摘要
 
-- 测试从 **94 → 252**；落地 Claude Code adapter、CI/容器门禁、并行续跑、模型费率、预算实验变量、planner 与 deterministic compaction。
+- W1 地基阶段测试从 **94 → 252**；随后检测器、统计和 8-case 扩充把当前门禁推进到 **349 passed / 1 skipped**。已落地 Claude Code adapter、CI/容器门禁、并行续跑、模型费率、预算实验变量、planner 与 deterministic compaction。
 - H2：模型阶梯只在最弱的 `glm-4.7-flash` 上产生有限区分度（1.00→0.84）；H2 的强信号来自预算收紧，同一 suite 的模型差距由 0.00 放大到 0.85。
 - 首次成本测量：DeepSeek flash/pro 成功率相同，成本差 5.26×；缓存分档避免一次 trial 成本被高估 4.94×。
 - 修正后 H3：compaction 是全部成功效应（1.00→0.33），planner 对成功率中性但工具调用约 +18%。
 - 本轮发现 8 个自身缺陷：外部 stop reason 误归因、resume 冻结 infra trial、pro 模型别名静默失效、requested/served model 混淆、并行 materialize 目录冲突、context budget 未约束对照组、V3 丢失 V2 守卫、plan id 改名击穿遵守率。后三项会静默改变实验结论，必须作为评测有效性缺陷而不只是工程 bug 对待。
+
+### V3 三周计划实际进度（2026-08-05）
+
+| 周 | 完成 | 部分完成 | 未完成 |
+|---|---|---|---|
+| W1 | W1-1～W1-7（7/7） | — | — |
+| W2 | W2-1 context、W2-3 context amnesia、W2-4 reward hacking、W2-6 instruction drift（4/8） | — | W2-2 ScratchPad、W2-5 hackbait、W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
+| W3 | — | W3-3 统计核心、W3-6 部分实验、W3-7 README/横向报告 | W3-1 multi-turn、W3-2 RepoMemory、W3-4 repro bundle、W3-5 静态报告/跨 Agent UI |
+
+计划中“V3 后 JD 全覆盖”的原判断过于乐观。当前已形成强证据的是评测平台、隔离/并行/可观测、长程私有 benchmark、三个失败模式检测器和受控实验；Agent 本体仍缺 memory、multi-turn、subagent、语义级代码理解，平台仍缺第二外部 Agent、官方 SWE-bench 实例、repro bundle 与自动报告导出。
 
 ### Claude live preflight 查证（2026-08-04）
 
@@ -52,7 +62,7 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
   - 2 spec：place-order（跨模块，hard）、catalog-search
   - 3 对抗性 regression-trap：refund-fee、loyalty-bonus、bundle-tier（专门暴露 V1 缺乏“完成前跑全套”纪律）
   - 每 case：defect 变体（现构时覆盖）+ hidden 测试（评分时注入）+ visible target + regression（分离文件）。
-- **mini_store_long**（`datasets/mini_store_long/`）：独立干净仓库快照 + **4 个 hard case**（12 文件定价 API 迁移、5 模块退货工作流、单根因级联库存缺陷、7 文件打包/CLI 交付链）；干净仓库 53 tests，全套 canary、hidden、reference/none 锚点齐备。
+- **mini_store_long**（`datasets/mini_store_long/`）：独立干净仓库快照 + **8 个 hard case**（API 迁移、跨模块退货、级联库存、build/CLI、折扣取整、税率单一真源、释放记账、订单快照）；干净仓库 83 tests，全套 canary、hidden、reference/none 锚点齐备。
 - 每 case 结构见 `src/codeagent_eval/benchmark/case.py`（EvalCase）。
 
 ### Benchmark 实施等级（2026-07-12 校准）
@@ -558,9 +568,9 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 - **saturation**：现有 case 对 DeepSeek v4 偏易，V1/V2 套件级差异小（+0.02）。money shot 靠 per-case（loyalty）+ 成本对比 + reference/none 区分度支撑。要更大差异需更难 case 或更弱模型（M4 已如实标注）。
 - **对抗 case 的稳定性**：regression-trap 依赖“V1 不跑全套”，强模型偶发主动跑全套 → loyalty 在 n=5 时 0.6~0.8 抖动。已用 repeats≥5 缓解；报均值+方差。
 - **公开 benchmark 证据等级有限**：HumanEval 是自建/精选 schema 子集，SWE-bench 是自建兼容样例；两者均不得包装成正式排行榜结果。
-- **统计功效有限**：当前私有集共 13 case，长程正式校准仅 n=1/case，不能把 1.00 外推成稳定能力；横向对比仍需 repeats 与区间。
+- **统计功效仍有限**：当前私有集共 17 case，长程 suite 已达到 8 个聚类的最低实用门槛；但现有横向 headline 和 H3 消融仍来自原 4-case 矩阵。只有在 8-case 上重跑，而不是继续给旧 4 case 增加 repeats，才能实质收窄按 case 聚类的区间。
 - **覆盖范围有限**：仍只有 Python 小仓库；虽已补 API refactor 与 build/CLI，但 review/test-generation/performance/security/multi-turn 与多语言仍缺。
-- **Claude Code 只有 n=1 repo smoke，不是横向结论**：单 case patch/grade/artifact 已全链路通过，但后续两次出现 endpoint `ENOTFOUND`。正式横向实验必须先校准稳定性、并行度和 infra 比例；不能把集成成功或网络失败包装成 Agent 能力。
+- **Claude Code 已有模型受控横向结果，但证据面仍窄**：原 4-case、单模型、两个 wall-clock 档位已完成；120s Task 差异的配对方向明确，但 cluster 区间宽，且 Claude Code 宽松档原始产物证据等级较低。8-case 矩阵、第二模型和第二外部 Agent 均未完成。
 - **默认预算下两个 suite 近乎饱和**：短程对 DeepSeek 两档与 GLM-4.5-air 全部 1.00，只有最弱的免费档到 0.84；长程对 V2+DeepSeek 也是 1.00（n=1）。**H2 只在最弱档成立且效应很小**；H3（compaction 消融）若在默认预算下做会面临同样风险。优先级最高的补救是把**预算变成实验变量**（max_steps / context budget / wall-clock），其次才是加难 case。
 - **GLM 免费档限流严重**：`glm-4.7-flash` 在 workers=4 下 44/45 触发 429；串行可跑但约 78s/trial。付费档（glm-4.5-air）workers=3 下 infra=0。并行度必须按档位分别设定。
 - **GLM 成本需汇率**：`usd_per_cny` 为 null，GLM 成本按设计报 `unavailable`。填一个带出处和日期的汇率即可启用；汇率每日变动，属于操作者选择而非可以内置的常量。
@@ -572,10 +582,10 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **校准 Claude Code 统一模型路径**：repo smoke 已通过，下一步先用少量重复测 endpoint 稳定性、限流与 infra 比例，再冻结横向矩阵；当前 `ENOTFOUND` 波动不能忽略。
-2. **启动模型受控横向组**：智谱 Anthropic 兼容端点的 tool use、stream-json、实际模型映射已验证；仍把“各自默认模型的真实产品组”单列，避免把产品能力和 scaffold 纯效应混为一谈。
-3. **B3 统计先于扩大结论**：repeats 提到 5、加第二模型、扫 2–3 档上下文上限；报告 cluster bootstrap、exact McNemar、effect size、样本数与成本/成功前沿。
-4. **并行推进失败模式检测器**：优先测试投机，再做上下文遗忘与指令漂移；所有检出必须保留 evidence span 和人工复核入口。
-5. **planner 需要专门任务才能测价值**：当前长程 suite 上它中性。新 case 应考需求分解和跨模块协同，而不是继续靠宽松默认预算制造饱和。
-6. **开源与 Golden Dataset 分离**：可开源框架、adapter、grader 和公开示例 suite；正式私有 suite、hidden tests、reference fix 不公开，避免主动破坏低污染资产。
-7. **公开 benchmark**：SWE-bench 官方 Smoke Slice 仍是 P0，但不冒充全量排行榜；GLM 需要 USD 成本时再填带出处/日期的 `usd_per_cny`。
+1. **在 8-case 长程 suite 上重跑模型受控矩阵**：保持模型、wall-clock、温度和 repeats 配对，更新区间而不是沿用 4-case headline。
+2. **接入第二个外部 Agent**：优先选择可稳定 headless 自动化的 aider 或 mini-swe-agent；Roo/Cline 的 extension 自动化不应成为近期主线。
+3. **补 JD 的闭环硬项**：确定性 multi-turn、repro bundle/回归 fixture、静态报告与跨 Agent UI；这些比继续增加零散指标更直接。
+4. **完成官方 SWE-bench Smoke Slice**：至少一个真实官方实例先通过 gold oracle，再跑 candidate；继续明确不是排行榜成绩。
+5. **谨慎补 memory**：先做 run 内 ScratchPad；跨 run memory 必须证明 trial 隔离和无答案泄漏，否则宁可不做。
+6. **增强代码理解而非盲目复刻产品**：后续评估 repo map/AST 索引；subagent、MCP、浏览器等只有在形成可评测假设时再进入 MiniAgent。
+7. **开源与 Golden Dataset 分离**：可开源框架、adapter、grader 和公开示例 suite；正式私有 suite、hidden tests、reference fix 不公开。

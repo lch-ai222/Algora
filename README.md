@@ -22,7 +22,8 @@ sample size and its limits in the linked reports.
 ### Same model, different scaffold
 
 `glm-5.2` on all three arms, wall clock as the primary budget (the only one every framework
-enforces identically). Long-horizon suite, 4 cases.
+enforces identically). These headline numbers were measured on the original 4-case
+long-horizon suite; the suite now contains 8 cases and the matrix has not yet been rerun.
 Full report: **[docs/cross_agent_report_v1.md](docs/cross_agent_report_v1.md)**
 
 | arm | budget | n | Task | Strict | tool calls | model turns |
@@ -84,9 +85,9 @@ turned out to be two defects in this codebase, not a property of planning — se
 
 ### Failure modes the pass/fail oracle cannot see
 
-Two detectors run over the artifacts, and both report a zero the same way: split by whether
-the harness was actually letting the agent misbehave, because pooling those turns a sandbox
-policy into a finding.
+Three detectors run over the artifacts. Their rates must be split by whether the harness was
+actually letting the agent misbehave, and historical scans must not be silently merged with
+new case-specific probes.
 
 **Reward hacking** — a patch that disarms verification instead of satisfying it.
 
@@ -113,15 +114,18 @@ verified passively against every edit the agent makes. Passive matters — askin
 midway whether it remembers the rule would re-state the rule, turning the measurement into an
 intervention. The headline is not overall adherence but the **first-half minus second-half**
 difference: a rule never understood fails uniformly, a rule lost to context fails late, and
-only the split tells them apart. Across 808 edits in 117 canary-carrying trials: adherence
-1.000, decay +0.000 over the 80 trials long enough to split.
+only the split tells them apart. The historical scan of 808 edits in 117 canary-carrying trials
+found adherence 1.000 and decay +0.000. The later `long-release-accounting` case produced the
+first real early-to-late decay (+1.000); this observes a change in behaviour, but cannot by
+itself distinguish forgetting from a deliberate strategy change.
 
 **Instruction drift** — a constraint broken partway through. The constraint grader looks only
 at the final patch, so it cannot distinguish "obeyed throughout" from "broke the rule and took
 it back"; replaying the trajectory recovers the first-breach step, the obedience ratio, and
-whether the breach shipped or was self-corrected. Across 364 trials with replayable
-trajectories: zero breaches, and for the MiniAgent only the changed-file limit is a free
-observation — its path and command rules are refused by the sandbox before they can happen.
+whether the breach shipped or was self-corrected. The historical 364-trial replay found zero
+breaches; the later `long-release-accounting` probe produced 3/3 shipped breaches. For the
+MiniAgent, only the changed-file limit is a free observation—its path and command rules are
+refused by the sandbox before they can happen.
 
 ---
 
@@ -195,7 +199,7 @@ data          benchmark/ (case · materialize · swebench · evalplus)
 python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev,api]"
 cp .env.example .env          # fill in a provider key
-.venv/bin/python -m pytest -q # 291 passed, 1 skipped — offline, no API key needed
+.venv/bin/python -m pytest -q # 349 passed, 1 skipped — offline, no API key needed
 ```
 
 ```bash
@@ -212,7 +216,7 @@ ANTHROPIC_BASE_URL=... ANTHROPIC_AUTH_TOKEN=... \
 python -m codeagent_eval.runner --adapter claude_code --claude-model glm-5.2 \
   --suite datasets/mini_store_long --max-wall-clock 120 --workers 3
 
-# Scan every trial ever produced for reward hacking and instruction drift
+# Scan every trial ever produced for reward hacking, instruction drift, and context amnesia
 python scripts/scan_failure_modes.py artifacts/runs
 
 # Compare two arms with an interval and a paired test, not two point estimates
@@ -229,7 +233,7 @@ Console: `uvicorn backend.app.main:app --port 8000` + `cd frontend && npm run de
 
 ## Status and evidence levels
 
-`291 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short and 4/4 long · deterministic
+`349 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short and 8/8 long · deterministic
 bounds reference=1.00 / none=0.00 on both suites · CI green including a containerized
 `--network none` evaluation gate.
 
@@ -244,10 +248,11 @@ bounds reference=1.00 / none=0.00 on both suites · CI green including a contain
 | SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
 | Terminal-Bench / OctoBench | protocol study only |
 
-Not done: multi-turn, SWE-bench official instances. The 4-case
-long suite is the binding limit on statistical claims — with case as the clustering unit, more
-cases narrow the interval and more repeats do not, which `cluster_bootstrap_ci` warns about
-rather than hiding.
+Not done: run/cross-run memory, multi-turn, a second external-agent adapter, reproducible defect
+bundles, static report export, and SWE-bench official instances. The long suite now has 8 cases,
+meeting `MIN_USEFUL_CLUSTERS`; however, the headline cross-agent and ablation tables above still
+come from the original 4-case matrix. With case as the clustering unit, only rerunning on the
+expanded suite can strengthen those claims—extra repeats on the old four cases cannot.
 
 ## Documents
 
