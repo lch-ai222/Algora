@@ -323,6 +323,27 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 
 **方法论教训**：一个消融只有在两组"除被测能力外完全相同"时才成立。这次两组差的不只是 planner，而差异来自我自己代码里的字符串相等判断——**没有轨迹级诊断就会把 harness 缺陷当成能力结论发表出去**。
 
+### V3 横向评测 v1：模型受控的 Claude Code vs MiniAgent（2026-08-05）
+
+完整报告见 [`docs/cross_agent_report_v1.md`](docs/cross_agent_report_v1.md)。
+
+智谱同时提供 OpenAI 兼容与 Anthropic 兼容端点，因此三个 scaffold 跑**同一个 glm-5.2**——**唯一变量是 scaffold**。主约束取 wall-clock（唯一被三者以相同方式执行的预算；步数语义各异，上下文上限对 Claude Code 无法施加）。
+
+| arm | 预算 | n | Task | Strict | 工具调用 | 模型轮次 | 失败 |
+|---|---|---|---|---|---|---|---|
+| Claude Code | 宽松 | 8 | **1.00** | **1.00** | 27.8 | 46.4 | — |
+| Claude Code | 120s | 12 | **0.50** | 0.50 | 14.6 | 24.1 | TIMEOUT×6 |
+| MiniAgent v3.1 | 宽松 | 12 | 1.00 | 0.83 | 34.7 | 19.1 | — |
+| MiniAgent v3.1 | 120s | 12 | **1.00** | 0.83 | 34.3 | 18.8 | — |
+| MiniAgent v2 | 宽松 | 12 | 1.00 | 0.92 | 31.8 | 19.2 | — |
+| MiniAgent v2 | 120s | 12 | 0.92 | 0.83 | 34.3 | 19.3 | TIMEOUT×1 |
+
+**结论**：宽松预算下三者 Task 全 1.00（无分辨力）；收紧到 120s 后 Claude Code 掉到 0.50 而 v3.1 保持 1.00。机制清楚——120s 内 Claude Code 只发 14.6 次工具调用、MiniAgent 发 34.3 次，**它把时间花在推理上**。但它也是唯一 Task/Strict 双 1.00 的：**用延迟换取了工程规范性，宽裕时净收益、紧张时净损失**。
+
+**采集过程暴露三个测量缺陷，任一未修都会让结论错误**：物化仓库缺 `.gitignore`（pytest 字节码算作源码改动 → 会报"Claude Code 6/8 工程不合规"）、`--max-wall-clock` 只穿给 MiniAgent 分支（Claude Code 在 120s 限额下实跑 258s → **结论方向相反**）、外部 adapter token 汇总报 0。
+
+**边界**：12 trial/组，0.50 ≈ 6 个 trial，区间很宽；4 case、单模型、两个预算点；Claude Code 宽松档因额度耗尽无法补跑且原产物已删，证据等级低于其余五组（详见报告 §5.3）。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：
