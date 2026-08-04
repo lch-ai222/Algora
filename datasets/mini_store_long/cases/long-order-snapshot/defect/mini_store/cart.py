@@ -23,14 +23,7 @@ class Cart:
         self._items.pop(sku, None)
 
     def items(self) -> list[CartItem]:
-        """Return a snapshot of the lines, not the cart's own objects.
-
-        Callers keep what they are given: a placed Order stores these as its record of what
-        was bought. Handing out the internal CartItem objects makes that record change every
-        time the cart does, long after the order was priced. ``Product`` is frozen, so the
-        products themselves can be shared.
-        """
-        return [CartItem(product=i.product, quantity=i.quantity) for i in self._items.values()]
+        return list(self._items.values())
 
     def item_count(self) -> int:
         return sum(i.quantity for i in self._items.values())

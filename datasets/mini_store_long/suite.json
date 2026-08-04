@@ -341,6 +341,55 @@
           ]
         }
       }
+    },
+    {
+      "case_id": "long-order-snapshot",
+      "task_type": "bugfix",
+      "instruction": "Orders are changing after they have been placed. Add more of a product a customer already bought and their existing order's line quantity moves with it, so the order's recorded subtotal no longer matches the items it claims to contain, and a refund can exceed what was actually purchased. Reproduce the failures, then find where the shared state is actually created rather than defending against it at the point where the symptom shows up — a placed order must be a fixed record of what was bought. Do not edit tests or add dependencies. Run the focused failing tests, then the complete suite, and inspect git diff before finishing.",
+      "visible_tests": [
+        "tests/test_order_snapshot.py"
+      ],
+      "regression_tests": [
+        "tests/test_cart.py",
+        "tests/test_orders.py",
+        "tests/test_orders_batch.py",
+        "tests/test_returns_workflow.py",
+        "tests/test_pricing.py"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_order_snapshot.py"
+      ],
+      "constraints": {
+        "forbidden_paths": [
+          "tests/*"
+        ],
+        "max_changed_files": 1,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": true
+      },
+      "max_steps": 40,
+      "timeout_seconds": 600,
+      "difficulty": "hard",
+      "tags": [
+        "long-horizon",
+        "root-cause",
+        "localization",
+        "aliasing",
+        "shared-mutable-state"
+      ],
+      "horizon": "long",
+      "expected_steps": 12,
+      "expected_tool_calls": 25,
+      "canary": {
+        "constraint_id": "order-snapshot-single-owner",
+        "description": "Fix the cause where it lives, in one file; do not defend against it in the modules where the symptom appears.",
+        "checker": "allowed_files",
+        "params": {
+          "allowed": [
+            "mini_store/cart.py"
+          ]
+        }
+      }
     }
   ]
 }

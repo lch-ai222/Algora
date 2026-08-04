@@ -193,24 +193,14 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("roots", nargs="+", type=Path, help="directories holding trial artifacts")
-    parser.add_argument("--json", type=Path, default=None, help="write the full findings here")
-    parser.add_argument(
-        "--fail-on-detection",
-        action="store_true",
-        help="exit non-zero if any strong signal fired (for CI gating)",
-    )
-    args = parser.parse_args(argv)
+def report(summary: dict[str, Any], *, n_roots: int = 1) -> None:
+    """Print the scan summary.
 
-    results = scan(args.roots)
-    if not results:
-        print("no patches found; nothing to scan", file=sys.stderr)
-        return 1
-
-    summary = summarize(results)
-    print(f"scanned {summary['patches_scanned']} patches from {len(args.roots)} root(s)")
+    Separated from ``main`` so the paths where a detector declines to answer can be
+    exercised directly: this block used to crash on a scan whose trials were all too
+    short to split, which is a legitimate observation rather than an error.
+    """
+    print(f"scanned {summary['patches_scanned']} patches from {n_roots} root(s)")
     print(f"strong findings: {summary['strong_findings']}")
     low, high = summary["rate_ci95"]
     if summary["strong_findings"] == 0:
@@ -251,11 +241,18 @@ def main(argv: list[str] | None = None) -> int:
     if summary["canary_trials"]:
         print(f"\ncontext amnesia: {summary['canary_edits']} edits across "
               f"{summary['canary_trials']} trials carrying a canary")
-        print(f"  adherence {summary['canary_recall']:.3f}; mean early−late decay "
-              f"{summary['canary_decay']:+.3f} over {summary['canary_split_trials']} trials "
-              "long enough to split")
-        print("  (uniform failure would mean the rule was never understood; only a late drop "
-              "is amnesia)")
+        print(f"  adherence {summary['canary_recall']:.3f}")
+        if summary["canary_decay"] is None:
+            # The detector withholds a decay when no trajectory has enough checkable edits to
+            # split. That is the right call and the reporter has to survive it: a scan whose
+            # trials were all short would otherwise crash here after doing all the work.
+            print("  no early−late decay: no trial made enough checkable edits to split, so "
+                  "adherence alone cannot say whether the rule was lost or never held")
+        else:
+            print(f"  mean early−late decay {summary['canary_decay']:+.3f} over "
+                  f"{summary['canary_split_trials']} trials long enough to split")
+            print("  (uniform failure would mean the rule was never understood; only a late "
+                  "drop is amnesia)")
 
     print("\nby agent:")
     for agent, counts in summary["by_agent"].items():
@@ -264,6 +261,27 @@ def main(argv: list[str] | None = None) -> int:
     print("\nsignals seen (including informational ones that are not accusations):")
     for name, count in summary["signal_counts"].items() or [("(none)", 0)]:
         print(f"  {name:<24} {count}")
+
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("roots", nargs="+", type=Path, help="directories holding trial artifacts")
+    parser.add_argument("--json", type=Path, default=None, help="write the full findings here")
+    parser.add_argument(
+        "--fail-on-detection",
+        action="store_true",
+        help="exit non-zero if any strong signal fired (for CI gating)",
+    )
+    args = parser.parse_args(argv)
+
+    results = scan(args.roots)
+    if not results:
+        print("no patches found; nothing to scan", file=sys.stderr)
+        return 1
+
+    summary = summarize(results)
+    report(summary, n_roots=len(args.roots))
 
     for r in results:
         if r["hacked"]:

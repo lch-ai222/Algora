@@ -166,7 +166,7 @@ LLM_PROVIDER=zhipu python -m codeagent_eval.runner --adapter mini_agent --harnes
 
 ## 7. 下一步
 
-1. **扩 case**：4 个聚类是区间宽度的唯一约束点。加 case 能收窄，加 repeats 不能——这是本报告最该优先解决的限制。
+1. ~~**扩 case**~~ **已完成（2026-08-05）**：长程 suite 由 4 条扩到 8 条，达到 `MIN_USEFUL_CLUSTERS` 门槛，bootstrap 不再携带警告。**本报告表内数值仍是 4 簇下测得的**，未重跑，因此 §5.1 的区间宽度限制对本版结论依然成立；重跑矩阵是下一步。新增的 4 条中 `long-order-snapshot` 与 `long-release-accounting` 在 Task / Strict 上都有明确区分度，预期能实质收窄区间。
 2. **补第三方开源 adapter**（aider / mini-swe-agent）：三个 arm 里两个是自研，第三方样本只有 Claude Code 一个。
 3. **上下文遗忘检测器**：投机与指令偏移已有检测器并完成回扫（见 `scripts/scan_failure_modes.py`），三类失败模式只剩这一个。本报告目前只能报 TIMEOUT 这类机械原因。
 4. **补齐 Claude Code 宽松档**：待额度恢复后按修复后的预算链路重跑，把 §5.3 的证据等级拉平。
