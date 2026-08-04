@@ -34,6 +34,8 @@
 
 失败模式检测当前作为 artifacts 后处理运行：`scripts/scan_failure_modes.py` 重放 trajectory/diff，调用 `detectors/reward_hacking.py`、`instruction_drift.py`、`context_amnesia.py`。统计比较由 `scripts/compare_experiments.py` 调用 `stats/` 的 case-cluster bootstrap、exact McNemar 和 Wilson 区间；这些结果不反写 grader，避免分析层改变原始评分证据。
 
+当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。离线开发当前从 W3-4 开始：失败 trial 的 patch 和证据将被打包，并通过重新 materialize case → 应用 patch → 注入 hidden → deterministic grade 的路径复现，不再次调用模型，也不把 hidden 测试内容复制进诊断包。
+
 ## 3. LLM Provider（`llm.py`）
 
 拷改自 ft_diag。要点：

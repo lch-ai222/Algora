@@ -16,6 +16,8 @@
 
 当前门禁：**349 passed / 1 skipped，Ruff 全绿，短/长 selfcheck 9/9 + 8/8；长程干净仓库 83 passed**。模型受控横向报告与 H3 消融仍基于原 4-case 矩阵；扩到 8 case 只提升了下一轮实验的统计设计，尚未自动提升既有结论的证据等级。
 
+**执行约束更新（2026-08-05）**：W3-6 的 8-case 受控矩阵拆为 **W3-6a**，因 GLM API 无可用额度标记为外部阻塞。既有 4-case 结果不作废，也不以其他模型替跑后混入同一比较；原 GLM 端点恢复、preflight 通过且额度覆盖固定矩阵后继续。等待期间的离线主线为 W3-4 repro bundle → W3-5/W3-3 报告统计 → W3-1/W2-2 multi-turn 与 ScratchPad → W2-5 hackbait 基础设施。
+
 #### 详细执行记录（保留历史时间点与假设修正）
 
 - **W1-1 已完成**：`mini_store_long` 4/4 selfcheck，reference/none=1.0/0.0；正式 V2 校准 `v2-20260803T191808Z` 为 Task/Strict 1.00、工具动作中位数 30、模型轮次 13.5、测试运行 3。该数据是 n=1/case 的难度校准，不是稳定成功率结论。
@@ -394,11 +396,12 @@ class EvalCase(BaseModel):
 | **W3-3 🟨** | `stats/`：cluster bootstrap CI + exact McNemar + 分层宏平均 | 🔵 | — | 1d | bootstrap、McNemar、Wilson 已完成；分层宏平均和成本统计待补 |
 | **W3-4 ⬜** | `detectors/repro_bundle.py`：诊断包 + 自动回归 fixture | 🔵 | W2-4/6 | 1d | 未开始 |
 | **W3-5 ⬜** | `report.py` 静态报告 + `CrossAgent.tsx` 前端视图 | 🔵⚫ | W3-3 | 1d | 未开始；现有控制台仍为通用 artifacts 只读视图 |
-| **W3-6 🟨** | 全量实验执行（见 §6 矩阵）+ 结果回填 | 🔵 | 全部 | 1d | 4-case 横向、H2/H3 和检测器回扫完成；8-case/三方/多轮/官方实例未完成 |
+| **W3-6 🟨** | 全量实验执行（见 §6 矩阵）+ 结果回填 | 🔵 | 全部 | 1d | 4-case 横向、H2/H3 和检测器回扫完成；三方/多轮/官方实例未完成 |
+| **W3-6a ⏸️** | 8-case Claude Code / MiniAgent 模型受控矩阵 | 🔵 | GLM 额度 + endpoint preflight | 1d | 外部额度阻塞；恢复后严格沿用冻结模型与配对配置，不接受替代模型混算 |
 | **W3-7 🟨** | 框架开源清理（密钥审计、命名统一、README 架构图）+ 洞察报告 | ⚫ | W3-6 | 0.5d | README 与横向报告已完成；开源核验、命名统一和独立洞察文档未闭环 |
 
 **当前可后置项**：W3-2（跨 run memory）→ W2-5（hackbait 专用 suite）→ W3-3 的分层部分。跨 run memory 风险高且不应只为“打勾”实现。
-**当前不可后置项**：8-case 重跑、W2-8 第二外部 adapter、W3-1 multi-turn、W3-4 repro bundle、W3-5 报告导出、W2-7 官方实例；它们直接对应尚未闭环的 JD 证据。
+**当前不可后置项**：W3-1 multi-turn、W3-4 repro bundle、W3-5 报告导出、W2-8 第二外部 adapter、W2-7 官方实例；它们直接对应尚未闭环的 JD 证据。W3-6a 同属高优先级，但在外部额度恢复前暂停，不以改变模型换取表面进度。
 
 ---
 

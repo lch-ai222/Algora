@@ -573,6 +573,7 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 - **Claude Code 已有模型受控横向结果，但证据面仍窄**：原 4-case、单模型、两个 wall-clock 档位已完成；120s Task 差异的配对方向明确，但 cluster 区间宽，且 Claude Code 宽松档原始产物证据等级较低。8-case 矩阵、第二模型和第二外部 Agent 均未完成。
 - **默认预算下两个 suite 近乎饱和**：短程对 DeepSeek 两档与 GLM-4.5-air 全部 1.00，只有最弱的免费档到 0.84；长程对 V2+DeepSeek 也是 1.00（n=1）。**H2 只在最弱档成立且效应很小**；H3（compaction 消融）若在默认预算下做会面临同样风险。优先级最高的补救是把**预算变成实验变量**（max_steps / context budget / wall-clock），其次才是加难 case。
 - **GLM 免费档限流严重**：`glm-4.7-flash` 在 workers=4 下 44/45 触发 429；串行可跑但约 78s/trial。付费档（glm-4.5-air）workers=3 下 infra=0。并行度必须按档位分别设定。
+- **W3-6a 当前受外部额度阻塞（2026-08-05）**：GLM API 无可用额度，因此新的 8-case 模型受控矩阵暂停，但既有 4-case 证据继续保留。恢复条件是原 GLM 模型端点通过 preflight 且额度足够覆盖固定矩阵；不得用另一模型替跑后并入同一受控比较，否则 scaffold 差异不可归因。
 - **GLM 成本需汇率**：`usd_per_cny` 为 null，GLM 成本按设计报 `unavailable`。填一个带出处和日期的汇率即可启用；汇率每日变动，属于操作者选择而非可以内置的常量。
 - **分档计价是上界**：GLM 4.7 / 4.5-Air 的成本估算标记 `upper_bound`，不是点估计。要精确需按每次调用的输入/输出长度分桶。
 - **沙箱网络隔离**：MVP 是命令层（拦网络工具），非内核级；内核级隔离由 CI 的 `--network none` 容器执行覆盖（已实跑验证），本地开发路径仍是命令层。
@@ -582,10 +583,10 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **在 8-case 长程 suite 上重跑模型受控矩阵**：保持模型、wall-clock、温度和 repeats 配对，更新区间而不是沿用 4-case headline。
-2. **接入第二个外部 Agent**：优先选择可稳定 headless 自动化的 aider 或 mini-swe-agent；Roo/Cline 的 extension 自动化不应成为近期主线。
-3. **补 JD 的闭环硬项**：确定性 multi-turn、repro bundle/回归 fixture、静态报告与跨 Agent UI；这些比继续增加零散指标更直接。
-4. **完成官方 SWE-bench Smoke Slice**：至少一个真实官方实例先通过 gold oracle，再跑 candidate；继续明确不是排行榜成绩。
-5. **谨慎补 memory**：先做 run 内 ScratchPad；跨 run memory 必须证明 trial 隔离和无答案泄漏，否则宁可不做。
-6. **增强代码理解而非盲目复刻产品**：后续评估 repo map/AST 索引；subagent、MCP、浏览器等只有在形成可评测假设时再进入 MiniAgent。
-7. **开源与 Golden Dataset 分离**：可开源框架、adapter、grader 和公开示例 suite；正式私有 suite、hidden tests、reference fix 不公开。
+1. **先完成 W3-4 repro bundle/回归 fixture**：复用已有失败 artifacts，做到无需模型即可重放 patch、注入 hidden 并复现 grader 结论。
+2. **完成 W3-5 静态报告与 W3-3 统计收口**：先消费历史数据，再接 CrossAgent UI；缺失价格继续显式 unavailable。
+3. **离线开发 W3-1 multi-turn 与 W2-2 ScratchPad**：用 scripted provider/adapter 做确定性验收，真实恢复率实验留到模型额度恢复后。
+4. **建设 W2-5 hackbait suite**：先完成策略接线、reference/none 和 detector 自检，真实 hacking-rate 后补。
+5. **额度恢复后执行 W3-6a**：保持原模型、wall-clock、温度、预算和 repeats 配对，在 8-case 长程 suite 上重跑并更新区间。
+6. **再接第二外部 Agent 与官方 SWE-bench Smoke Slice**；两者可先搭离线协议，但 live 结果必须等各自运行环境有效后验收。
+7. **谨慎补 RepoMemory**：跨 run memory 必须证明 trial 隔离和无答案泄漏，否则宁可不做；正式 Golden Dataset/hidden/reference 不随开源框架公开。

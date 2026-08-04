@@ -42,7 +42,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W3-3 | 统计增强 | P0/P1 | 🟨 bootstrap/McNemar/Wilson 完成 |
 | V3 W3-4 | repro bundle + 回归 fixture | P0 | ⬜ 未开始 |
 | V3 W3-5 | 静态报告 + 跨 Agent UI | P0 | ⬜ 未开始 |
-| V3 W3-6 | 全量实验与假设回填 | P0 | 🟨 4-case 矩阵完成，8-case 待重跑 |
+| V3 W3-6 | 全量实验与假设回填 | P0 | 🟨 4-case 矩阵完成；W3-6a 因 GLM 额度暂停 |
 | V3 W3-7 | 开源清理 + 洞察报告 | P1 | 🟨 README/横向报告部分完成 |
 
 ---
@@ -135,7 +135,8 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - 🟨 **W3-3（部分）**：cluster bootstrap、exact McNemar、Wilson 区间已实现并应用；分层宏平均、成本配对统计仍未实现。
 - [ ] **W3-4 Repro bundle**：诊断包与自动回归 fixture 未实现。
 - [ ] **W3-5 Report/UI**：静态 HTML/MD 报告和专用 CrossAgent 视图未实现；现有通用控制台可读 artifacts。
-- 🟨 **W3-6（部分）**：4-case 模型受控横向矩阵、H2/H3 和检测器历史回扫已有数据；8-case 矩阵、第二模型/第二外部 Agent 和全部预注册假设未完成。
+- 🟨 **W3-6（部分）**：4-case 模型受控横向矩阵、H2/H3 和检测器历史回扫已有数据；第二模型/第二外部 Agent 和全部预注册假设未完成。
+- ⏸️ **W3-6a（外部额度阻塞）**：新的 8-case Claude Code / MiniAgent 模型受控矩阵保持原设计待跑。当前 GLM API 无可用额度，恢复条件是同一 GLM 模型端点可完成 preflight 且额度足够覆盖固定矩阵；不得临时换模型并把结果并入原受控比较。
 - 🟨 **W3-7（部分）**：README 与 `cross_agent_report_v1.md` 已完成；开源状态核验、命名统一和完整 capability-gap/failure-atlas 文档未完成。
 
 ---
@@ -248,11 +249,11 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ## 当前推荐执行顺序
 
-V3 W1 全部完成，W2-1/3/4/6 完成，W3-3/6/7 部分完成。当前顺序：
+V3 W1 全部完成，W2-1/3/4/6 完成，W3-3/6/7 部分完成。W3-6a 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
 
-1. 在当前 8-case 长程 suite 上重跑 Claude Code / MiniAgent 模型受控矩阵，替换旧 4-case 的统计瓶颈。
-2. 接入 aider 或 mini-swe-agent 作为第二外部 Agent；同时保留默认模型真实产品组与统一模型 scaffold 受控组。
-3. 完成 W3-1 multi-turn、W3-4 repro bundle、W3-5 静态报告/跨 Agent UI，直接补齐 JD 尚缺的交付物。
-4. 完成 B2 官方 SWE-bench Smoke Slice；至少一个官方实例走通 gold oracle + candidate，全程明确非排行榜。
-5. 先实现 run 内 ScratchPad，再评估跨 run memory；任何持久记忆都必须有 trial 隔离和泄漏单测。
-6. B3 补分层宏平均、成本配对统计与成本/成功前沿；正式 Golden Dataset/hidden/reference 不随开源框架公开。
+1. 完成 W3-4 repro bundle + 离线 replay，把已检出的失败变成可复现、可回归的诊断资产。
+2. 完成 W3-5 静态报告与 W3-3 分层/成本统计；复用历史 artifacts，不把缺失成本当成 0。
+3. 完成 W3-1 确定性 multi-turn，并用 scripted provider 离线验收；随后实现 run 内 ScratchPad。
+4. 完成 W2-5 hackbait 基础设施与 suite；真实模型 hacking-rate 等额度恢复后再测。
+5. 额度恢复后执行 W3-6a：在当前 8-case 长程 suite 上按原模型、wall-clock、温度和 repeats 重跑受控矩阵。
+6. 再推进第二外部 Agent 与 B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。
