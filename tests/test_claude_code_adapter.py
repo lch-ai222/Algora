@@ -668,3 +668,25 @@ def test_legacy_artifacts_without_canonical_reason_attribute_unchanged():
         ("provider_error", "ENVIRONMENT"),
     ]:
         assert attribute_failure(case, TrialResult(stop_reason=native), grade).primary == expected
+
+
+def test_the_wall_clock_budget_reaches_the_external_adapter(fake_claude, git_repo, tmp_path):
+    """It did not: the budget was threaded into the MiniAgent call site only, so a
+    --max-wall-clock matrix constrained one arm and left Claude Code running to 258s under a
+    120s limit. Both adapter branches now share one kwargs dict."""
+    from codeagent_eval.benchmark import EvalCase
+    from codeagent_eval.runner import _run_adapter_trial
+
+    fake_claude.script(lines=[json.dumps(r) for r in full_session()])
+    case = EvalCase(case_id="c", task_type="bugfix", instruction="x", timeout_seconds=600)
+    task = AgentTask(instruction="x", workspace_path="", case_id="c", timeout_seconds=600)
+
+    with WorktreeSandbox(git_repo) as sandbox:
+        _, result = _run_adapter_trial(
+            task, sandbox, case, None,
+            adapter_name="claude_code",
+            adapter_config=_config(fake_claude, tmp_path),
+            max_wall_clock_s=90,
+        )
+
+    assert result.budget.max_wall_clock_s == 90, "the override must not stop at the case default"

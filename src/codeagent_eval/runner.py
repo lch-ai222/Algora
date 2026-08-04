@@ -268,6 +268,15 @@ def run_trial(
                 require_tests_run_before_finish=case.constraints.require_tests_run_before_finish,
             )
             adapter_result: AgentRunResult | None = None
+            # One kwargs dict for both adapter branches. Threading each budget into two
+            # hand-copied call sites is how the wall-clock limit reached the MiniAgent and
+            # not Claude Code — the same defect shape as gating a harness flag on a version
+            # string. Anything that applies to every agent belongs here, once.
+            budget_kwargs = {
+                "max_steps": step_budget,
+                "max_wall_clock_s": wall_clock,
+                "context_ceiling_tokens": context_ceiling_tokens,
+            }
             if kind in HARNESS_KINDS:
                 trial, adapter_result = _run_adapter_trial(
                     task,
@@ -275,11 +284,9 @@ def run_trial(
                     case,
                     provider,
                     max_completion_tokens=max_completion_tokens,
-                    max_steps=step_budget,
                     ablate=ablate,
                     context_budget_tokens=context_budget_tokens,
-                    context_ceiling_tokens=context_ceiling_tokens,
-                    max_wall_clock_s=wall_clock,
+                    **budget_kwargs,
                 )
             elif kind in EXTERNAL_ADAPTERS:
                 trial, adapter_result = _run_adapter_trial(
@@ -289,7 +296,7 @@ def run_trial(
                     None,
                     adapter_name=kind,
                     adapter_config=adapter_config,
-                    max_steps=step_budget,
+                    **budget_kwargs,
                 )
             elif kind == "reference":
                 trial = _run_reference_trial(sb, suite_dir, clean_repo, case)
