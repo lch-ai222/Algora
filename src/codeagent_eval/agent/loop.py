@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from codeagent_eval.agent.context import ContextManager
 from codeagent_eval.agent.planner import PlanTracker, parse_plan_items
 from codeagent_eval.agent.prompts import build_system_prompt
 from codeagent_eval.llm import LlmCallRecord, LlmProvider, llm_trace_scope
@@ -37,6 +38,11 @@ class AgentConfig:
     # V3-only: offers update_plan and tracks adherence. Off elsewhere so V1/V2 keep exactly
     # the toolset their calibrated baselines were measured with.
     enable_planner: bool = False
+    # V3-only: tiered tool-output truncation plus compaction against a measured token budget.
+    # Separable from the planner so each can be ablated on its own.
+    enable_context_management: bool = False
+    context_budget_tokens: int = 32_000
+    compaction_threshold: float = 0.75
 
 
 class TrialResult(BaseModel):
@@ -74,6 +80,10 @@ class _RunState:
     premature_final_attempts: int = 0
     action_signatures: list[str] = field(default_factory=list)
     planner: PlanTracker = field(default_factory=PlanTracker)
+    files_read: list[str] = field(default_factory=list)
+    files_written: list[str] = field(default_factory=list)
+    commands_run: list[str] = field(default_factory=list)
+    test_outcomes: list[str] = field(default_factory=list)
     #: Repo-affecting actions (edits and test runs) seen so far. Plan adherence is judged
     #: against this rather than against the agent's own claim that an item is finished.
     repo_actions: int = 0
@@ -106,6 +116,14 @@ class MiniAgent:
         messages: list[dict[str, Any]] = [{"role": "user", "content": _initial_user_message(task, sandbox)}]
 
         state = _RunState()
+        context = (
+            ContextManager(
+                self.config.context_budget_tokens,
+                compaction_threshold=self.config.compaction_threshold,
+            )
+            if self.config.enable_context_management
+            else None
+        )
         deadline = time.monotonic() + task.timeout_seconds
         started_at = utc_now_iso()
         started = time.monotonic()
@@ -133,6 +151,14 @@ class MiniAgent:
                     state.emit(TraceEventType.ERROR, name="provider_error", error=self.provider.last_error)
                     stop_reason = "provider_error"
                     break
+
+                if context is not None:
+                    # The provider's own count, not an estimate: it is the only number that
+                    # means the same thing across models and tool schemas. Usage reporting is
+                    # not part of the tool_completion contract, so a provider without it
+                    # simply falls back to the char heuristic rather than breaking the trial.
+                    usage = getattr(self.provider, "last_usage", None) or {}
+                    context.observe(usage.get("prompt_tokens"))
 
                 state.emit(
                     TraceEventType.MODEL_RESPONSE,
@@ -165,7 +191,7 @@ class MiniAgent:
                     stop_reason = "final"
                     return self._finalize(
                         task, sandbox, state, stop_reason, result_final, llm_records,
-                        started_at, started,
+                        started_at, started, context,
                     )
 
                 messages.append(_assistant_message(turn))
@@ -191,17 +217,37 @@ class MiniAgent:
                     _record_side_events(state, call.name, call.arguments, result)
                     if call.name == "update_plan" and result.ok:
                         _record_plan(state, result)
-                    messages.append(_tool_message(call.call_id, result.content))
+                    content = (
+                        context.truncate_tool_output(call.name, result.content)
+                        if context is not None
+                        else result.content
+                    )
+                    messages.append(_tool_message(call.call_id, content))
 
                 if looped:
                     state.emit(TraceEventType.ERROR, name="repeated_action", signature=state.action_signatures[-1])
                     stop_reason = "repeated_action"
                     break
 
-        return self._finalize(task, sandbox, state, stop_reason, None, llm_records, started_at, started)
+                if context is not None and context.should_compact(messages):
+                    messages, record = context.compact(messages, step, _progress_digest(state))
+                    if record is not None:
+                        state.emit(
+                            TraceEventType.COMPACTION,
+                            name=f"compaction_{context.stats.compactions}",
+                            before_tokens=record.before_tokens,
+                            dropped_messages=record.dropped_messages,
+                            kept_recent_messages=record.kept_recent_messages,
+                            digest_chars=record.digest_chars,
+                        )
+
+        return self._finalize(
+            task, sandbox, state, stop_reason, None, llm_records, started_at, started, context
+        )
 
     def _finalize(
-        self, task, sandbox, state, stop_reason, final_message, llm_records, started_at, started
+        self, task, sandbox, state, stop_reason, final_message, llm_records, started_at, started,
+        context: ContextManager | None = None,
     ) -> TrialResult:
         patch = sandbox.export_patch()
         changed = sandbox.changed_files()
@@ -218,6 +264,7 @@ class MiniAgent:
             "premature_final_attempts": state.premature_final_attempts,
         }
         plan_stats = state.planner.stats() if self.config.enable_planner else {}
+        checks.update(context.stats.as_dict(context.budget_tokens) if context else {})
         return TrialResult(
             stop_reason=stop_reason,
             steps=state.step,
@@ -313,6 +360,31 @@ def _is_repeated(state: _RunState, signature: str, config: AgentConfig) -> bool:
     return len(recent) == config.repeated_action_limit - 1 and all(s == signature for s in recent)
 
 
+def _progress_digest(state: _RunState, per_section: int = 8) -> str:
+    """What the dropped turns accomplished, so the agent does not redo it.
+
+    Built from the trace rather than from a model summary: an evaluation harness cannot
+    afford a nondeterministic, billable call in the middle of every long trial.
+    """
+    sections = [
+        ("files read", state.files_read),
+        ("files written", state.files_written),
+        ("commands run", state.commands_run),
+        ("test results", state.test_outcomes),
+    ]
+    lines: list[str] = []
+    for label, values in sections:
+        if not values:
+            continue
+        recent = values[-per_section:]
+        elided = f" (+{len(values) - len(recent)} earlier)" if len(values) > len(recent) else ""
+        lines.append(f"- {label}{elided}: " + "; ".join(recent))
+    plan = state.planner.current_items
+    if plan:
+        lines.append("- current plan: " + "; ".join(f"[{i.status}] {i.text}" for i in plan))
+    return "\n".join(lines) if lines else "- no repository actions were recorded yet"
+
+
 def _record_plan(state: _RunState, result) -> None:
     """Fold an accepted plan revision into the tracker, timestamped by repo actions so far."""
     items = parse_plan_items(result.data.get("plan"))
@@ -335,8 +407,10 @@ def _record_side_events(state: _RunState, name: str, args: dict[str, Any], resul
             state.ran_tests = True
             state.repo_actions += 1
             state.last_test_exit = exit_code
+            state.test_outcomes.append(f"{command} -> exit {exit_code}")
             state.emit(TraceEventType.TEST_RESULT, name=command, exit_code=exit_code, ok=result.ok)
         else:
+            state.commands_run.append(f"{command} -> exit {exit_code}")
             state.emit(TraceEventType.COMMAND_FINISH, name=command, exit_code=exit_code,
                        blocked=result.data.get("blocked", False))
         if result.data.get("blocked"):
@@ -344,10 +418,13 @@ def _record_side_events(state: _RunState, name: str, args: dict[str, Any], resul
     elif name == "apply_patch":
         if result.ok:
             state.repo_actions += 1
+            state.files_written.append(str(args.get("path")))
         if result.data.get("forbidden"):
             state.forbidden_attempts += 1
         state.emit(TraceEventType.FILE_WRITE, name=str(args.get("path")), ok=result.ok)
     elif name == "read_file":
+        if result.ok:
+            state.files_read.append(str(args.get("path")))
         state.emit(TraceEventType.FILE_READ, name=str(args.get("path")), ok=result.ok)
     else:
         state.emit(TraceEventType.TOOL_RESULT, name=name, ok=result.ok)

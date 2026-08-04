@@ -38,6 +38,7 @@ from typing import Any, NamedTuple
 
 from codeagent_eval import __version__
 from codeagent_eval.adapters import (
+    ABLATABLE,
     ADAPTER_NAMES,
     EXTERNAL_ADAPTERS,
     AgentRunResult,
@@ -78,11 +79,12 @@ TRIAL_SCHEMA_VERSION = 1
 # --------------------------------------------------------------------------- #
 # One trial
 # --------------------------------------------------------------------------- #
-def _agent_config(kind: str) -> AgentConfig:
+def _agent_config(kind: str, ablate: frozenset[str] = frozenset()) -> AgentConfig:
     return AgentConfig(
         version=kind,
         detect_repeated_actions=kind in ("v2", "v3"),
-        enable_planner=kind == "v3",
+        enable_planner=kind == "v3" and "planner" not in ablate,
+        enable_context_management=kind == "v3" and "context" not in ablate,
     )
 
 
@@ -96,6 +98,8 @@ def _run_adapter_trial(
     max_completion_tokens: int = 2048,
     adapter_config=None,
     max_steps: int | None = None,
+    ablate: frozenset[str] = frozenset(),
+    context_budget_tokens: int = 32_000,
 ) -> tuple[TrialResult, AgentRunResult]:
     adapter = create_adapter(
         adapter_name,
@@ -103,6 +107,8 @@ def _run_adapter_trial(
         harness=task_harness(task),
         max_completion_tokens=max_completion_tokens,
         config=adapter_config,
+        ablate=ablate,
+        context_budget_tokens=context_budget_tokens,
     )
     probe = adapter.probe()
     if not probe.available:
@@ -233,6 +239,8 @@ def run_trial(
     max_completion_tokens: int = 2048,
     adapter_config=None,
     max_steps_override: int | None = None,
+    ablate: frozenset[str] = frozenset(),
+    context_budget_tokens: int = 32_000,
 ) -> tuple[GradeResult, TrialResult, FailureAttribution]:
     # The step budget is an experimental variable, not a case constant: a suite every model
     # saturates still discriminates once the budget is tight enough to matter.
@@ -260,6 +268,8 @@ def run_trial(
                     provider,
                     max_completion_tokens=max_completion_tokens,
                     max_steps=step_budget,
+                    ablate=ablate,
+                    context_budget_tokens=context_budget_tokens,
                 )
             elif kind in EXTERNAL_ADAPTERS:
                 trial, adapter_result = _run_adapter_trial(
@@ -436,6 +446,8 @@ class TrialSpec:
     adapter_config: Any = None
     model_override: str | None = None
     max_steps_override: int | None = None
+    ablate: frozenset[str] = frozenset()
+    context_budget_tokens: int = 32_000
 
 
 class TrialOutcome(NamedTuple):
@@ -494,6 +506,8 @@ def execute_trial(spec: TrialSpec) -> TrialOutcome:
             spec.max_completion_tokens,
             adapter_config=spec.adapter_config,
             max_steps_override=spec.max_steps_override,
+            ablate=spec.ablate,
+            context_budget_tokens=spec.context_budget_tokens,
         )
     except Exception as exc:  # noqa: BLE001 - deliberately broad; see docstring
         # Loading the suite is inside the try as well, so even an unresolvable case_id becomes
@@ -774,6 +788,8 @@ def run_experiment(
     workers: int = 1,
     resume_experiment_id: str | None = None,
     max_steps_override: int | None = None,
+    ablate: frozenset[str] = frozenset(),
+    context_budget_tokens: int = 32_000,
 ) -> dict[str, Any]:
     if workers < 1:
         raise ValueError("workers must be >= 1")
@@ -783,6 +799,10 @@ def run_experiment(
     # Part of run_config so it lands in provenance *and* in the resume fingerprint: two runs
     # at different budgets are different experiments and must never merge.
     run_config["max_steps_override"] = max_steps_override
+    # An ablated harness is a different system, and the context budget changes what the
+    # harness does; both belong in the fingerprint so they can never be resumed together.
+    run_config["ablate"] = sorted(ablate)
+    run_config["context_budget_tokens"] = context_budget_tokens if kind == "v3" else None
 
     experiment_id = resume_experiment_id or f"{kind}-{utc_now_iso().replace(':', '').replace('-', '')}"
     out_dir = out_root / experiment_id
@@ -812,6 +832,8 @@ def run_experiment(
                     adapter_config=adapter_config,
                     model_override=getattr(provider, "model_override", None),
                     max_steps_override=max_steps_override,
+                    ablate=ablate,
+                    context_budget_tokens=context_budget_tokens,
                 )
             )
 
@@ -952,6 +974,21 @@ def main(argv: list[str] | None = None) -> int:
              "exactly this flag, and the choice is recorded in run provenance",
     )
     parser.add_argument(
+        "--ablate",
+        action="append",
+        choices=sorted(ABLATABLE),
+        default=[],
+        metavar="CAPABILITY",
+        help="disable one of V3's additions (repeatable) so an ablation isolates the other",
+    )
+    parser.add_argument(
+        "--context-budget-tokens",
+        type=int,
+        default=32_000,
+        help="V3 context budget; compaction triggers at 75%% of it. Like --max-steps this is "
+             "an experimental variable — a budget nothing reaches measures nothing",
+    )
+    parser.add_argument(
         "--max-steps",
         type=int,
         default=None,
@@ -1029,6 +1066,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--workers must be positive")
     if args.max_steps is not None and args.max_steps < 1:
         parser.error("--max-steps must be positive")
+    if args.context_budget_tokens < 1:
+        parser.error("--context-budget-tokens must be positive")
+    if args.ablate and kind != "v3":
+        parser.error("--ablate applies to the v3 harness only")
 
     try:
         summary = run_experiment(
@@ -1043,6 +1084,8 @@ def main(argv: list[str] | None = None) -> int:
             workers=args.workers,
             resume_experiment_id=args.resume,
             max_steps_override=args.max_steps,
+            ablate=frozenset(args.ablate),
+            context_budget_tokens=args.context_budget_tokens,
         )
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

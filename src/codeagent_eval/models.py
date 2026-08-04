@@ -97,6 +97,9 @@ class TraceEventType(StrEnum):
     # MiniAgent planner landing in W1-4). Normalizing it to TOOL_RESULT would silently discard
     # the only signal the plan-adherence metric can be computed from.
     PLAN_UPDATE = "plan_update"
+    # Emitted when context management drops earlier turns. Without it, a failure that follows
+    # a compaction can only be guessed at rather than attributed to the information loss.
+    COMPACTION = "compaction"
 
 
 class TraceEvent(BaseModel):

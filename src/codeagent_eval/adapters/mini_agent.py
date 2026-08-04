@@ -19,6 +19,9 @@ from codeagent_eval.agent.prompts import PROMPT_VERSIONS
 from codeagent_eval.models import AgentTask
 from codeagent_eval.sandbox import WorktreeSandbox
 
+#: Capabilities V3 adds on top of V2, each removable on its own so an ablation isolates one.
+ABLATABLE = frozenset({"planner", "context"})
+
 _STOP_REASON_MAP = {
     "final": "final",
     "timeout": "budget_time",
@@ -31,7 +34,15 @@ _STOP_REASON_MAP = {
 class MiniAgentAdapter:
     name = "mini_agent"
 
-    def __init__(self, provider, *, harness: str = "v2", max_completion_tokens: int = 2048) -> None:
+    def __init__(
+        self,
+        provider,
+        *,
+        harness: str = "v2",
+        max_completion_tokens: int = 2048,
+        ablate: frozenset[str] = frozenset(),
+        context_budget_tokens: int = 32_000,
+    ) -> None:
         if harness not in PROMPT_VERSIONS:
             raise ValueError(
                 f"unsupported MiniAgent harness: {harness} (known: {', '.join(PROMPT_VERSIONS)})"
@@ -41,7 +52,15 @@ class MiniAgentAdapter:
         if max_completion_tokens < 1:
             raise ValueError("max_completion_tokens must be positive")
         self.max_completion_tokens = max_completion_tokens
-        self.adapter_version = f"{__version__}+{harness}"
+        unknown = ablate - ABLATABLE
+        if unknown:
+            raise ValueError(f"unknown ablation(s): {', '.join(sorted(unknown))}")
+        # Ablations are part of the harness identity: "v3 without compaction" is a different
+        # system from v3, and a comparison that recorded both as "v3" would be unreadable.
+        self.ablate = frozenset(ablate)
+        self.context_budget_tokens = context_budget_tokens
+        suffix = "".join(f"-no_{a}" for a in sorted(self.ablate))
+        self.adapter_version = f"{__version__}+{harness}{suffix}"
         self._task: AgentTask | None = None
         self._budget: BudgetContract | None = None
         self._sandbox: WorktreeSandbox | None = None
@@ -60,7 +79,12 @@ class MiniAgentAdapter:
         # V1/V2 inject repository instructions but have no explicit planner, memory or
         # compaction subsystem. V3 adds planning and nothing else, which is what makes a
         # V2/V3 comparison an ablation rather than a version bump.
-        return {Capability.PLANNING} if self.harness == "v3" else set()
+        caps: set[Capability] = set()
+        if self.harness == "v3" and "planner" not in self.ablate:
+            caps.add(Capability.PLANNING)
+        if self.harness == "v3" and "context" not in self.ablate:
+            caps.add(Capability.COMPACTION)
+        return caps
 
     def prepare(
         self,
@@ -96,7 +120,9 @@ class MiniAgentAdapter:
         config = AgentConfig(
             version=self.harness,
             detect_repeated_actions=self.harness in ("v2", "v3"),
-            enable_planner=self.harness == "v3",
+            enable_planner=self.harness == "v3" and "planner" not in self.ablate,
+            enable_context_management=self.harness == "v3" and "context" not in self.ablate,
+            context_budget_tokens=self.context_budget_tokens,
             max_tokens=self.max_completion_tokens,
         )
         trial = MiniAgent(self.provider, config).run(task, self._sandbox, case_id=task.case_id)
@@ -139,6 +165,8 @@ class MiniAgentAdapter:
                 "platform": platform.platform(),
                 "repo_commit": _git_head(self._sandbox.root),
                 "harness": self.harness,
+                "ablate": sorted(self.ablate),
+                "context_budget_tokens": self.context_budget_tokens,
             },
             steps=trial.steps,
             tool_call_count=trial.tool_call_count,

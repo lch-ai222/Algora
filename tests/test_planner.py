@@ -181,11 +181,30 @@ def test_only_v3_is_offered_the_planning_tool():
     assert "update_plan" in [t.name for t in default_tools(planning=True)]
 
 
-def test_only_v3_declares_the_planning_capability():
-    assert MiniAgentAdapter(None, harness="v3").capabilities() == {Capability.PLANNING}
+def test_capabilities_track_the_harness_and_its_ablations():
+    """An ablated V3 is a different system, and its capability set has to say so — otherwise
+    a comparison table would show two rows both claiming to plan."""
     assert MiniAgentAdapter(None, harness="v2").capabilities() == set()
+    assert MiniAgentAdapter(None, harness="v3").capabilities() == {
+        Capability.PLANNING, Capability.COMPACTION
+    }
+    assert MiniAgentAdapter(None, harness="v3", ablate=frozenset({"planner"})).capabilities() == {
+        Capability.COMPACTION
+    }
+    assert MiniAgentAdapter(None, harness="v3", ablate=frozenset({"context"})).capabilities() == {
+        Capability.PLANNING
+    }
     with pytest.raises(ValueError, match="unsupported MiniAgent harness"):
         MiniAgentAdapter(None, harness="v4")
+    with pytest.raises(ValueError, match="unknown ablation"):
+        MiniAgentAdapter(None, harness="v3", ablate=frozenset({"memory"}))
+
+
+def test_an_ablation_is_part_of_the_harness_identity():
+    """Recording an ablated run as plain "v3" would make the artifact unreadable later."""
+    assert MiniAgentAdapter(None, harness="v3").adapter_version.endswith("+v3")
+    ablated = MiniAgentAdapter(None, harness="v3", ablate=frozenset({"context", "planner"}))
+    assert ablated.adapter_version.endswith("+v3-no_context-no_planner")
 
 
 class _PlanningProvider:

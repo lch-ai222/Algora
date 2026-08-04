@@ -6,11 +6,11 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ## 1. 当前总体状态
 
-闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1 到 W1-7 全部完成**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter（代码层完成，**尚未 live 验证**——本机无 `claude` CLI）。
+闭环已跑通并用真实 LLM（DeepSeek v4-flash）验证。**原 7/7 里程碑 + B1 + V3 地基 W1-1 到 W1-7 全部完成 + W2-1 上下文管理**：V3 已有长程 suite、可扩展的 AgentAdapter 接入层和 Claude Code headless adapter（代码层完成，**尚未 live 验证**——本机无 `claude` CLI）。
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**219 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**239 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -236,6 +236,28 @@ DeepSeek，V2 harness，短程 2 case × 1 repeat，workers=2，费率表 `2026-
 
 DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个工具确实提供、v3 prompt 确实生效，不是接线问题），长程上则主动规划且无计划表演（`done_without_action=0`）。这条本身就是 planner 消融的第一份数据：**短程上 V2/V3 不可能有差异，因为 V3 根本没启用它的新能力**。
 
+### V3 W2-1 · 上下文管理（分级截断 + compaction）
+
+`agent/context.py`。两个取舍刻意选了保守的一边，因为这是**评测 harness** 而不是产品：
+
+- **上下文大小是测量的，不是估算的。** 每轮之后用 provider 自己报告的 `prompt_tokens` 驱动 compaction。char/4 启发式会随模型和工具 schema 漂移，导致触发阈值对每个被测系统对应的真实大小都不同——跨 Agent 的上下文对比就失去意义。启发式只在还没有任何测量时兜底。
+- **compaction 是确定性的，不是模型生成的。** 用 LLM 总结被丢弃的轮次更"聪明"，但会在每个长 trial 中间插入一次不确定、要计费的调用——同一配置跑两次会因为与被测对象无关的原因发散。改为用轨迹构建摘要：读过哪些文件、写过哪些文件、跑过哪些命令、测试结果、当前计划。可复现，而且正好是 agent 为了不重复劳动所需要的信息。
+- 消息序列合法性：assistant 的 tool_calls 必须有对应的 tool 回复，切在中间会被 provider 直接拒绝。`_safe_tail_start` 保证切口两侧都不产生孤儿。
+- 分级截断：read_file 6000 字符 > run_command 4000 > list_files 2000；保头尾（头部说明检查了什么，尾部通常是结果或报错）。
+- 每次 compaction 发 `COMPACTION` trace 事件（before_tokens / dropped_messages / digest_chars），否则 compaction 之后的失败只能靠猜。
+
+**消融支持**：`--ablate planner|context` 可单独关掉 V3 的任一新增能力，且写入 `adapter_version`（`0.1.0+v3-no_context`）与 resume 指纹——消融后的 V3 是另一个系统，记成同一个 "v3" 会让对比表无法阅读。`--context-budget-tokens` 与 `--max-steps` 一样是实验变量。
+
+**实测**（DeepSeek v4-flash，`long-crossmodule-returns`，预算 16k）：
+
+| 指标 | 值 |
+|---|---|
+| compaction 次数 | 3 |
+| 每次丢弃消息 | 23 / 23 / 21 |
+| 峰值利用率 | 0.906（14,495 / 16,000） |
+| 摘要大小 | 316 → 869 → 1088 字符（随工作累积增长） |
+| 结果 | Task 1.00，plan adherence 1.00（6 项 / 3 次修订） |
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：
@@ -276,7 +298,7 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **V3 W2-1 · context 管理 / compaction**：长程 + 收紧预算下做 V2/V3/V3−compaction 消融（planner 已就位，且实测只在长程被采用）。
+1. **H3 消融实验**：长程 suite + 收紧预算，跑 v2 / v3 / v3−context / v3−planner 四组，repeats≥3。所有前置条件（长程 case、预算变量、planner、context、消融开关、并行）现已齐备。
 2. **后续实验一律带预算维度**：至少 `max_steps` 取紧/松两档，否则强模型之间的差异测不出来。
 3. 长期：按 G1 路线补更难的 case（refactor / 并发 / 欠定义 spec）。预算收紧测的是约束下的效率，不能替代能不能做更难的事。
 4. 需要 GLM 的 USD 成本时，填一个带出处与日期的 `usd_per_cny`。

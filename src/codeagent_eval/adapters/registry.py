@@ -21,6 +21,8 @@ def create_adapter(
     harness: str = "v2",
     max_completion_tokens: int = 2048,
     config=None,
+    ablate: frozenset[str] = frozenset(),
+    context_budget_tokens: int = 32_000,
 ) -> AgentAdapter:
     """Build an adapter by name.
 
@@ -35,6 +37,8 @@ def create_adapter(
             provider,
             harness=harness,
             max_completion_tokens=max_completion_tokens,
+            ablate=ablate,
+            context_budget_tokens=context_budget_tokens,
         )
     if name == "claude_code":
         if config is not None and not isinstance(config, ClaudeCodeConfig):
