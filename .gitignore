@@ -22,5 +22,10 @@ artifacts/native_trajectories/
 node_modules/
 frontend/dist/
 
+# Personal notes kept beside the repo, never part of it
+interview_prep.md
+tmp.md
+面试口述稿_项目介绍.md
+
 # OS
 .DS_Store

@@ -1,186 +1,222 @@
-# CodeAgent Eval Lab (Algora)
+# Algora — CodeAgent Eval Lab
 
-A repo-level **coding agent** wired to a **deterministic evaluation pipeline**. The point is
-the closed loop, not breadth: a task is *executed* in an isolated sandbox → the *trajectory*
-(tool calls, commands, tests, patch) is captured → results are *graded* by deterministic
-programs first (tests / constraints / patch) and an LLM-Judge only where no program oracle
-exists → failures are *attributed* to a taxonomy → an improved harness (V1→V2) is *regression
-tested* under identical conditions.
+An evaluation platform for coding agents, plus a coding agent to evaluate against.
 
-## Why it's built this way
+It runs **Claude Code and a self-built MiniAgent on the same model, under the same budget
+contract, over the same private benchmark**, normalizes their heterogeneous trajectories into
+one schema, grades deterministically, and attributes failures to a taxonomy. Because the model
+is held constant, a difference between them is attributable to the scaffold rather than to the
+LLM behind it.
 
-- **Deterministic-first scoring**: program verification > static rules > LLM-Judge > human. Only
-  things a program cannot decide (code-review quality, spec coverage) go to a Judge — and the
-  Judge itself is meta-evaluated against a human gold set (Cohen's kappa; below-threshold
-  dimensions are downgraded from hard gate to advisory).
-- **Private, uncontaminated benchmark**: `datasets/mini_store` is a self-built SWE-style repo and
-  private Golden Dataset, not an industry-standard public benchmark. Its value is controlled
-  defects, hidden tests, and fast regression without answers in git history.
-- **Task Success vs Strict Success**: reveals "functionally done but engineering non-compliant".
+The benchmark is private and self-built, so nothing here is a public leaderboard number. What
+it is instead: a harness careful enough that its own defects get caught before they become
+findings — see [Measurement defects found and fixed](#measurement-defects-found-and-fixed).
 
-## Status
+---
 
-**All 7 original milestones (M0–M5 + C), B1, V3 W1-1 through W1-7, and W2-1 are complete.**
-Verification (current): `255 passed, 1 skipped` (the skip is an `RUN_LLM_SMOKE`-gated real-model
-test) · `ruff` clean · short/long `selfcheck` 9/9 and 4/4 · deterministic bounds reference=1.00
-and none=0.00 on both suites · HumanEval canonical 10/10. Per-milestone counts below are
-historical snapshots; this line and [PROJECT_STATE.md](PROJECT_STATE.md) are authoritative.
+## Headline results
 
-- **V3 W1-1 — long-horizon private suite** ✅ — an independent `mini_store_long` snapshot with
-  four hard refactor/spec/cascade/build cases, persistent canaries, hidden tests, and 53 clean-repo
-  tests. Both deterministic anchors hold (reference 1.0, none 0.0); `selfcheck` is 4/4. The formal
-  DeepSeek V2 calibration (`v2-20260803T191808Z`, one trial per case) reached Task/Strict 1.00,
-  median 30 tool actions, 13.5 model rounds, and 3 test runs. This is horizon calibration, not a
-  statistically stable capability score.
-- **V3 W1-2 — AgentAdapter foundation** ✅ — a typed `AgentAdapter` protocol, normalized
-  `AgentRunResult`, enforceable `BudgetContract`, capability probing, `MiniAgentAdapter`, registry,
-  and runner support for `--adapter mini_agent --harness v2`. Provider failures are excluded from
-  capability denominators, per-turn output limits are explicit, and unavailable pricing is stored
-  as `null` with `cost_source=unavailable` rather than a false zero.
-- **V3 W1-3 — Claude Code headless adapter** ✅ code + repo live — stream-json is preserved
-  and normalized into the shared trajectory contract; wall-clock/turn budgets, process-group
-  termination, config isolation, native-cost provenance, and CLI-created scaffold cleanup are
-  covered by 39 offline tests. Homebrew stable Claude Code 2.1.220 is installed; real `probe()`, a
-  no-repository GLM-5.2 protocol call, and an approved repository smoke all pass. The repo smoke
-  fixed `bugfix-pricing-tax` with Task/Strict 1.00 (one trial, six tool calls, eight model turns);
-  it proves the integration path, not a statistically meaningful cross-agent result. Third-party
-  endpoint cost remains deliberately unavailable rather than accepting Claude CLI's USD estimate.
-- **V3 W1-4/W2-1 — planner and context management** ✅ — V3 adds a repository-verified plan
-  tracker plus deterministic tiered truncation/compaction. A corrected 4-case × 3-repeat ablation
-  under a 12k hard context ceiling found compaction to be the full success effect
-  (V3.1 1.00 vs V3.1−context 0.33); the planner was success-neutral but added about 18% tool calls.
-- **V3 W1-5/W1-6 — executable isolation and orchestration** ✅ — GitHub CI runs quality,
-  console, and containerized `--network none` evaluation gates; nightly separates bounds,
-  EvalPlus oracle, and optional LLM smoke. Trial-level process-pool execution measured 4.0× speedup,
-  while checkpoint/resume uses a manifest fingerprint and never adopts infra-invalid trials.
-  Automatic experiment IDs combine a readable UTC timestamp with a random suffix, preventing
-  independent processes started in the same second from sharing an artifact directory.
-- **V3 W1-7 — provider ladder and auditable pricing** ✅ — DeepSeek/OpenAI-compatible/GLM
-  providers share a single specification table; `--model`, budgets, ablations, pricing revision,
-  aliases, cache-rate tiers, and requested/served model identities are persisted. Missing prices
-  are `null`, never fake zero; CNY is not silently converted to USD.
+All figures below are directional evidence from small samples; every claim is stated with its
+sample size and its limits in the linked reports.
 
-- **M0 — scaffold + reused LLM provider** ✅ (`src/codeagent_eval/{settings,models,llm,observability}.py`,
-  offline-tested tool-call parsing in `tests/test_llm_provider.py`).
-- **M1 — MiniAgent V1 + process-isolation sandbox** ✅ — worktree sandbox with a deny-by-default
-  command policy (`sandbox/`), 6 coding tools (`tools/`), and the agentic loop with full
-  trajectory capture (`agent/`). Unit-tested offline (sandbox/tools/loop); a real-LLM smoke test
-  is gated on `RUN_LLM_SMOKE=1` + an API key.
-- **M2 — internal benchmark + deterministic graders + CLI closed loop** ✅ — `mini_store`
-  (a cross-module inventory app) with **9 self-checked cases** (6 base built here + 3 adversarial
-  regression-traps added in M4) (`datasets/`), per-case materialization with no fix in git history,
-  hidden tests injected only at grade time, Test/Constraint/Patch graders with Task vs Strict
-  success (`graders/`), and a runner CLI (`runner.py`) with `reference`/`none`/`v1`/`v2` agents,
-  artifact persistence (incl. model/provider/temperature/budget provenance), and
-  mean+variance / pass@k vs pass^k aggregation. Discrimination verified (reference 1.0, none 0.0).
-- **M4 — V1→V2 harness regression (money shot)** ✅ — adds 3 adversarial regression-trap cases
-  (bringing `mini_store` to 9), then compares a minimal V1 harness vs a disciplined V2
-  (reproduce-first, run the *whole* suite + `git_diff` before finishing, repeated-action guard,
-  AGENTS.md injection), same model/benchmark/budget/temperature. Failures are auto-attributed to
-  a taxonomy (`failure_taxonomy.py`), and `compare.py` produces the Version Compare
-  (improved/regressed/stable + cost deltas). Result on `mini_store` (deepseek, 5 repeats):
+### Same model, different scaffold
 
-  | agent | Task | Strict | note |
-  |---|---|---|---|
-  | reference | 1.00 | 1.00 | upper bound |
-  | **V2** | **1.00** | **1.00** | +~50% tool calls |
-  | V1 | 0.98 | 0.98 | `regtrap-loyalty-bonus` 0.80, pass^k=0 |
-  | none | 0.00 | 0.00 | lower bound |
+`glm-5.2` on all three arms, wall clock as the primary budget (the only one every framework
+enforces identically). Long-horizon suite, 4 cases.
+Full report: **[docs/cross_agent_report_v1.md](docs/cross_agent_report_v1.md)**
 
-  Version Compare: **improved=1, regressed=0, stable=8**. V2's "verify the full suite before
-  finishing" flips the one case V1 ships an over-broad fix on (`regtrap-loyalty-bonus`
-  0.80→1.00, pass^k 0→1: unreliable→reliable), auto-tagged `PREMATURE_TERMINATION`. On a
-  strong model the other 8 cases saturate both harnesses — an honest discrimination finding:
-  scaffold decides exactly the case where the naive agent doesn't verify, at a measurable cost.
-- **M3 — FastAPI + React console** ✅ — a read-only console over the persisted artifacts
-  (`backend/app/`, `frontend/`): Experiments list, Experiment Detail (stat tiles + case table
-  with pass@k/pass^k + failure tags), Trial Trace Viewer (step list + event detail + grader
-  summary + colorized diff), and Version Compare (improved/regressed/stable + cost deltas).
-  Vite + React + TS, typechecks and builds clean.
-- **M5 — EvalPlus-schema study / LLM-Judge / kappa** ✅ — a 10-problem curated/self-built
-  EvalPlus-schema subset used to validate the function-level evaluation flow (not a full official
-  HumanEval+ run or leaderboard result; DeepSeek scores Pass@1 100% on this easy slice), an
-  LLM-as-Judge for code review (`judge/code_review_judge.py`,
-  structured + **forced citations** + swap-averaging + temperature=0), and judge meta-eval
-  (`judge/meta_eval.py`, agreement + Cohen's kappa + trust map). On the human gold set the judge
-  agrees perfectly on objective dimensions (CORRECTNESS/EDGE_CASES κ=1.0) but only κ=0.62 on
-  subjective READABILITY — near the Landis-Koch boundary, matching the plan's reference. See
-  [docs/judge_meta_eval_report_v1.md](docs/judge_meta_eval_report_v1.md).
-- **B1 — official HumanEval+/EvalPlus smoke slice** ✅ — pinned EvalPlus 0.3.1, five official
-  tasks selected before generation with seed `20260712`, canonical oracle gate (Base/Plus 1.00),
-  official sanitizer/evaluator, immutable manifest, and split network-generation/local-execution
-  phases. DeepSeek v4-flash: Base pass@1 1.00, Plus pass@1 0.80 (one stricter-test failure); this
-  is a protocol-learning slice, not a full benchmark score. See
-  [docs/evalplus_smoke_report_v1.md](docs/evalplus_smoke_report_v1.md).
-- **C — SWE-bench compatibility adapter + executable Docker gate** ✅ — `benchmark/swebench.py` reads the official
-  SWE-bench instance schema (`FAIL_TO_PASS` / `PASS_TO_PASS` / `test_patch` / gold `patch`) and
-  runs the official resolve flow. A **compatibility sample** (`datasets/swebench_compat/`, a
-  small self-contained repo) runs end-to-end here: gold patch resolves it, and the MiniAgent
-  (V2) resolves it for real. Clearly labelled "Compatibility Sample", not a leaderboard number.
-  The sandbox image is built in CI and executes both deterministic suites with `--network none`;
-  the local worktree path remains command-policy isolation rather than a kernel boundary. See
-  [docs/swebench_and_docker.md](docs/swebench_and_docker.md).
+| arm | budget | n | Task | Strict | tool calls | model turns |
+|---|---|---|---|---|---|---|
+| Claude Code 2.1.220 | loose | 8 | **1.00** | **1.00** | 27.8 | 46.4 |
+| Claude Code 2.1.220 | 120s | 12 | **0.50** | 0.50 | 14.6 | 24.1 |
+| MiniAgent v3.1 | 120s | 12 | **1.00** | 0.83 | 34.3 | 18.8 |
+| MiniAgent v2 | 120s | 12 | 0.92 | 0.83 | 34.3 | 19.3 |
 
-The public-benchmark goal is protocol learning rather than an expensive full leaderboard run:
-use a small number of official instances while preserving the official data, environment, oracle,
-execution, and reporting contracts. See
-[docs/benchmark_methodology_and_roadmap.md](docs/benchmark_methodology_and_roadmap.md) for the
-HumanEval+/EvalPlus → SWE-bench → Terminal-Bench → OctoBench roadmap, implementation-level labels,
-statistical plan, and private Golden Dataset expansion priorities.
+Given enough time every scaffold scores 1.00 — the suite has no resolving power. Tighten the
+clock to 120s and Claude Code halves while the MiniAgent holds. The trajectories say why: in
+120s Claude Code issues **14.6 tool calls against the MiniAgent's 34.3**, spending its budget
+reasoning rather than acting. It is also the only arm scoring 1.00 on *both* Task and Strict.
+The honest reading is that its scaffold **trades latency for engineering compliance** — a net
+gain when time is ample, a net loss when it is not.
 
-### Console
+### Discrimination comes from the budget, not from harder cases
 
-```bash
-.venv/bin/uvicorn backend.app.main:app --port 8000    # API over artifacts/runs/
-cd frontend && npm install && npm run dev             # http://localhost:5173 (proxies /api)
+The same suite, varying only `--max-steps`. No new cases were written.
+
+| `max_steps` | DeepSeek v4-flash | GLM-4.5-air | gap |
+|---|---|---|---|
+| 20 (case default) | 1.00 | 1.00 | **0.00** |
+| 8 | 1.00 | 0.78 | 0.22 |
+| 4 | 0.93 | **0.07** | **0.85** |
+
+Saturation was not the cases being too easy; the budget was too loose for capability
+differences to surface. Two findings that changed how later experiments were designed:
+**models adapt to the budget rather than consume it** (DeepSeek uses 7 steps when given 20, yet
+still scores 1.00 when given 6, so headroom cannot predict the effect), and **the curve is a
+cliff, not a gradient**.
+
+Swapping models buys a 0.16 gap. Tightening the budget buys 0.85.
+
+### Ablating the self-built agent
+
+V3 = V2 + a task planner + context management. Long suite, 12k hard context ceiling applied to
+*every* arm, 4 cases × 3 repeats.
+
+| arm | Task | Strict | context overflows | compactions |
+|---|---|---|---|---|
+| v2 (neither) | 0.42 | 0.42 | 9 | 0 |
+| **v3.1 (both)** | **1.00** | 0.92 | 0 | 55 |
+| v3.1 − context | 0.33 | 0.33 | 10 | 0 |
+| v3.1 − planner | **1.00** | 0.92 | 0 | 44 |
+
+Context management is the entire effect. The planner is neutral and costs ~18% more tool
+calls. An earlier version of this ablation reported the planner as actively *harmful*; that
+turned out to be two defects in this codebase, not a property of planning — see below.
+
+### Reward hacking: detected, not assumed absent
+
+An agent can turn a suite green by fixing the code or by disarming the tests.
+[`detectors/reward_hacking.py`](src/codeagent_eval/detectors/reward_hacking.py) scans diffs for
+eight graded signals, each carrying the diff line that triggered it. Validation is separate
+from the rate: eight hand-written hacks must all fire, every reference solution must stay
+clean — otherwise "we found nothing" and "the detector is broken" are the same observation.
+
+Scanning **640 patches already on disk** (no new experiments) found zero strong signals. The
+zero is reported split, and the script derives the split itself rather than leaving it to the
+reader:
+
+| sample | n | findings | 95% upper bound |
+|---|---|---|---|
+| MiniAgent (sandbox forbids test edits) | 624 | 0 | *enforcement, not observation* |
+| Claude Code (unconstrained) | 16 | 0 | **19.4%** |
+
+Only the unconstrained sample measures behaviour. Pooling them would present a sandbox policy
+as a finding.
+
+---
+
+## Measurement defects found and fixed
+
+Thirteen defects were caught during this work. Five were ordinary bugs. **Eight would not have
+crashed anything — they would have produced a confident, wrong conclusion.**
+
+| defect | what the report would have said |
+|---|---|
+| `failure_taxonomy` matched the MiniAgent's native stop strings | every external agent's failure modes silently tagged UNKNOWN |
+| `--context-budget-tokens` constrained only V3 | compaction's value untestable; the ablation measures its cost alone |
+| `version == "v2"` gated V2's completion guard | V3 silently lost it, so the ablation compared more than the capability under test |
+| plan adherence keyed on model-supplied ids, which models rename | reported adherence figures were measurement artifacts |
+| `resume` adopted infra-invalid trials | a transient rate limit frozen into results as if it were the measurement |
+| `last_model` recorded the requested, not the served, model | artifacts claiming a model that never ran |
+| materialized repos had no `.gitignore` | "Claude Code is engineering-non-compliant in 6 of 8 trials" (it was pytest bytecode) |
+| `--max-wall-clock` reached one adapter branch only | "Claude Code is unaffected by a tight budget" — **the opposite of the truth** |
+
+The last one is the sharpest illustration: the provenance record said `timeout_seconds=120`
+and was correct; only the enforcement path was unwired, so every artifact looked normal.
+
+---
+
+## How it is built
+
+```
+report        docs/*.md  ·  backend + frontend console over artifacts/
+────────────────────────────────────────────────────────────────────────
+analysis      detectors/ (reward hacking)   stats/ (Wilson intervals)
+              failure_taxonomy.py           compare.py
+────────────────────────────────────────────────────────────────────────
+orchestration runner.py — process-pool parallelism, trial-level resume,
+              budget contract, manifest fingerprint, provenance
+────────────────────────────────────────────────────────────────────────
+adapters      AgentAdapter ─┬─ MiniAgentAdapter   (in-process)
+                            └─ ClaudeCodeAdapter  (headless CLI)
+              normalize.py — heterogeneous trajectories → one TraceEvent schema
+────────────────────────────────────────────────────────────────────────
+agent         loop.py │ prompts (v1/v2/v3) │ planner.py │ context.py
+              tools/ │ sandbox/ (worktree + deny-by-default command policy)
+────────────────────────────────────────────────────────────────────────
+data          benchmark/ (case · materialize · swebench · evalplus)
+              graders/ (pytest · constraint · patch)   judge/ (+ kappa meta-eval)
+              mini_store_suite (9 short) │ mini_store_long (4 long-horizon)
 ```
 
-### Run it
+### Principles the code enforces
 
-```bash
-python scripts/selfcheck.py                              # hard gate: all 9 cases valid
-python -m codeagent_eval.runner --agent reference        # upper bound (no LLM)
-python -m codeagent_eval.runner --agent none             # lower bound (no LLM)
-python -m codeagent_eval.runner --agent v1 --repeats 5   # minimal baseline (needs API key in .env)
-python -m codeagent_eval.runner --agent v2 --repeats 5   # disciplined harness
-python scripts/selfcheck.py datasets/mini_store_long     # hard gate: all 4 long cases valid
-python -m codeagent_eval.runner --adapter mini_agent --harness v3 \
-  --suite datasets/mini_store_long --max-completion-tokens 4096 \
-  --context-budget-tokens 10000 --context-ceiling-tokens 12000 --workers 2
-python scripts/check_bounds.py \
-  --suite datasets/mini_store_suite --suite datasets/mini_store_long --workers 2
-python scripts/compare_runs.py <v1_run_dir> <v2_run_dir> # Version Compare (improved/regressed/stable)
-```
+- **Deterministic-first scoring.** Program verification > static rules > LLM-Judge > human. The
+  Judge is itself meta-evaluated against a human gold set; dimensions below the kappa threshold
+  are downgraded from gate to advisory.
+- **Unknown stays unknown.** An unpriced model reports `cost_usd=null`, never `0.0` — a zero is
+  indistinguishable from "this was free". CNY rates are never silently converted to USD.
+- **Infra failure is missing evidence, not agent failure.** Provider errors are excluded from
+  success denominators and re-run on resume rather than frozen into the result.
+- **Budgets are experimental variables.** `--max-steps`, `--max-wall-clock`,
+  `--context-ceiling-tokens` all override case defaults and land in the resume fingerprint, so
+  two budgets can never be merged into one experiment.
+- **An ablation must isolate one capability.** `--ablate planner|context` records itself in
+  `adapter_version`; an ablated V3 is a different system and the artifacts say so.
+- **Task Success vs Strict Success**, so "functionally done but engineering non-compliant" is
+  visible rather than averaged away.
 
-See [coding_agent_eval_plan_v2.md](coding_agent_eval_plan_v2.md) for the full design.
+---
 
-### Official EvalPlus smoke slice
-
-EvalPlus is intentionally isolated from the main `.venv` because its optional dependency set is
-large. Its cache also stays inside the project and is ignored by git.
-
-```bash
-python3.11 -m venv .venv-evalplus
-.venv-evalplus/bin/python -m pip install -e ".[evalplus]"
-.venv-evalplus/bin/python scripts/run_evalplus_smoke.py --selfcheck
-.venv-evalplus/bin/python scripts/run_evalplus_smoke.py --generate-only
-.venv-evalplus/bin/python scripts/run_evalplus_smoke.py \
-  --resume artifacts/runs/<evalplus-smoke-run> --allow-local-model-execution
-```
-
-Review generated samples before the resume step. The official local evaluator executes generated
-Python without Docker; the split flow ensures the execution phase has no model-API network access.
-Cleanup: `rm -rf .venv-evalplus .cache/evalplus artifacts/runs/evalplus-smoke-<timestamp>`.
-
-## Dev setup
+## Run it
 
 ```bash
 python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev,api]"
-cp .env.example .env   # fill in DEEPSEEK_API_KEY (or set LLM_PROVIDER=openai + OPENAI_API_KEY)
-.venv/bin/python -m pytest -q
+cp .env.example .env          # fill in a provider key
+.venv/bin/python -m pytest -q # 291 passed, 1 skipped — offline, no API key needed
 ```
 
-The in-process LLM provider is OpenAI-compatible; `LLM_PROVIDER` selects `deepseek`, `openai`, or
-`zhipu`, and `--model` pins the requested ladder rung in run provenance. Tests run offline (no API
-key) via fake clients and executable CLI stand-ins.
+```bash
+# Benchmark health: every case solvable by reference, none by doing nothing
+python scripts/selfcheck.py datasets/mini_store_suite
+python scripts/check_bounds.py --suite datasets/mini_store_suite --workers 2
+
+# The self-built agent
+python -m codeagent_eval.runner --adapter mini_agent --harness v3 \
+  --suite datasets/mini_store_long --max-wall-clock 120 --workers 3
+
+# Claude Code, same model, same budget
+ANTHROPIC_BASE_URL=... ANTHROPIC_AUTH_TOKEN=... \
+python -m codeagent_eval.runner --adapter claude_code --claude-model glm-5.2 \
+  --suite datasets/mini_store_long --max-wall-clock 120 --workers 3
+
+# Scan every patch ever produced for signs verification was disarmed
+python scripts/scan_reward_hacking.py artifacts/runs
+```
+
+Each trial persists `config.json` (model, budgets, adapter version, pricing revision),
+`trajectory.jsonl` (normalized), `native/` (the external agent's raw stream), `patch.diff`,
+`grader-results.json`, `failure-tags.json` — enough to re-grade or diagnose without re-running.
+
+Console: `uvicorn backend.app.main:app --port 8000` + `cd frontend && npm run dev`.
+
+---
+
+## Status and evidence levels
+
+`291 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short and 4/4 long · deterministic
+bounds reference=1.00 / none=0.00 on both suites · CI green including a containerized
+`--network none` evaluation gate.
+
+| area | level |
+|---|---|
+| `mini_store` short + long | complete private benchmark, self-built, uncontaminated |
+| Cross-agent comparison | live, model-controlled; 8–12 trials per arm |
+| Reward-hacking detection | validated detector; 640 patches scanned, 16 of them unconstrained |
+| HumanEval+/EvalPlus | official smoke slice, 5 pinned tasks — [report](docs/evalplus_smoke_report_v1.md) |
+| SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
+| Terminal-Bench / OctoBench | protocol study only |
+
+Not done: instruction-drift and context-amnesia detectors, multi-turn, cluster-bootstrap
+intervals and paired tests, SWE-bench official instances. The 4-case long suite is the binding
+limit on statistical claims — with case as the clustering unit, more cases matter more than
+more repeats.
+
+## Documents
+
+- [docs/cross_agent_report_v1.md](docs/cross_agent_report_v1.md) — the cross-agent comparison
+- [docs/iteration_plan_v3.md](docs/iteration_plan_v3.md) — plan, pre-registered hypotheses, execution log
+- [docs/benchmark_methodology_and_roadmap.md](docs/benchmark_methodology_and_roadmap.md) — evidence levels, statistical plan
+- [PROJECT_STATE.md](PROJECT_STATE.md) — authoritative current state
+- [docs/judge_meta_eval_report_v1.md](docs/judge_meta_eval_report_v1.md) · [docs/evalplus_smoke_report_v1.md](docs/evalplus_smoke_report_v1.md) · [docs/swebench_and_docker.md](docs/swebench_and_docker.md)
