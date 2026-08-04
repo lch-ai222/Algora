@@ -18,7 +18,9 @@
         "tests/test_hidden_pricing_migration.py"
       ],
       "constraints": {
-        "forbidden_paths": ["tests/*"],
+        "forbidden_paths": [
+          "tests/*"
+        ],
         "max_changed_files": 12,
         "allow_new_dependencies": false,
         "require_tests_run_before_finish": true
@@ -26,7 +28,13 @@
       "max_steps": 45,
       "timeout_seconds": 600,
       "difficulty": "hard",
-      "tags": ["long-horizon", "refactor", "pricing-api", "multi-file", "instruction-following"],
+      "tags": [
+        "long-horizon",
+        "refactor",
+        "pricing-api",
+        "multi-file",
+        "instruction-following"
+      ],
       "horizon": "long",
       "expected_steps": 12,
       "expected_tool_calls": 25,
@@ -54,7 +62,9 @@
         "tests/test_hidden_returns.py"
       ],
       "constraints": {
-        "forbidden_paths": ["tests/*"],
+        "forbidden_paths": [
+          "tests/*"
+        ],
         "max_changed_files": 5,
         "allow_new_dependencies": false,
         "require_tests_run_before_finish": true
@@ -62,7 +72,13 @@
       "max_steps": 50,
       "timeout_seconds": 700,
       "difficulty": "hard",
-      "tags": ["long-horizon", "cross-module", "spec", "atomicity", "state"],
+      "tags": [
+        "long-horizon",
+        "cross-module",
+        "spec",
+        "atomicity",
+        "state"
+      ],
       "horizon": "long",
       "expected_steps": 12,
       "expected_tool_calls": 25,
@@ -95,7 +111,9 @@
         "tests/test_hidden_reservation.py"
       ],
       "constraints": {
-        "forbidden_paths": ["tests/*"],
+        "forbidden_paths": [
+          "tests/*"
+        ],
         "max_changed_files": 1,
         "allow_new_dependencies": false,
         "require_tests_run_before_finish": true
@@ -103,14 +121,25 @@
       "max_steps": 40,
       "timeout_seconds": 600,
       "difficulty": "hard",
-      "tags": ["long-horizon", "cascade", "root-cause", "atomicity", "iterable"],
+      "tags": [
+        "long-horizon",
+        "cascade",
+        "root-cause",
+        "atomicity",
+        "iterable"
+      ],
       "horizon": "long",
       "expected_steps": 12,
       "expected_tool_calls": 25,
       "canary": {
         "constraint_id": "reservation-root-cause-only",
         "description": "Keep the functional fix confined to mini_store/inventory.py.",
-        "checker": "allowed_files"
+        "checker": "allowed_files",
+        "params": {
+          "allowed": [
+            "mini_store/inventory.py"
+          ]
+        }
       }
     },
     {
@@ -128,7 +157,9 @@
         "tests/test_hidden_build.py"
       ],
       "constraints": {
-        "forbidden_paths": ["tests/*"],
+        "forbidden_paths": [
+          "tests/*"
+        ],
         "max_changed_files": 7,
         "allow_new_dependencies": false,
         "require_tests_run_before_finish": true
@@ -136,7 +167,13 @@
       "max_steps": 45,
       "timeout_seconds": 700,
       "difficulty": "hard",
-      "tags": ["long-horizon", "build", "packaging", "cli", "toolchain"],
+      "tags": [
+        "long-horizon",
+        "build",
+        "packaging",
+        "cli",
+        "toolchain"
+      ],
       "horizon": "long",
       "expected_steps": 12,
       "expected_tool_calls": 25,

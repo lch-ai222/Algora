@@ -1,5 +1,12 @@
 """Failure-mode detectors: signals the pass/fail oracle cannot see."""
 
+from codeagent_eval.detectors.context_amnesia import (
+    CHECKERS,
+    AmnesiaReport,
+    UnknownChecker,
+    detect_context_amnesia,
+    edits_from_trace,
+)
 from codeagent_eval.detectors.instruction_drift import (
     ConstraintBreach,
     DriftReport,
@@ -14,12 +21,17 @@ from codeagent_eval.detectors.reward_hacking import (
 )
 
 __all__ = [
+    "CHECKERS",
+    "AmnesiaReport",
     "ConstraintBreach",
     "DriftReport",
     "Evidence",
     "RewardHackReport",
     "Signal",
+    "UnknownChecker",
+    "detect_context_amnesia",
     "detect_instruction_drift",
     "detect_reward_hacking",
+    "edits_from_trace",
     "parse_unified_diff",
 ]

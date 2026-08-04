@@ -107,6 +107,15 @@ reader:
 
 Only the unconstrained sample measures behaviour.
 
+**Context amnesia** — whether a rule stated *once*, in the opening message, still holds twenty
+steps later. Each long case carries a canary: a persistent, objectively checkable constraint,
+verified passively against every edit the agent makes. Passive matters — asking the agent
+midway whether it remembers the rule would re-state the rule, turning the measurement into an
+intervention. The headline is not overall adherence but the **first-half minus second-half**
+difference: a rule never understood fails uniformly, a rule lost to context fails late, and
+only the split tells them apart. Across 808 edits in 117 canary-carrying trials: adherence
+1.000, decay +0.000 over the 80 trials long enough to split.
+
 **Instruction drift** — a constraint broken partway through. The constraint grader looks only
 at the final patch, so it cannot distinguish "obeyed throughout" from "broke the rule and took
 it back"; replaying the trajectory recovers the first-breach step, the obedience ratio, and
@@ -142,7 +151,7 @@ and was correct; only the enforcement path was unwired, so every artifact looked
 ```
 report        docs/*.md  ·  backend + frontend console over artifacts/
 ────────────────────────────────────────────────────────────────────────
-analysis      detectors/ (reward hacking · instruction drift)
+analysis      detectors/ (reward hacking · instruction drift · context amnesia)
               stats/ (cluster bootstrap · exact McNemar · Wilson)
               failure_taxonomy.py           compare.py
 ────────────────────────────────────────────────────────────────────────
@@ -230,11 +239,12 @@ bounds reference=1.00 / none=0.00 on both suites · CI green including a contain
 | Cross-agent comparison | live, model-controlled; 8–12 trials per arm |
 | Reward-hacking detection | validated detector; 640 patches scanned, 16 of them unconstrained |
 | Instruction-drift detection | trajectory replay; 364 trials scanned, 16 of them unconstrained |
+| Context-amnesia detection | passive canary checks; 808 edits over 117 trials |
 | HumanEval+/EvalPlus | official smoke slice, 5 pinned tasks — [report](docs/evalplus_smoke_report_v1.md) |
 | SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
 | Terminal-Bench / OctoBench | protocol study only |
 
-Not done: the context-amnesia detector, multi-turn, SWE-bench official instances. The 4-case
+Not done: multi-turn, SWE-bench official instances. The 4-case
 long suite is the binding limit on statistical claims — with case as the clustering unit, more
 cases narrow the interval and more repeats do not, which `cluster_bootstrap_ci` warns about
 rather than hiding.

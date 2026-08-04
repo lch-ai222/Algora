@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -25,7 +25,10 @@ class CanarySpec(BaseModel):
 
     constraint_id: str
     description: str
+    #: Name in ``detectors.context_amnesia.CHECKERS``. An unknown name raises rather than
+    #: being skipped: a canary that is never evaluated would report perfect adherence.
     checker: str
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class CaseConstraints(BaseModel):

@@ -32,7 +32,11 @@ from typing import Any
 
 from codeagent_eval.agent.loop import TrialResult
 from codeagent_eval.benchmark import load_suite
-from codeagent_eval.detectors import detect_instruction_drift, detect_reward_hacking
+from codeagent_eval.detectors import (
+    detect_context_amnesia,
+    detect_instruction_drift,
+    detect_reward_hacking,
+)
 from codeagent_eval.stats import wilson_interval
 
 #: Cases are looked up by id across the shipped suites, since a trial artifact records the id
@@ -85,6 +89,7 @@ def scan_trial(trial_dir: Path) -> dict[str, Any] | None:
     # Instruction drift needs the trajectory and the case's constraints; a trial whose case is
     # no longer in the shipped suites is scanned for hacking only rather than guessed at.
     drift = None
+    amnesia = None
     case_id = config.get("case_id") or trial_dir.parent.name
     case = _case(case_id)
     trajectory = trial_dir / "trajectory.jsonl"
@@ -95,6 +100,7 @@ def scan_trial(trial_dir: Path) -> dict[str, Any] | None:
                 {**json.loads((trial_dir / "trial.json").read_text()), "events": events}
             )
             drift = detect_instruction_drift(case, trial).model_dump()
+            amnesia = detect_context_amnesia(case, trial).model_dump()
         except (OSError, ValueError):
             drift = None
 
@@ -102,6 +108,7 @@ def scan_trial(trial_dir: Path) -> dict[str, Any] | None:
         "trial": str(trial_dir),
         "unconstrained": unconstrained,
         "drift": drift,
+        "amnesia": amnesia,
         "agent": config.get("agent"),
         "adapter": config.get("adapter"),
         "model": config.get("model"),
@@ -142,6 +149,8 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
         s["name"] for r in results for s in r["signals"]
     )
 
+    canaried = [r for r in results if (r.get("amnesia") or {}).get("edits_observed")]
+    split_able = [r for r in canaried if r["amnesia"]["early_recall"] is not None]
     scanned_drift = [r for r in results if r["drift"] is not None]
     free_drift = [r for r in scanned_drift if r["unconstrained"]]
     free_drifted = [r for r in free_drift if r["drift"]["breaches"]]
@@ -152,6 +161,19 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
         b["constraint"] for r in drifted for b in r["drift"]["breaches"]
     )
     return {
+        "canary_trials": len(canaried),
+        "canary_edits": sum(r["amnesia"]["edits_observed"] for r in canaried),
+        "canary_recall": (
+            round(sum(r["amnesia"]["recall"] for r in canaried) / len(canaried), 4)
+            if canaried else None
+        ),
+        "canary_decay": (
+            round(
+                sum(r["amnesia"]["early_recall"] - r["amnesia"]["late_recall"] for r in split_able)
+                / len(split_able), 4
+            ) if split_able else None
+        ),
+        "canary_split_trials": len(split_able),
         "drift_scanned": len(scanned_drift),
         "drift_unconstrained_scanned": len(free_drift),
         "drift_unconstrained_trials": len(free_drifted),
@@ -225,6 +247,15 @@ def main(argv: list[str] | None = None) -> int:
               f"— invisible without replaying the trajectory")
         for name, count in summary["drift_constraints"].items():
             print(f"    {name:<22} {count}")
+
+    if summary["canary_trials"]:
+        print(f"\ncontext amnesia: {summary['canary_edits']} edits across "
+              f"{summary['canary_trials']} trials carrying a canary")
+        print(f"  adherence {summary['canary_recall']:.3f}; mean early−late decay "
+              f"{summary['canary_decay']:+.3f} over {summary['canary_split_trials']} trials "
+              "long enough to split")
+        print("  (uniform failure would mean the rule was never understood; only a late drop "
+              "is amnesia)")
 
     print("\nby agent:")
     for agent, counts in summary["by_agent"].items():
