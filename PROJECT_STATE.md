@@ -173,7 +173,7 @@ DeepSeek，V2 harness，短程 2 case × 1 repeat，workers=2，费率表 `2026-
 
 缓存计价的实际影响：某 trial 的 13,365 prompt tokens 中 11,904 为缓存命中（89%）。按 cached 费率计为 **$0.000414**；若不分档会算成 **$0.002047**，**高估 4.94×**。这是"缓存分档计价不是可选项"的实测依据。
 
-### V3 H2 检验：模型阶梯**没有**恢复区分度（2026-08-04）
+### V3 H2 检验：模型阶梯只在最弱档产生区分度，且远弱于预算（2026-08-04）
 
 短程 suite（9 case），V2 harness，`max_steps=20`：
 
@@ -182,9 +182,13 @@ DeepSeek，V2 harness，短程 2 case × 1 repeat，workers=2，费率表 `2026-
 | DeepSeek v4-flash | 1.00 | 1.00 | 2/2 | 7.0 |
 | DeepSeek v4-pro | 1.00 | 1.00 | 2/2 | 8.0 |
 | **GLM-4.5-air** | **1.00** | **1.00** | **45/45** | 8.8 – 14.6 |
-| GLM-4.7-flash（免费档） | 见下 | | | |
+| **GLM-4.7-flash**（免费档） | **0.84** | **0.84** | 41/45（4 infra） | 6.4 – 16.2 |
 
-**H2 被证伪。** 原假设是"弱模型恢复区分度"；实测是**这个 suite 在很宽的能力带上全部饱和**——DeepSeek 两档 + GLM-4.5-air 都是每 case pass^k=1。只有最弱的免费档才出现零星失败。
+**H2 部分成立，但比预测弱得多。** 原假设是弱模型把成功率拉到 0.35–0.70；实测最弱档是 **0.84**，且只有这一档有效——GLM-4.5-air 与 DeepSeek 两档全部 1.00、每 case pass^k=1。
+
+弱档的逐 case 分布才是有信息量的部分：4 个 case 满分，`spec-place-order` 掉到 **0.40**、`regtrap-bundle-tier` 0.60、`cart-merge` 0.75、`pricing-tax` 0.80，且这 4 个 case 的 **pass^k=0**（不可靠）。失败模式以 **REPEATED_ACTION（4 次）** 为主——把被拦截或失败的同一动作逐字重复直到守卫截停，其余为 PLANNING / TASK_UNDERSTANDING / TIMEOUT 各 1。
+
+**与预算收紧对比：模型阶梯的区分度（1.00 → 0.84，差 0.16）远小于预算收紧（0.93 → 0.07，差 0.85）。** 换模型不如收预算。
 
 更重要的是这条结论指向 benchmark 本身而不是模型：**难度天花板太低**。而且 `mini_store_long` 在 V2+DeepSeek 下也是 1.00（n=1），所以长程 suite 同样饱和 —— 这直接威胁 H3（V2→V3 compaction 消融）的可测性。
 
@@ -242,7 +246,7 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 - **统计功效有限**：当前私有集共 13 case，长程正式校准仅 n=1/case，不能把 1.00 外推成稳定能力；横向对比仍需 repeats 与区间。
 - **覆盖范围有限**：仍只有 Python 小仓库；虽已补 API refactor 与 build/CLI，但 review/test-generation/performance/security/multi-turn 与多语言仍缺。
 - **ClaudeCodeAdapter 未 live 验证**：本机无 `claude` CLI，stream-json 记录结构与 flag 集按官方文档实现 + 容错解析，测试以 CLI stand-in 驱动。**接触真实 CLI 后必须先 probe + 单 case 冒烟核对 schema/flag，再产出任何横向数据**；在此之前不得声称已具备横向评测结果。
-- **两个 suite 都饱和（最严重的评测有效性问题）**：短程对 DeepSeek 两档与 GLM-4.5-air 全部 1.00；长程对 V2+DeepSeek 也是 1.00（n=1）。**H2 已证伪**，且 H3（compaction 消融）面临同样风险。优先级最高的补救是把**预算变成实验变量**（max_steps / context budget / wall-clock），其次才是加难 case。
+- **默认预算下两个 suite 近乎饱和**：短程对 DeepSeek 两档与 GLM-4.5-air 全部 1.00，只有最弱的免费档到 0.84；长程对 V2+DeepSeek 也是 1.00（n=1）。**H2 只在最弱档成立且效应很小**；H3（compaction 消融）若在默认预算下做会面临同样风险。优先级最高的补救是把**预算变成实验变量**（max_steps / context budget / wall-clock），其次才是加难 case。
 - **GLM 免费档限流严重**：`glm-4.7-flash` 在 workers=4 下 44/45 触发 429；串行可跑但约 78s/trial。付费档（glm-4.5-air）workers=3 下 infra=0。并行度必须按档位分别设定。
 - **GLM 成本需汇率**：`usd_per_cny` 为 null，GLM 成本按设计报 `unavailable`。填一个带出处和日期的汇率即可启用；汇率每日变动，属于操作者选择而非可以内置的常量。
 - **分档计价是上界**：GLM 4.7 / 4.5-Air 的成本估算标记 `upper_bound`，不是点估计。要精确需按每次调用的输入/输出长度分桶。
