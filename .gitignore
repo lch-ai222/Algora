@@ -13,6 +13,9 @@ __pycache__/
 
 # Runtime artifacts (traces, patches, logs, sqlite)
 artifacts/runs/
+# Staging area for external-agent native trajectories; the runner relocates them into the
+# trial directory, so anything left here is from direct adapter use.
+artifacts/native_trajectories/
 *.sqlite3
 
 # Frontend

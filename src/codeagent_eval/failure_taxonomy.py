@@ -43,9 +43,28 @@ class FailureAttribution(BaseModel):
     tags: list[FailureTag] = []
 
 
+#: Native MiniAgent stop reasons expressed in the framework-independent vocabulary. Used only
+#: when an older artifact carries no ``canonical_stop_reason``, so historical runs re-attribute
+#: identically to when they were produced.
+_NATIVE_TO_CANONICAL = {
+    "final": "final",
+    "timeout": "budget_time",
+    "max_steps": "budget_steps",
+    "provider_error": "error",
+    "repeated_action": "blocked",
+}
+
+
+def canonical_stop_reason(trial: TrialResult) -> str:
+    """The trial's stop semantics, independent of which framework produced it."""
+    if trial.canonical_stop_reason:
+        return trial.canonical_stop_reason
+    return _NATIVE_TO_CANONICAL.get(trial.stop_reason, "error")
+
+
 def _last_observed_test_failed(trial: TrialResult) -> bool:
     """Whether the final test result visible to an otherwise-finished agent was failing."""
-    if trial.stop_reason != "final":
+    if canonical_stop_reason(trial) != "final":
         return False
     test_events = [ev for ev in trial.events if ev.type == TraceEventType.TEST_RESULT]
     if not test_events:
@@ -62,19 +81,20 @@ def attribute_failure(case: EvalCase, trial: TrialResult, grade: GradeResult) ->
         return FailureAttribution(case_id=case.case_id, failed=False)
 
     tags: list[FailureTag] = []
+    stop = canonical_stop_reason(trial)
 
-    # A provider failure happens before the Agent can meaningfully retrieve or edit code. Do not
+    # An execution failure happens before the Agent can meaningfully retrieve or edit code. Do not
     # append downstream capability tags such as EDIT/CODE_RETRIEVAL; they would misstate cause.
-    if trial.stop_reason == "provider_error":
-        tag = FailureTag(tag=ENVIRONMENT, reason="LLM provider call failed")
+    if stop == "error":
+        tag = FailureTag(tag=ENVIRONMENT, reason=f"agent execution failed ({trial.stop_reason})")
         return FailureAttribution(case_id=case.case_id, failed=True, primary=tag.tag, tags=[tag])
 
     # Terminal/mechanical causes first.
-    if trial.stop_reason == "timeout":
+    if stop == "budget_time":
         tags.append(FailureTag(tag=TIMEOUT, reason="trial exceeded the wall-clock budget"))
-    if trial.stop_reason == "repeated_action":
+    if stop == "blocked":
         tags.append(FailureTag(tag=REPEATED_ACTION, reason="same action repeated past the guard limit"))
-    if trial.stop_reason == "max_steps":
+    if stop == "budget_steps":
         tags.append(FailureTag(tag=PLANNING, reason="ran out of steps before finishing"))
 
     # Compliance / tampering.

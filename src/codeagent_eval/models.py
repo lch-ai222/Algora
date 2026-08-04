@@ -86,6 +86,10 @@ class TraceEventType(StrEnum):
     TEST_RESULT = "test_result"
     ERROR = "error"
     FINAL_ANSWER = "final_answer"
+    # Emitted by frameworks that expose an explicit task plan (Claude Code's TodoWrite, and the
+    # MiniAgent planner landing in W1-4). Normalizing it to TOOL_RESULT would silently discard
+    # the only signal the plan-adherence metric can be computed from.
+    PLAN_UPDATE = "plan_update"
 
 
 class TraceEvent(BaseModel):

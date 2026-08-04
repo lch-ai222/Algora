@@ -113,6 +113,7 @@ class AgentRunResult(BaseModel):
         }
         return TrialResult(
             stop_reason=self.native_stop_reason or fallback[self.stop_reason],
+            canonical_stop_reason=self.stop_reason,
             steps=self.steps,
             tool_call_count=self.tool_call_count,
             final_message=self.final_message,

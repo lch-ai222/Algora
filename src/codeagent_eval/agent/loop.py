@@ -37,6 +37,10 @@ class AgentConfig:
 
 class TrialResult(BaseModel):
     stop_reason: str  # final | max_steps | timeout | provider_error | repeated_action
+    # Framework-independent stop semantics, set by adapters. The MiniAgent's own vocabulary
+    # doubles as the taxonomy's, but an external agent's native reasons ("error_max_turns")
+    # do not, so attribution reads this field instead of pattern-matching native strings.
+    canonical_stop_reason: str | None = None
     steps: int = 0
     tool_call_count: int = 0
     final_message: str | None = None

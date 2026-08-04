@@ -8,17 +8,36 @@ from codeagent_eval.adapters.base import (
     ProbeResult,
     UnsupportedCapability,
 )
+from codeagent_eval.adapters.claude_code import (
+    ClaudeCodeAdapter,
+    ClaudeCodeConfig,
+    parse_stream_json,
+)
 from codeagent_eval.adapters.mini_agent import MiniAgentAdapter
-from codeagent_eval.adapters.registry import ADAPTER_NAMES, create_adapter
+from codeagent_eval.adapters.normalize import (
+    CLAUDE_CODE_SEMANTICS,
+    MINI_AGENT_SEMANTICS,
+    ToolSemantics,
+    is_test_command,
+)
+from codeagent_eval.adapters.registry import ADAPTER_NAMES, EXTERNAL_ADAPTERS, create_adapter
 
 __all__ = [
     "ADAPTER_NAMES",
+    "CLAUDE_CODE_SEMANTICS",
+    "EXTERNAL_ADAPTERS",
+    "MINI_AGENT_SEMANTICS",
     "AgentAdapter",
     "AgentRunResult",
     "BudgetContract",
     "Capability",
+    "ClaudeCodeAdapter",
+    "ClaudeCodeConfig",
     "MiniAgentAdapter",
     "ProbeResult",
+    "ToolSemantics",
     "UnsupportedCapability",
     "create_adapter",
+    "is_test_command",
+    "parse_stream_json",
 ]

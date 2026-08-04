@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
 import statistics
 import sys
 import tempfile
@@ -25,7 +26,14 @@ from pathlib import Path
 from typing import Any
 
 from codeagent_eval import __version__
-from codeagent_eval.adapters import ADAPTER_NAMES, AgentRunResult, BudgetContract, create_adapter
+from codeagent_eval.adapters import (
+    ADAPTER_NAMES,
+    EXTERNAL_ADAPTERS,
+    AgentRunResult,
+    BudgetContract,
+    ClaudeCodeConfig,
+    create_adapter,
+)
 from codeagent_eval.agent.loop import AgentConfig, TrialResult
 from codeagent_eval.benchmark import (
     EvalCase,
@@ -34,7 +42,11 @@ from codeagent_eval.benchmark import (
     load_suite,
     materialize_case,
 )
-from codeagent_eval.failure_taxonomy import FailureAttribution, attribute_failure
+from codeagent_eval.failure_taxonomy import (
+    FailureAttribution,
+    attribute_failure,
+    canonical_stop_reason,
+)
 from codeagent_eval.graders import combine, grade_constraints, grade_patch, grade_tests
 from codeagent_eval.graders.pytest_run import run_pytest
 from codeagent_eval.graders.result import GradeResult
@@ -59,12 +71,14 @@ def _run_adapter_trial(
     *,
     adapter_name: str = "mini_agent",
     max_completion_tokens: int = 2048,
+    adapter_config=None,
 ) -> tuple[TrialResult, AgentRunResult]:
     adapter = create_adapter(
         adapter_name,
         provider=provider,
         harness=task_harness(task),
         max_completion_tokens=max_completion_tokens,
+        config=adapter_config,
     )
     probe = adapter.probe()
     if not probe.available:
@@ -87,14 +101,43 @@ def task_harness(task: AgentTask) -> str:
 
 
 def _resolve_agent_kind(agent: str | None, adapter: str | None, harness: str) -> str:
+    """The agent label used for artifacts and aggregation.
+
+    ``mini_agent`` folds into the V1/V2 harness axis (the harness *is* the system under test);
+    an external adapter is its own system, so its name becomes the label directly.
+    """
     if adapter and agent:
         raise ValueError("--adapter and legacy --agent are mutually exclusive")
+    if adapter in EXTERNAL_ADAPTERS:
+        return adapter
     return harness if adapter else (agent or "v1")
 
 
-def _run_config(kind: str, provider, max_completion_tokens: int = 2048) -> dict[str, Any]:
+def _run_config(
+    kind: str,
+    provider,
+    max_completion_tokens: int = 2048,
+    *,
+    adapter_config=None,
+    adapter_result: AgentRunResult | None = None,
+) -> dict[str, Any]:
     """Provenance recorded on every trial + experiment: model / provider / temperature / sampling.
     Reference/none are deterministic (no model), so those fields are null."""
+    if kind in EXTERNAL_ADAPTERS:
+        manifest = adapter_result.env_manifest if adapter_result else {}
+        return {
+            "adapter": kind,
+            "adapter_version": adapter_result.adapter_version if adapter_result else None,
+            "harness": None,
+            # An external framework owns its own model client; the OpenAI-compatible provider
+            # used by V1/V2 is not in the loop, and saying otherwise would make a cross-agent
+            # comparison look controlled when it is not.
+            "provider": "external_cli",
+            "model": manifest.get("model_reported") or getattr(adapter_config, "model", None),
+            "temperature": None,
+            "complexity": None,
+            "max_tokens": None,
+        }
     if kind in ("v1", "v2") and provider is not None:
         cfg = _agent_config(kind)
         return {
@@ -161,6 +204,7 @@ def run_trial(
     out_dir: Path,
     repeat: int,
     max_completion_tokens: int = 2048,
+    adapter_config=None,
 ) -> tuple[GradeResult, TrialResult, FailureAttribution]:
     repo = materialize_case(suite_dir, clean_repo, case, build_root=build_root)
     try:
@@ -185,6 +229,15 @@ def run_trial(
                     provider,
                     max_completion_tokens=max_completion_tokens,
                 )
+            elif kind in EXTERNAL_ADAPTERS:
+                trial, adapter_result = _run_adapter_trial(
+                    task,
+                    sb,
+                    case,
+                    None,
+                    adapter_name=kind,
+                    adapter_config=adapter_config,
+                )
             elif kind == "reference":
                 trial = _run_reference_trial(sb, suite_dir, clean_repo, case)
             else:  # none
@@ -207,7 +260,13 @@ def run_trial(
                 "agent": kind,
                 "case_id": case.case_id,
                 "task_type": case.task_type,
-                **_run_config(kind, provider, max_completion_tokens),
+                **_run_config(
+                    kind,
+                    provider,
+                    max_completion_tokens,
+                    adapter_config=adapter_config,
+                    adapter_result=adapter_result,
+                ),
                 "max_steps": case.max_steps,       # step budget
                 "timeout_seconds": case.timeout_seconds,  # wall-clock budget
                 "repeat": repeat,
@@ -224,8 +283,6 @@ def run_trial(
             )
             return grade, trial, attribution
     finally:
-        import shutil
-
         shutil.rmtree(repo, ignore_errors=True)
 
 
@@ -247,7 +304,29 @@ def _persist_trial(
     (trial_dir / "grader-results.json").write_text(grade.model_dump_json(indent=2))
     (trial_dir / "failure-tags.json").write_text(attribution.model_dump_json(indent=2))
     if adapter_result is not None:
+        adapter_result = _relocate_native_trajectory(adapter_result, trial_dir)
         (trial_dir / "agent-result.json").write_text(adapter_result.model_dump_json(indent=2))
+
+
+def _relocate_native_trajectory(result: AgentRunResult, trial_dir: Path) -> AgentRunResult:
+    """Move an external agent's raw trajectory next to the trial it belongs to.
+
+    A trial directory has to be self-contained: it is the unit that gets archived, diffed and
+    turned into a reproduction bundle, and a pointer into a shared staging directory breaks the
+    moment that directory is cleaned or the run is copied to another machine.
+    """
+    source = Path(result.native_trajectory_path) if result.native_trajectory_path else None
+    if source is None or not source.exists():
+        return result
+
+    native_dir = trial_dir / "native"
+    native_dir.mkdir(parents=True, exist_ok=True)
+    destination = native_dir / source.name
+    shutil.move(str(source), destination)
+    for companion in source.parent.glob(f"{source.stem}.*"):
+        if companion.is_file():
+            shutil.move(str(companion), native_dir / companion.name)
+    return result.model_copy(update={"native_trajectory_path": str(destination)})
 
 
 # --------------------------------------------------------------------------- #
@@ -310,11 +389,19 @@ def _aggregate_case(
 
 def _is_infra_invalid(trial: TrialResult) -> bool:
     """Provider/adapter execution failures are invalid trials, not zero-capability evidence."""
-    return trial.stop_reason == "provider_error" or bool(trial.completion_checks.get("provider_error"))
+    return canonical_stop_reason(trial) == "error" or bool(trial.completion_checks.get("provider_error"))
 
 
 def _format_rate(value: float | None) -> str:
     return "n/a" if value is None else str(value)
+
+
+def _summary_adapter_name(kind: str) -> str:
+    if kind in ("v1", "v2"):
+        return "mini_agent"
+    if kind in EXTERNAL_ADAPTERS:
+        return kind
+    return f"builtin_{kind}"
 
 
 def run_experiment(
@@ -325,6 +412,7 @@ def run_experiment(
     case_filter: list[str] | None,
     out_root: Path,
     max_completion_tokens: int = 2048,
+    adapter_config=None,
 ) -> dict[str, Any]:
     suite = load_suite(suite_dir)
     clean_repo = suite.repo
@@ -349,6 +437,7 @@ def run_experiment(
                 out_dir,
                 r,
                 max_completion_tokens,
+                adapter_config=adapter_config,
             )
             grades.append(grade)
             trials.append(trial)
@@ -359,8 +448,6 @@ def run_experiment(
         print(f"  {case.case_id}: task={_format_rate(agg['task_success_rate'])} "
               f"strict={_format_rate(agg['strict_success_rate'])} "
               f"(pass@k={agg['pass_at_k']} pass^k={agg['pass_pow_k']}, tools≈{agg['tool_calls_mean']})")
-
-    import shutil
 
     shutil.rmtree(build_root, ignore_errors=True)
 
@@ -386,13 +473,15 @@ def run_experiment(
     summary = {
         "experiment_id": experiment_id,
         "agent": kind,
-        "adapter": "mini_agent" if kind in ("v1", "v2") else f"builtin_{kind}",
+        "adapter": _summary_adapter_name(kind),
         "harness": kind if kind in ("v1", "v2") else None,
         "suite": suite.name,
         "repeats": repeats,
         # Run provenance — constant across the experiment, so a V1/V2 comparison is only valid
         # when these match (same model / provider / temperature / sampling).
-        "run_config": _run_config(kind, provider, max_completion_tokens),
+        "run_config": _run_config(
+            kind, provider, max_completion_tokens, adapter_config=adapter_config
+        ),
         "cases": per_case,
         "total_trials": total_trials,
         "valid_trials": valid_trials,
@@ -452,12 +541,46 @@ def main(argv: list[str] | None = None) -> int:
         default=2048,
         help="per-model-turn output-token cap for MiniAgent (default preserves V1/V2 history)",
     )
+    claude = parser.add_argument_group("claude_code adapter")
+    claude.add_argument("--claude-cli", default="claude", help="path to the claude executable")
+    claude.add_argument("--claude-model", default=None, help="--model passed to the CLI")
+    claude.add_argument("--claude-permission-mode", default="bypassPermissions")
+    claude.add_argument(
+        "--claude-extra-arg",
+        action="append",
+        default=[],
+        metavar="ARG",
+        help="extra CLI flag, repeatable (verify against the installed version first)",
+    )
+    claude.add_argument(
+        "--claude-use-operator-config",
+        action="store_true",
+        help="read the operator's real ~/.claude instead of an isolated per-trial config; "
+             "needed for OAuth auth but makes the run non-reproducible elsewhere",
+    )
     args = parser.parse_args(argv)
 
     try:
         kind = _resolve_agent_kind(args.agent, args.adapter, args.harness)
     except ValueError as exc:
         parser.error(str(exc))
+
+    adapter_config = None
+    if kind == "claude_code":
+        adapter_config = ClaudeCodeConfig(
+            cli_path=args.claude_cli,
+            model=args.claude_model,
+            permission_mode=args.claude_permission_mode,
+            extra_args=tuple(args.claude_extra_arg),
+            isolate_config=not args.claude_use_operator_config,
+        )
+        # Fail before the first trial: an unavailable binary must not burn a whole experiment's
+        # worth of materialization and grading only to raise on every case.
+        probe = create_adapter(kind, config=adapter_config).probe()
+        if not probe.available:
+            print(f"ERROR: adapter={kind} unavailable. {probe.detail}", file=sys.stderr)
+            return 2
+        print(f"adapter={kind} version={probe.version}")
 
     provider = None
     if kind in ("v1", "v2"):
@@ -481,6 +604,7 @@ def main(argv: list[str] | None = None) -> int:
         args.cases,
         Path(args.out),
         args.max_completion_tokens,
+        adapter_config=adapter_config,
     )
     return _experiment_exit_code(summary)
 
