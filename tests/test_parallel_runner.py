@@ -162,6 +162,27 @@ def test_a_partially_written_trial_is_never_adopted(tmp_path, removed):
 
 
 @pytest.mark.slow
+def test_resume_reruns_infra_invalid_trials_instead_of_adopting_them(tmp_path):
+    """Found while running the GLM ladder: a provider rate limit marks trials infra-invalid,
+    and those directories are complete on disk. Adopting them would freeze a transient outage
+    into the experiment's results, so resume must treat them as work still to do."""
+    summary = run(tmp_path / "out", cases=[CASES[0]])
+    out_dir = tmp_path / "out" / summary["experiment_id"]
+    target = trial_dir(out_dir, CASES[0], 0)
+
+    payload = json.loads((target / "trial.json").read_text())
+    payload["canonical_stop_reason"] = "error"
+    payload["completion_checks"]["provider_error"] = True
+    (target / "trial.json").write_text(json.dumps(payload))
+
+    assert load_completed_trial(target) is None
+
+    resumed = run(tmp_path / "out", cases=[CASES[0]], resume=summary["experiment_id"])
+    assert resumed["resumed_trials"] == 0, "the rate-limited trial must be attempted again"
+    assert resumed["infra_failures"] == 0, "and it succeeds once the provider recovers"
+
+
+@pytest.mark.slow
 def test_an_unknown_schema_version_forces_a_rerun(tmp_path):
     summary = run(tmp_path / "out")
     out_dir = tmp_path / "out" / summary["experiment_id"]

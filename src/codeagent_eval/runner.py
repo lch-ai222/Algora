@@ -366,9 +366,16 @@ def load_completed_trial(
             for line in (trial_dir / "trajectory.jsonl").read_text().splitlines()
             if line.strip()
         ]
-        return grade, TrialResult.model_validate(payload), attribution
+        trial = TrialResult.model_validate(payload)
     except (OSError, ValueError):
         return None
+
+    if _is_infra_invalid(trial):
+        # An infra-invalid trial recorded that no evidence was collected — a rate limit, a
+        # dead worker, an unreachable provider. Adopting it on resume would freeze a
+        # transient outage into the experiment's results, so it is re-run instead.
+        return None
+    return grade, trial, attribution
 
 
 def _relocate_native_trajectory(result: AgentRunResult, trial_dir: Path) -> AgentRunResult:

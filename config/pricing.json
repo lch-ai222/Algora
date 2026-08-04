@@ -19,6 +19,10 @@
     "2026-08-04: deepseek-chat AND deepseek-reasoner both resolve to deepseek-v4-flash, so",
     "deepseek-reasoner is NOT the pro model despite its name.",
     "",
+    "GLM model-name strings were verified against the live API on 2026-08-04: each request",
+    "returns the same name it asked for, so no aliases are needed on that side. glm-4.6 still",
+    "answers but is off the published price list, so it correctly reports unavailable.",
+    "",
     "CNY-priced models need the top-level usd_per_cny. Without it they report unavailable: no",
     "exchange rate is ever assumed."
   ],
@@ -58,7 +62,7 @@
       "completion_per_1k": 0.028,
       "source": "https://open.bigmodel.cn/pricing",
       "as_of": "2026-08-04",
-      "note": "Flagship, 1M context. Published as 8 / 2 / 28 CNY per 1M. Cache storage is free for a limited period. Model-name string unverified: no ZHIPU_API_KEY available to probe /models."
+      "note": "Flagship, 1M context. Published as 8 / 2 / 28 CNY per 1M. Cache storage is free for a limited period. Cross-checked against an independent per-call quote: 10k in + 2k out = 0.136 CNY, matching exactly."
     },
     {
       "provider": "zhipu",
