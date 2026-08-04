@@ -237,6 +237,58 @@
           ]
         }
       }
+    },
+    {
+      "case_id": "long-tax-single-source",
+      "task_type": "refactor",
+      "instruction": "The sales tax rate is written down in more than one place in mini_store, and the copies have drifted: an Order records a different rate from the one pricing charges, so refunds computed from an order disagree with the tax that was collected. Give the rate a single definition and make every reader — pricing, the Order record, and the CLI default — read that one definition, so changing it in one place changes it everywhere. Eleven modules read the rate as mini_store.pricing.DEFAULT_TAX_RATE; that import must keep working. Respect the package's existing import structure. Keep the rate at 8%. Do not edit tests or add dependencies. Run the focused failing tests, then the complete suite, and inspect git diff before finishing.",
+      "visible_tests": [
+        "tests/test_tax_rate_source.py",
+        "tests/test_returns_contracts.py"
+      ],
+      "regression_tests": [
+        "tests/test_pricing.py",
+        "tests/test_pricing_migration.py",
+        "tests/test_orders.py",
+        "tests/test_cli.py",
+        "tests/test_returns_workflow.py"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_tax_rate.py"
+      ],
+      "constraints": {
+        "forbidden_paths": [
+          "tests/*"
+        ],
+        "max_changed_files": 3,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": true
+      },
+      "max_steps": 40,
+      "timeout_seconds": 600,
+      "difficulty": "hard",
+      "tags": [
+        "long-horizon",
+        "refactor",
+        "single-source-of-truth",
+        "import-cycle",
+        "multi-file"
+      ],
+      "horizon": "long",
+      "expected_steps": 12,
+      "expected_tool_calls": 25,
+      "canary": {
+        "constraint_id": "tax-rate-consolidation-scope",
+        "description": "The rate is defined once in mini_store/models.py; confine the change to mini_store/models.py, mini_store/pricing.py and mini_store/cli.py.",
+        "checker": "allowed_files",
+        "params": {
+          "allowed": [
+            "mini_store/models.py",
+            "mini_store/pricing.py",
+            "mini_store/cli.py"
+          ]
+        }
+      }
     }
   ]
 }

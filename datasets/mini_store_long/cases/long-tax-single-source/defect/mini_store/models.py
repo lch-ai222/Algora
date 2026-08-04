@@ -4,11 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-#: The sales tax rate, as a fraction. This module owns it because it is the only one every
-#: other module may import: ``pricing`` re-exports it, so the eleven call sites that read
-#: ``pricing.DEFAULT_TAX_RATE`` keep working, and there is still exactly one literal.
-DEFAULT_TAX_RATE = 0.08
-
 
 @dataclass(frozen=True)
 class Product:
@@ -36,17 +31,17 @@ class Order:
     discount: float = 0.0
     tax: float = 0.0
     total: float = 0.0
-    tax_rate: float = DEFAULT_TAX_RATE
+    tax_rate: float = 0.07
 
 
-@dataclass
+@dataclass(frozen=True)
 class ReturnItem:
     sku: str
     quantity: int
     net_refund: float
 
 
-@dataclass
+@dataclass(frozen=True)
 class ReturnReceipt:
     order_id: str
     items: tuple[ReturnItem, ...]

@@ -832,6 +832,18 @@ def run_experiment(
         raise ValueError("workers must be >= 1")
     suite = load_suite(suite_dir)
     cases = [c for c in suite.cases if not case_filter or c.case_id in case_filter]
+    if case_filter:
+        # A filter that selects nothing used to produce an empty experiment that exited
+        # successfully and reported "task=n/a" — a mistyped or comma-joined case id looked
+        # exactly like a run with nothing to do. Name the ids that did not match instead.
+        unknown = sorted(set(case_filter) - {c.case_id for c in suite.cases})
+        if unknown:
+            raise ValueError(
+                f"--cases matched no case in {suite.name!r}: {unknown}. "
+                f"Available: {sorted(c.case_id for c in suite.cases)}"
+            )
+    if not cases:
+        raise ValueError(f"suite {suite.name!r} has no cases to run")
     if kind in EXTERNAL_ADAPTERS and adapter_version is None:
         # Programmatic callers do not pass through main(), so probe here as well. The exact
         # executable version is experiment identity: resuming after a CLI upgrade would

@@ -436,6 +436,27 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 
 顺带修掉一个脆弱断言：`test_long_suite.py` 硬编码 `len(cases) == 4`，每加一条 case 就要改。改为断言最小数量 + 任务类型覆盖 + 逐 case 契约。
 
+### V3 G1 续 · 第六条长程 case 与两个测量缺陷（2026-08-05）
+
+`mini_store_long` **5 → 6 case**，新增 `long-tax-single-source`。这条走的是**同一枢纽换受损方面**的路子：`pricing` 已被 `long-refactor-pricing-api`（API 迁移）用过，但它有 13 个消费者，换一个方面级联面完全不同——**不必再补模块**，比上一条便宜得多。这修正了我上一条里"四个枢纽都用完了"的判断：真实约束是"每个枢纽每个方面只能用一次"。
+
+**case 设计**：税率在三处各写一遍且已分叉（`Order.tax_rate` 0.07 vs `pricing` 0.08），既有测试 `test_returns_contracts` 就能抓到——是真实症状不是风格检查。要求收敛到单一定义。陷阱：直觉方向 `models` 导入 `pricing` 必然循环（`pricing` 已导入 `models`），实测会导致 **10 个 collection error 全盘崩溃**。唯一可行方向是常量放无依赖的 `models`、`pricing` 再导出，11 个既有 importer 不受影响。
+
+hidden 测试直接验证"单一真源"的**定义性属性**而非它的形状：把常量在一份临时包副本里改成 0.11，子进程重新导入，问四个 reader 是否都跟着变。任何"留下第二份拷贝"的结构性重排都过不了，而可见测试看不见这一点。
+
+**实测**：DeepSeek 与 GLM-4.5-air **各 3/3 全解**，17–24 次工具调用、13–22 步。拿掉指令里"models 刻意无依赖"这句提示（那是陷阱的解法，且 `models.py` 自己的 docstring 本就写着）后重跑，仍是 6/6。
+
+**诚实结论：这条 case 在已测的两个维度上都不区分。** 但 45s 紧预算下它与 `long-discount-rounding` 表现**相反**（1.00 vs 0.00），所以不是冗余簇。
+
+#### 顺带发现并修掉的两个测量缺陷
+
+| 缺陷 | 不修的后果 |
+|---|---|
+| `selfcheck` 的"缺陷是真的"判定把 `base_target.errors` 也算通过，而它含 "pytest exited with code N" 兜底项 | 缺陷只要让包导不进去就算过关，但那些 target 测试**根本没跑**——评的变成"agent 有没有让包能 import"，不是 case 的主题。改为要求有具名测试真的失败 |
+| `--cases` 传逗号分隔串时匹配为空，跑 0 个 trial 却**成功退出**并报 `task=n/a` | 空实验与"无事可做"不可区分，落盘后做对比时会静默少一个 arm。改为报错并列出可用 id |
+
+第一个是被我自己触发的：改 `repo_src` 让 `long-crossmodule-returns` 的缺陷层拷贝陈旧（缺陷层各存一份共享文件的全量拷贝，改共享仓库会静默作废其他 case），selfcheck 的隔离性检查抓到了，但"缺陷是真的"给了假通过。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：

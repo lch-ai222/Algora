@@ -1,5 +1,4 @@
 import pytest
-
 from mini_store.coupons import Coupon, redeem
 
 

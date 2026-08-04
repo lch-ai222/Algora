@@ -6,7 +6,6 @@ as the arithmetic — and pin the fix to the primitive rather than to each calle
 """
 
 import pytest
-
 from mini_store.clearance import clearance_price
 from mini_store.coupons import Coupon, redeem
 from mini_store.discounts import percent_off

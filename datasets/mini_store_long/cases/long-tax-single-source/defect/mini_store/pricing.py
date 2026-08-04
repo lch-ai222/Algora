@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from mini_store.models import DEFAULT_TAX_RATE, CartItem
+from mini_store.models import CartItem
 
-# Re-exported, not redeclared: ``models`` owns the rate. Importing the other way round would
-# be circular, since ``models`` is the dependency-free base this module already builds on.
-__all__ = ["DEFAULT_TAX_RATE", "apply_tax", "line_total", "subtotal", "tax_amount", "taxed_total"]
+DEFAULT_TAX_RATE = 0.08  # 8% sales tax, expressed as a fraction
 
 
 def line_total(item: CartItem) -> float:

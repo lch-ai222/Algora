@@ -52,12 +52,16 @@ def check_case(suite_dir: Path, clean_repo: Path, case, build_root: Path) -> boo
         hidden_absent = all(not (sb.root / path).exists() for path in hidden_paths)
         passed &= _ok(hidden_absent, "hidden tests absent in fresh workspace")
 
+        # Named tests must actually fail. A run that only reports a non-zero exit code — a
+        # collection or import error — is not evidence the defect is real: it means the target
+        # tests never ran, so what the case claims to exercise is untested and the grader would
+        # be scoring "did the agent make the package importable" instead.
         base_target = run_pytest(sb, case.visible_tests)
-        passed &= _ok(
-            not base_target.all_passed and (base_target.failed or base_target.errors),
-            "target tests FAIL at base (defect is real)",
-            f"failed={base_target.failed + base_target.errors}",
-        )
+        if base_target.failed:
+            detail = f"failed={base_target.failed}"
+        else:
+            detail = f"no per-test failures; only {base_target.errors or ['nothing']}"
+        passed &= _ok(bool(base_target.failed), "target tests FAIL at base (defect is real)", detail)
         base_regr = run_pytest(sb, case.regression_tests)
         passed &= _ok(base_regr.all_passed, "regression tests PASS at base (defect isolated)")
 

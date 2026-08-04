@@ -334,3 +334,21 @@ def test_runs_at_different_wall_clocks_are_different_experiments(tmp_path):
             "reference", SUITE, None, 1, CASES[:1], tmp_path / "out",
             max_wall_clock_override=60, resume_experiment_id=first["experiment_id"],
         )
+
+
+@pytest.mark.parametrize(
+    "case_filter",
+    [
+        pytest.param(["bugfix-pricing-tax,bugfix-cart-merge"], id="comma-joined"),
+        pytest.param(["bugfix-pricing-tax", "no-such-case"], id="one-id-mistyped"),
+    ],
+)
+def test_a_case_filter_that_matches_nothing_is_an_error_not_an_empty_run(tmp_path, case_filter):
+    """``--cases`` takes a space-separated list, so a comma-joined argument matches nothing.
+
+    That used to produce an experiment with zero trials which exited successfully and reported
+    ``task=n/a``. An empty run is indistinguishable from a run of a suite with nothing to do,
+    and writing it to disk means a later comparison silently has one arm missing.
+    """
+    with pytest.raises(ValueError, match="matched no case"):
+        run(tmp_path / "out", cases=case_filter)

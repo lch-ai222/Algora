@@ -7,7 +7,6 @@ import json
 from collections.abc import Sequence
 
 from mini_store.diagnostics import health_report
-from mini_store.models import DEFAULT_TAX_RATE
 from mini_store.output import quote_payload
 from mini_store.version import VERSION
 
@@ -18,7 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     quote = subparsers.add_parser("quote")
     quote.add_argument("--amount", type=float, required=True)
     quote.add_argument("--items", type=int, required=True)
-    quote.add_argument("--tax-rate", type=float, default=DEFAULT_TAX_RATE)
+    quote.add_argument("--tax-rate", type=float, default=0.08)
     quote.add_argument("--json", action="store_true", dest="as_json")
     subparsers.add_parser("doctor")
     subparsers.add_parser("version")
