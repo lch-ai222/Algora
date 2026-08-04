@@ -166,7 +166,7 @@ LLM_PROVIDER=zhipu python -m codeagent_eval.runner --adapter mini_agent --harnes
 
 ## 7. 下一步
 
-1. **扩 case**：4 个聚类不足以给出可报的区间。加 case 比加 repeats 更能收窄。
-2. **补第三方开源 adapter**（aider / mini-swe-agent）：目前三个 arm 里有两个是自研，第三方样本只有 Claude Code 一个。
-3. **失败模式检测器**：本报告只能报 TIMEOUT 这类机械原因，指令偏移、上下文遗忘、测试投机三类尚无检测能力。
-4. **B3 统计**：cluster bootstrap 区间 + 配对检验，把方向性证据升级成效应量。
+1. **扩 case**：4 个聚类是区间宽度的唯一约束点。加 case 能收窄，加 repeats 不能——这是本报告最该优先解决的限制。
+2. **补第三方开源 adapter**（aider / mini-swe-agent）：三个 arm 里两个是自研，第三方样本只有 Claude Code 一个。
+3. **上下文遗忘检测器**：投机与指令偏移已有检测器并完成回扫（见 `scripts/scan_failure_modes.py`），三类失败模式只剩这一个。本报告目前只能报 TIMEOUT 这类机械原因。
+4. **补齐 Claude Code 宽松档**：待额度恢复后按修复后的预算链路重跑，把 §5.3 的证据等级拉平。
