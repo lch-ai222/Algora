@@ -10,7 +10,7 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**244 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**252 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程 + 长程两个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -279,6 +279,32 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 
 **边界（必须同时陈述）**：n=3/case、12 trial/组，0.25 的差距约等于 3 个 trial，置信区间很宽；单模型；12k 上限是照着实测峰值 14.5k 挑的，换一个上限结论可能不同。这是方向性证据，不是效应量估计。
 
+### V3.1 planner 诊断：之前的"planner 有害"是我自己的两个 harness bug（2026-08-04）
+
+从轨迹逐层挖，找到三件事，**两件是缺陷，一件是真实行为**：
+
+**缺陷 1（主因）：V3 静默丢失了 V2 的完成守卫。** loop 里写的是 `if self.config.version == "v2"`，字符串相等判断——加了 v3 之后没人改这里。于是 v3 / v3−context / v3−planner 三组都缺少 v2 有的 premature-final 纪律，**整个 H3 对比测的不只是"planner vs 无 planner"**。已改为由 `AgentConfig.for_harness()` 统一定义 harness 身份，所有构造点走同一处；直接构造仍可用于消融，但从真实定义出发。
+
+**缺陷 2：adherence 指标被 id 改名击穿。** 模型在两次修订间把全部 item id 改名（`models`→`records`、`inventory`→`restock`…）而**文本逐字不变**。tracker 按 id 匹配，改名后的项被当成全新且已完成，记为 retroactive、零遵守率。之前报的 **0.47 / 0.22 / 0.33 全是测量假象**。已改为按归一化文本匹配，并把改名次数本身作为指标上报（**12 个 trial 里 49 次改名**，是模型的真实行为）。
+
+**真实行为 3：agent 会在测试之前就把计划项标记为 done。** 观察到的失败轨迹里，4 个项在 step 26 一次性从 pending 跳到 done，而首次测试在 step 28。可见测试全过、hidden 测试才抓到原子性缺陷。新增 `plan_done_unverified` 指标 + 工具结果里回灌警告（点名哪些项在打开后没跑过测试就被标完成），并在 v3 prompt 中写明**计划是工作辅助，不是完成证据；只有测试能决定何时停止**。
+
+**修复后重跑（同配置：长程 4 case × 3 repeats，上下文上限 12k）**：
+
+| 组 | Task | Strict | 溢出 | compaction | 未验证完成 | id 改名 | 工具调用 |
+|---|---|---|---|---|---|---|---|
+| v2（两者皆无） | 0.42 | 0.42 | 9 | 0 | 0 | 0 | 23.5 |
+| **v3.1（两者皆有）** | **1.00** | 0.92 | 0 | 55 | 9 | 49 | 65.8 |
+| v3.1 − context | 0.33 | 0.33 | 10 | 0 | 4 | 0 | 22.3 |
+| v3.1 − planner | **1.00** | 0.92 | 0 | 44 | 0 | 0 | 55.9 |
+
+**修正后的结论**：
+- **planner 不是有害，是中性**：v3.1 与 v3.1−planner 的 Task/Strict 完全相同，且两组都零失败。代价是工具调用多约 18%（65.8 vs 55.9）。
+- **compaction 是全部效应**：拿掉它 1.00 → 0.33，失败几乎全是 `CONTEXT_OVERFLOW`。
+- v3.1 从 0.75 升到 1.00，提升同时来自守卫恢复与 planner 的自我认证被打断。
+
+**方法论教训**：一个消融只有在两组"除被测能力外完全相同"时才成立。这次两组差的不只是 planner，而差异来自我自己代码里的字符串相等判断——**没有轨迹级诊断就会把 harness 缺陷当成能力结论发表出去**。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：
@@ -319,8 +345,8 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **扩大 H3 的样本与条件**：repeats 提到 5、加第二个模型、扫描 2–3 档上下文上限，给出置信区间与配对检验（B3）。当前只是方向性证据。
-2. **诊断 planner 为何有害**：读 v3 的轨迹，确认是上下文占用还是计划本身误导；据此决定改进（如仅在长任务启用、或把计划放进 digest 而非消息流）还是保留为负面结论。
+1. **扩大样本与条件**：repeats 提到 5、加第二个模型、扫 2–3 档上下文上限，给出置信区间与配对检验（B3）。当前 12 trial/组仍是方向性证据。
+2. **planner 的价值需要能测出它的 case**：当前长程 suite 上它中性。规划的收益应体现在需求分解与跨模块协同上，而现有 case 的分解难度不足以让它显现——这与 H2 的结论同源（约束/难度不到位，能力差异无处显现）。
 2. **后续实验一律带预算维度**：至少 `max_steps` 取紧/松两档，否则强模型之间的差异测不出来。
 3. 长期：按 G1 路线补更难的 case（refactor / 并发 / 欠定义 spec）。预算收紧测的是约束下的效率，不能替代能不能做更难的事。
 4. 需要 GLM 的 USD 成本时，填一个带出处与日期的 `usd_per_cny`。

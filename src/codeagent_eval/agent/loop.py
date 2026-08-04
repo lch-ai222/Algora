@@ -32,9 +32,13 @@ class AgentConfig:
     complexity: str = "fast"
     temperature: float = 0.0
     max_tokens: int = 2048
-    # V2-only guards (kept off in V1 so its failure modes are real):
+    # V2 guards, inherited by every later version (kept off in V1 so its failure modes are
+    # real). Driven by flags rather than by `version == "v2"` string equality: V3 silently
+    # lost the completion gate that way, which made a V2/V3 ablation compare two harnesses
+    # that differed by more than the capability under test.
     detect_repeated_actions: bool = False
     repeated_action_limit: int = 3
+    enforce_completion_checks: bool = False
     # V3-only: offers update_plan and tracks adherence. Off elsewhere so V1/V2 keep exactly
     # the toolset their calibrated baselines were measured with.
     enable_planner: bool = False
@@ -47,6 +51,24 @@ class AgentConfig:
     #: smaller model window: without it, compaction cannot be shown to help, because nothing
     #: ever runs out of context and the feature can only cost information.
     context_ceiling_tokens: int | None = None
+
+    @classmethod
+    def for_harness(cls, version: str, *, ablate: frozenset[str] = frozenset(), **overrides):
+        """The single definition of what each harness version is.
+
+        Every construction site goes through here. Spelling the flags out per call site is how
+        V3 lost V2's completion gate: one place said `version == "v2"` and nobody noticed the
+        next version needed adding. Ablations still pass explicit flags, but they start from
+        the real definition rather than from defaults.
+        """
+        disciplined = version in ("v2", "v3")
+        defaults = {
+            "detect_repeated_actions": disciplined,
+            "enforce_completion_checks": disciplined,
+            "enable_planner": version == "v3" and "planner" not in ablate,
+            "enable_context_management": version == "v3" and "context" not in ablate,
+        }
+        return cls(version=version, **{**defaults, **overrides})
 
 
 class TrialResult(BaseModel):
@@ -90,6 +112,7 @@ class _RunState:
     files_written: list[str] = field(default_factory=list)
     commands_run: list[str] = field(default_factory=list)
     test_outcomes: list[str] = field(default_factory=list)
+    tests_run: int = 0
     #: Repo-affecting actions (edits and test runs) seen so far. Plan adherence is judged
     #: against this rather than against the agent's own claim that an item is finished.
     repo_actions: int = 0
@@ -189,7 +212,7 @@ class MiniAgent:
 
                 if not turn.tool_calls:
                     rejection_reasons = _completion_rejection_reasons(task, sandbox, state, turn)
-                    if self.config.version == "v2" and rejection_reasons:
+                    if self.config.enforce_completion_checks and rejection_reasons:
                         state.premature_final_attempts += 1
                         state.emit(
                             TraceEventType.ERROR,
@@ -235,13 +258,18 @@ class MiniAgent:
 
                     result = self.registry.dispatch(ctx, call.name, call.arguments)
                     _record_side_events(state, call.name, call.arguments, result)
-                    if call.name == "update_plan" and result.ok:
+                    warning = (
                         _record_plan(state, result)
+                        if call.name == "update_plan" and result.ok
+                        else None
+                    )
                     content = (
                         context.truncate_tool_output(call.name, result.content)
                         if context is not None
                         else result.content
                     )
+                    if warning:
+                        content += warning
                     messages.append(_tool_message(call.call_id, content))
 
                 if looped:
@@ -407,15 +435,32 @@ def _progress_digest(state: _RunState, per_section: int = 8) -> str:
     return "\n".join(lines) if lines else "- no repository actions were recorded yet"
 
 
-def _record_plan(state: _RunState, result) -> None:
-    """Fold an accepted plan revision into the tracker, timestamped by repo actions so far."""
+def _record_plan(state: _RunState, result) -> str | None:
+    """Fold an accepted plan revision into the tracker and return any warning for the model.
+
+    The warning is the whole point of V3.1: a plan is self-reported, and a trial was observed
+    marking four items done before running a single test, then finishing on the strength of
+    its own checklist while a hidden test caught what it never checked. Naming the unverified
+    completions back to the agent turns the plan from a competing completion criterion into
+    something the harness can contradict.
+    """
     items = parse_plan_items(result.data.get("plan"))
-    revision = state.planner.record(state.step, items, state.repo_actions)
+    revision = state.planner.record(state.step, items, state.repo_actions, state.tests_run)
+    unverified = state.planner.unverified_completions(items)
     state.emit(
         TraceEventType.PLAN_UPDATE,
         name=f"revision_{len(state.planner.revisions)}",
         items=[i.model_dump(mode="json") for i in revision.items],
         actions_at_revision=revision.actions_at_revision,
+        unverified_completions=unverified,
+    )
+    if not unverified:
+        return None
+    listed = "; ".join(unverified[:5])
+    return (
+        f"\n\nWARNING: {len(unverified)} item(s) are marked done but no test has run since "
+        f"they were opened: {listed}. Marking an item done is not evidence that it works. "
+        "Run the tests that cover these changes before treating them as finished."
     )
 
 
@@ -428,6 +473,7 @@ def _record_side_events(state: _RunState, name: str, args: dict[str, Any], resul
         if command.strip().startswith("pytest") or "pytest" in command:
             state.ran_tests = True
             state.repo_actions += 1
+            state.tests_run += 1
             state.last_test_exit = exit_code
             state.test_outcomes.append(f"{command} -> exit {exit_code}")
             state.emit(TraceEventType.TEST_RESULT, name=command, exit_code=exit_code, ok=result.ok)

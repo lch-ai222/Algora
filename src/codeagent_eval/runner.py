@@ -80,12 +80,7 @@ TRIAL_SCHEMA_VERSION = 1
 # One trial
 # --------------------------------------------------------------------------- #
 def _agent_config(kind: str, ablate: frozenset[str] = frozenset()) -> AgentConfig:
-    return AgentConfig(
-        version=kind,
-        detect_repeated_actions=kind in ("v2", "v3"),
-        enable_planner=kind == "v3" and "planner" not in ablate,
-        enable_context_management=kind == "v3" and "context" not in ablate,
-    )
+    return AgentConfig.for_harness(kind, ablate=ablate)
 
 
 def _run_adapter_trial(

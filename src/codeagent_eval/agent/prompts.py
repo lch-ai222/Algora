@@ -41,9 +41,12 @@ intend to take, and call it again whenever the plan changes — when a step is f
 you discover the work is different from what you assumed, or when a step turns out to be \
 unnecessary (mark it dropped rather than deleting it).
 
-Send the complete list each time; it replaces the previous plan. Mark an item done only \
-once the change it describes is actually in the repository — a plan that says done while \
-nothing was written is worse than no plan, because it hides where the work stopped."""
+Send the complete list each time; it replaces the previous plan.
+
+The plan is a working aid, never evidence that the work is correct. A finished plan is not \
+a reason to stop: rule 4 still decides that, and only tests can. Mark an item done only \
+after running the tests that cover it — a checklist of green items over an unverified \
+change is worse than no plan, because it reads like verification without being it."""
 
 _PROMPTS = {"v1": _V1, "v2": _V2, "v3": _V3}
 

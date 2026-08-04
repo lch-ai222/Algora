@@ -107,7 +107,7 @@ def test_v2_rejects_truncated_or_premature_final_and_recovers(git_repo: Path):
             *_fix_bug_script(),
         ]
     )
-    agent = MiniAgent(provider, AgentConfig(version="v2"))
+    agent = MiniAgent(provider, AgentConfig.for_harness("v2"))
     task = AgentTask(
         instruction="fix add and verify it",
         workspace_path="",

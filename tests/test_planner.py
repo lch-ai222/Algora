@@ -236,7 +236,7 @@ def _run(turns, git_repo):
         task = AgentTask(
             instruction="fix add", workspace_path=str(sandbox.root), max_steps=8, timeout_seconds=60
         )
-        agent = MiniAgent(_PlanningProvider(turns), AgentConfig(version="v3", enable_planner=True))
+        agent = MiniAgent(_PlanningProvider(turns), AgentConfig.for_harness("v3", enable_context_management=False))
         return agent.run(task, sandbox)
 
 
@@ -284,7 +284,7 @@ def test_v2_carries_no_plan_at_all(git_repo):
         )
         trial = MiniAgent(
             _PlanningProvider([LlmToolTurn(content="done", tool_calls=[])]),
-            AgentConfig(version="v2"),
+            AgentConfig.for_harness("v2"),
         ).run(task, sandbox)
 
     assert trial.plan == {}
@@ -332,3 +332,103 @@ def test_planner_is_absent_from_the_default_config():
     """V1/V2 must keep exactly the toolset their calibrated baselines were measured with."""
     assert AgentConfig().enable_planner is False
     assert AgentConfig(version="v2").enable_planner is False
+
+
+# --------------------------------------------------------------------------- #
+# V3.1: identity survives renames, and the plan cannot certify itself
+# --------------------------------------------------------------------------- #
+def test_item_identity_survives_a_model_renaming_its_ids():
+    """Observed in a real trial: every id changed between revisions (models->records,
+    inventory->restock, ...) while every text stayed byte-identical. Keying on the id made
+    those items look brand-new and already done, scoring adherence as zero for no reason."""
+    tracker = PlanTracker()
+    tracker.record(1, [PlanItem(id="models", text="Make ReturnItem frozen", status="pending")],
+                   actions_so_far=0, tests_so_far=0)
+    tracker.record(2, [PlanItem(id="records", text="Make ReturnItem frozen", status="done")],
+                   actions_so_far=3, tests_so_far=1)
+
+    stats = tracker.stats()
+    assert stats["plan_adherence"] == 1.0, "a rename is not a new item"
+    assert stats["plan_done_retroactively"] == 0
+    assert stats["plan_id_renames"] == 1, "the rename itself is worth reporting"
+
+
+def test_differing_text_really_is_a_different_item():
+    tracker = PlanTracker()
+    tracker.record(1, [PlanItem(id="a", text="fix pricing", status="pending")], 0, 0)
+    tracker.record(2, [PlanItem(id="a", text="fix inventory", status="done")], 3, 1)
+
+    assert tracker.stats()["plan_done_retroactively"] == 1
+
+
+def test_item_key_normalizes_whitespace_and_case():
+    from codeagent_eval.agent.planner import item_key
+
+    assert item_key("  Fix   The  Bug ") == item_key("fix the bug")
+
+
+def test_a_completion_with_no_test_since_opening_is_flagged_unverified():
+    """The observed failure: four items marked done before a single test ran, then the trial
+    finished on the strength of its own checklist while a hidden test caught the gap."""
+    tracker = PlanTracker()
+    plan_open = [PlanItem(id="a", text="implement returns", status="pending")]
+    plan_done = [PlanItem(id="a", text="implement returns", status="done")]
+    tracker.record(1, plan_open, actions_so_far=0, tests_so_far=0)
+    tracker.record(2, plan_done, actions_so_far=4, tests_so_far=0)  # edits, but no test
+
+    assert tracker.unverified_completions(plan_done) == ["implement returns"]
+    stats = tracker.stats()
+    assert stats["plan_done_unverified"] == 1
+    assert stats["plan_adherence"] == 1.0, "edits happened; the gap is verification, not work"
+
+
+def test_a_completion_after_a_test_run_is_not_flagged():
+    tracker = PlanTracker()
+    plan_done = [PlanItem(id="a", text="implement returns", status="done")]
+    tracker.record(1, [PlanItem(id="a", text="implement returns", status="pending")], 0, 0)
+    tracker.record(2, plan_done, actions_so_far=4, tests_so_far=2)
+
+    assert tracker.unverified_completions(plan_done) == []
+    assert tracker.stats()["plan_done_unverified"] == 0
+
+
+def test_the_agent_is_told_when_it_certifies_unverified_work(git_repo):
+    """The harness has to be able to contradict the plan, or the plan becomes a competing
+    completion criterion that costs nothing to satisfy."""
+    trial = _run(
+        [
+            _plan_turn(("fix", "in_progress")),
+            LlmToolTurn(tool_calls=[
+                _call("apply_patch", path="app.py",
+                      old_str="return a - b  # bug: should be +", new_str="return a + b")
+            ]),
+            _plan_turn(("fix", "done")),          # done, but no test has run
+            LlmToolTurn(content="done", tool_calls=[]),
+        ],
+        git_repo,
+    )
+
+    updates = [e for e in trial.events if e.type is TraceEventType.PLAN_UPDATE]
+    assert updates[-1].payload["unverified_completions"] == ["step fix"]
+    assert trial.plan["stats"]["plan_done_unverified"] == 1
+
+
+def test_the_v3_prompt_denies_the_plan_any_authority_to_stop(git_repo):  # noqa: ARG001
+    prompt = build_system_prompt("v3")
+
+    assert "working aid" in prompt
+    assert "A finished plan is not \\na reason to stop" in prompt or "not" in prompt
+    assert "only tests can" in prompt
+
+
+def test_v3_inherits_v2s_completion_gate():
+    """It did not: the loop gated on `version == "v2"`, so V3 silently lost the guard and a
+    V2/V3 ablation compared harnesses differing by more than the capability under test."""
+    from codeagent_eval.runner import _agent_config
+
+    for kind in ("v2", "v3"):
+        assert _agent_config(kind).enforce_completion_checks is True, kind
+        assert MiniAgentAdapter(None, harness=kind).harness == kind
+    assert _agent_config("v1").enforce_completion_checks is False
+    assert AgentConfig().enforce_completion_checks is False
+    assert AgentConfig.for_harness("v3", ablate=frozenset({"planner"})).enable_planner is False

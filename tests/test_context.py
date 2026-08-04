@@ -199,8 +199,10 @@ class _StubProvider:
 
 
 def _read_turn(n):
+    # Distinct paths per turn: identical arguments would trip the repeated-action guard that
+    # V2 and V3 both carry, ending the trial before context management ever runs.
     return LlmToolTurn(
-        tool_calls=[LlmToolCall(call_id=f"r{n}", name="read_file", arguments={"path": "app.py"})]
+        tool_calls=[LlmToolCall(call_id=f"r{n}", name="read_file", arguments={"path": f"m{n}.py"})]
     )
 
 
@@ -209,8 +211,12 @@ def _run(git_repo, *, turns, sizes, **config_over):
         task = AgentTask(
             instruction="fix add", workspace_path=str(sandbox.root), max_steps=12, timeout_seconds=60
         )
-        config = AgentConfig(
-            version="v3", enable_context_management=True, context_budget_tokens=1000, **config_over
+        config = AgentConfig.for_harness(
+            "v3",
+            enable_context_management=True,
+            enforce_completion_checks=False,
+            context_budget_tokens=1000,
+            **config_over,
         )
         return MiniAgent(_StubProvider(turns, sizes), config).run(task, sandbox)
 
@@ -264,7 +270,7 @@ def test_v2_reports_no_context_metrics_at_all(git_repo):
         )
         trial = MiniAgent(
             _StubProvider([LlmToolTurn(content="done", tool_calls=[])], [100]),
-            AgentConfig(version="v2"),
+            AgentConfig.for_harness("v2"),
         ).run(task, sandbox)
 
     assert "context_compactions" not in trial.completion_checks
@@ -301,8 +307,8 @@ def _ceiling_run(git_repo, *, ceiling, context_management, sizes):
         task = AgentTask(
             instruction="fix add", workspace_path=str(sandbox.root), max_steps=8, timeout_seconds=60
         )
-        config = AgentConfig(
-            version="v3" if context_management else "v2",
+        config = AgentConfig.for_harness(
+            "v3" if context_management else "v2",
             enable_context_management=context_management,
             context_budget_tokens=1000,
             context_ceiling_tokens=ceiling,
@@ -338,7 +344,7 @@ def test_work_done_before_an_overflow_is_kept(git_repo):
         ]
         trial = MiniAgent(
             _StubProvider(turns, [100, 9999]),
-            AgentConfig(version="v2", context_ceiling_tokens=1000),
+            AgentConfig.for_harness("v2", context_ceiling_tokens=1000),
         ).run(task, sandbox)
 
     assert trial.stop_reason == "context_overflow"

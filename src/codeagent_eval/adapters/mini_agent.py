@@ -119,11 +119,9 @@ class MiniAgentAdapter:
         if self._task is None or self._budget is None or self._sandbox is None:
             raise RuntimeError("adapter must be prepared before run")
         task = self._task.model_copy(update={"instruction": instruction})
-        config = AgentConfig(
-            version=self.harness,
-            detect_repeated_actions=self.harness in ("v2", "v3"),
-            enable_planner=self.harness == "v3" and "planner" not in self.ablate,
-            enable_context_management=self.harness == "v3" and "context" not in self.ablate,
+        config = AgentConfig.for_harness(
+            self.harness,
+            ablate=self.ablate,
             context_budget_tokens=self.context_budget_tokens,
             context_ceiling_tokens=self._context_ceiling,
             max_tokens=self.max_completion_tokens,
