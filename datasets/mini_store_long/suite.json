@@ -289,6 +289,58 @@
           ]
         }
       }
+    },
+    {
+      "case_id": "long-release-accounting",
+      "task_type": "bugfix",
+      "instruction": "Stock is being oversold. Cancelling an order that was already cancelled succeeds silently, expiring holds and sweeping abandoned carts can hand back more units than they ever took, and units still reserved for a live order end up sellable again. Reproduce the failures across the cancellation, hold and sweep paths, then make the reservation accounting sound: releasing units that are not reserved must be refused, a refused release must leave the books exactly as it found them, and cancelling an order twice must be refused. Note that reservations are pooled per SKU. Do not edit tests or add dependencies. Run the focused failing tests, then the complete suite, and inspect git diff before finishing.",
+      "visible_tests": [
+        "tests/test_release_accounting.py",
+        "tests/test_cancellations.py",
+        "tests/test_abandoned_carts.py"
+      ],
+      "regression_tests": [
+        "tests/test_holds.py",
+        "tests/test_inventory_batch.py",
+        "tests/test_reservation_invariants.py",
+        "tests/test_orders.py",
+        "tests/test_returns_workflow.py"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_release.py"
+      ],
+      "constraints": {
+        "forbidden_paths": [
+          "tests/*"
+        ],
+        "max_changed_files": 2,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": true
+      },
+      "max_steps": 40,
+      "timeout_seconds": 600,
+      "difficulty": "hard",
+      "tags": [
+        "long-horizon",
+        "cascade",
+        "root-cause",
+        "invariant",
+        "silent-failure"
+      ],
+      "horizon": "long",
+      "expected_steps": 12,
+      "expected_tool_calls": 25,
+      "canary": {
+        "constraint_id": "release-accounting-scope",
+        "description": "Fix the accounting at its two owners: confine the change to mini_store/inventory.py and mini_store/cancellations.py.",
+        "checker": "allowed_files",
+        "params": {
+          "allowed": [
+            "mini_store/inventory.py",
+            "mini_store/cancellations.py"
+          ]
+        }
+      }
     }
   ]
 }

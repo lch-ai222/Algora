@@ -51,18 +51,7 @@ class Inventory:
             self._reserved[sku] = self._reserved.get(sku, 0) + quantity
 
     def release(self, sku: str, quantity: int) -> None:
-        """Give reserved units back.
-
-        Releasing more than is reserved is refused rather than clamped. Reservations are
-        pooled per SKU, so a caller that over-releases is not merely wrong about its own
-        units — it frees somebody else's, and the pool has no way to tell afterwards.
-        """
-        if quantity <= 0:
-            raise ValueError("quantity must be positive")
-        reserved = self._reserved.get(sku, 0)
-        if quantity > reserved:
-            raise ValueError(f"cannot release {quantity} of {sku}: only {reserved} reserved")
-        self._reserved[sku] = reserved - quantity
+        self._reserved[sku] = max(0, self._reserved.get(sku, 0) - quantity)
 
     def restock(self, sku: str, quantity: int) -> None:
         """Put returned units back on hand without altering existing reservations."""

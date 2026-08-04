@@ -37,6 +37,7 @@ class Order:
     tax: float = 0.0
     total: float = 0.0
     tax_rate: float = DEFAULT_TAX_RATE
+    cancelled: bool = False
 
 
 @dataclass

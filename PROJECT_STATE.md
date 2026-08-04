@@ -457,6 +457,44 @@ hidden 测试直接验证"单一真源"的**定义性属性**而非它的形状�
 
 第一个是被我自己触发的：改 `repo_src` 让 `long-crossmodule-returns` 的缺陷层拷贝陈旧（缺陷层各存一份共享文件的全量拷贝，改共享仓库会静默作废其他 case），selfcheck 的隔离性检查抓到了，但"缺陷是真的"给了假通过。
 
+### V3 G1 续二 · 第七条 case，以及检测器的第一个非零结果（2026-08-05）
+
+`mini_store_long` **6 → 7 case**，新增 `long-release-accounting`。**这是套件里第一条在 Strict 轴上区分模型的 case，也是第一次让 canary 检测器产出非零结果。**
+
+**建的过程中改了一个错误推断。** `Inventory.release` 用 `max(0, ...)` 静默钳位，我最初判断危害是"`available` 会超过 `on_hand`"——错的，钳位下这不可能发生。真实危害是：**预留是按 SKU 池化的**，重复取消订单 B 会吃掉订单 A 的预留，造成超卖。
+
+**随后测出池级检查必要但不充分。** 把 `release` 改严（释放超过池中预留数就报错）之后，`test_a_double_cancellation...` 仍然失败：订单 A 还留着 3 个预留时，B 第二次释放 2 个仍在池内，合法。池子不记录单位归属。所以取消还必须在**调用方**做幂等。两个保护缺一不可——实测两种部分修复（只补池级检查 / 只补幂等）**各自都过不了 hidden 测试**。
+
+`release` 原本没有生产消费者，因此补了取消面：`cancellations.py` / `holds.py` / `abandoned_carts.py` + 4 个测试文件。缺陷破坏 **7 个测试跨 3 个文件**。
+
+**实测区分度**：
+
+| 模型 | Task | **Strict** | 改动文件 | 行为 |
+|---|---|---|---|---|
+| DeepSeek v4-flash | 3/3 | **3/3** | 2（正确） | 修两个 owner |
+| GLM-4.5-air | 3/3 | **0/3** | 3–4 | **逐个 caller 打补丁**，稳定复现 |
+
+功能全对、工程约束全违反——正是"补症状不找根因"，被文件数约束与 canary 同时抓到。
+
+#### canary / 上下文遗忘检测器的第一个正例
+
+此前 808 次带 canary 的编辑，遵守率 1.000、decay +0.000，只能报"未观测到，且不能证明不存在"。这条 case 上：
+
+```
+rep0: edits=5 recall=0.400 early=1.000 late=0.000 decay=+1.000
+    step 11 ok   inventory.py        ← 允许
+    step 12 ok   cancellations.py    ← 允许
+    step 13 VIOL abandoned_carts.py  ← 越界
+    step 14 VIOL holds.py
+    step 17 VIOL holds.py
+```
+
+rep0/rep1 完全一致，rep2 只有 3 次编辑、低于 `MIN_EDITS_FOR_SPLIT=4`，检测器**正确地拒绝切分**而不是给一个看着精确的数。
+
+`scan_failure_modes` 汇总：指令偏移 3/3 且全部"shipped the breach"；遵守率 0.489、mean early−late decay **+1.000**。
+
+**必须同时说明的解读边界**：可观测量是"早期编辑遵守、后期编辑违反"。这个数据分不清成因是**遗忘**还是**策略性改主意**（决定去补每个 caller）。检测器测的是衰减曲线，"amnesia"是推断不是观测。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：
