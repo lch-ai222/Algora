@@ -21,7 +21,7 @@ from codeagent_eval.sandbox import WorktreeSandbox
 
 #: Capabilities V3 adds on top of V2, each removable on its own so an ablation isolates one.
 ABLATABLE = frozenset({"planner", "context", "scratchpad"})
-_HARNESS_REVISIONS = {"v3": "v3.2"}
+_HARNESS_REVISIONS = {"v3": "v3.3"}
 
 _STOP_REASON_MAP = {
     "final": "final",
@@ -44,6 +44,7 @@ class MiniAgentAdapter:
         max_completion_tokens: int = 2048,
         ablate: frozenset[str] = frozenset(),
         context_budget_tokens: int = 32_000,
+        repo_memory_path: str | None = None,
     ) -> None:
         if harness not in PROMPT_VERSIONS:
             raise ValueError(
@@ -61,6 +62,7 @@ class MiniAgentAdapter:
         # system from v3, and a comparison that recorded both as "v3" would be unreadable.
         self.ablate = frozenset(ablate)
         self.context_budget_tokens = context_budget_tokens
+        self.repo_memory_path = repo_memory_path
         suffix = "".join(f"-no_{a}" for a in sorted(self.ablate))
         identity = _HARNESS_REVISIONS.get(harness, harness)
         self.adapter_version = f"{__version__}+{identity}{suffix}"
@@ -129,6 +131,7 @@ class MiniAgentAdapter:
             self.harness,
             ablate=self.ablate,
             context_budget_tokens=self.context_budget_tokens,
+            repo_memory_path=self.repo_memory_path,
             context_ceiling_tokens=self._context_ceiling,
             max_tokens=self.max_completion_tokens,
         )
@@ -180,6 +183,7 @@ class MiniAgentAdapter:
                 "harness": self.harness,
                 "ablate": sorted(self.ablate),
                 "context_budget_tokens": self.context_budget_tokens,
+                "repo_memory_path": self.repo_memory_path,
                 "context_ceiling_tokens": self._context_ceiling,
             },
             steps=trial.steps,

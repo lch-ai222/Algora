@@ -24,6 +24,7 @@ def create_adapter(
     config=None,
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
+    repo_memory_path: str | None = None,
 ) -> AgentAdapter:
     """Build an adapter by name.
 
@@ -40,6 +41,7 @@ def create_adapter(
             max_completion_tokens=max_completion_tokens,
             ablate=ablate,
             context_budget_tokens=context_budget_tokens,
+            repo_memory_path=repo_memory_path,
         )
     if name == "claude_code":
         if config is not None and not isinstance(config, ClaudeCodeConfig):

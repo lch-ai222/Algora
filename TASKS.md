@@ -38,7 +38,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W2-7 | SWE-bench 官方 Smoke Slice | P0 | ✅ flask 3/3 金标通过；requests 记为不可本地构建 |
 | V3 W2-8 | 第二外部 Agent adapter | P0 | ✅ Cline CLI 3.0.49 |
 | V3 W3-1 | 确定性 multi-turn + 3 case | P0 | ✅ 离线工程闭环完成 |
-| V3 W3-2 | 跨 run RepoMemory | P1 | ⬜ 未开始 |
+| V3 W3-2 | 跨 run RepoMemory | P1 | ✅ 含同-case 污染守卫，实测验证 |
 | V3 W3-3 | 统计增强 | P0/P1 | ✅ 计划内统计完成 |
 | V3 W3-4 | repro bundle + 回归 fixture | P0 | ✅ 完成 |
 | V3 W3-5 | 静态报告 + 跨 Agent UI | P0 | ✅ 完成 |

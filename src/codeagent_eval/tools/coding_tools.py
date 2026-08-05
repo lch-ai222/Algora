@@ -235,7 +235,8 @@ class GitDiffTool(Tool):
         )
 
 
-def default_tools(*, planning: bool = False, memory: bool = False) -> list[Tool]:
+def default_tools(*, planning: bool = False, memory: bool = False,
+                  repo_memory: bool = False) -> list[Tool]:
     """The MiniAgent's toolset.
 
     Optional tools are off by default so V1/V2 keep exactly the six tools their calibrated
@@ -257,6 +258,10 @@ def default_tools(*, planning: bool = False, memory: bool = False) -> list[Tool]
         from codeagent_eval.tools.memory_tools import UpdateScratchpadTool
 
         tools.append(UpdateScratchpadTool())
+    if repo_memory:
+        from codeagent_eval.tools.memory_tools import RememberRepoTool
+
+        tools.append(RememberRepoTool())
     return tools
 
 

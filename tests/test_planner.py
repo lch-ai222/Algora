@@ -208,9 +208,9 @@ def test_capabilities_track_the_harness_and_its_ablations():
 
 def test_an_ablation_is_part_of_the_harness_identity():
     """Recording an ablated run as plain "v3" would make the artifact unreadable later."""
-    assert MiniAgentAdapter(None, harness="v3").adapter_version.endswith("+v3.2")
+    assert MiniAgentAdapter(None, harness="v3").adapter_version.endswith("+v3.3")
     ablated = MiniAgentAdapter(None, harness="v3", ablate=frozenset({"context", "planner"}))
-    assert ablated.adapter_version.endswith("+v3.2-no_context-no_planner")
+    assert ablated.adapter_version.endswith("+v3.3-no_context-no_planner")
 
 
 class _PlanningProvider:

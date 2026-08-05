@@ -105,6 +105,7 @@ def _run_adapter_trial(
     max_steps: int | None = None,
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
+    repo_memory_path: str | None = None,
     context_ceiling_tokens: int | None = None,
     max_wall_clock_s: int | None = None,
 ) -> tuple[TrialResult, AgentRunResult]:
@@ -116,6 +117,7 @@ def _run_adapter_trial(
         config=adapter_config,
         ablate=ablate,
         context_budget_tokens=context_budget_tokens,
+        repo_memory_path=repo_memory_path,
     )
     probe = adapter.probe()
     if not probe.available:
@@ -320,6 +322,7 @@ def run_trial(
     max_steps_override: int | None = None,
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
+    repo_memory_path: str | None = None,
     context_ceiling_tokens: int | None = None,
     max_wall_clock_override: int | None = None,
 ) -> tuple[GradeResult, TrialResult, FailureAttribution]:
@@ -365,6 +368,7 @@ def run_trial(
                     max_completion_tokens=max_completion_tokens,
                     ablate=ablate,
                     context_budget_tokens=context_budget_tokens,
+                    repo_memory_path=repo_memory_path,
                     **budget_kwargs,
                 )
             elif kind in EXTERNAL_ADAPTERS:
@@ -561,6 +565,7 @@ class TrialSpec:
     max_steps_override: int | None = None
     ablate: frozenset[str] = frozenset()
     context_budget_tokens: int = 32_000
+    repo_memory_path: str | None = None
     context_ceiling_tokens: int | None = None
     max_wall_clock_override: int | None = None
 
@@ -623,6 +628,7 @@ def execute_trial(spec: TrialSpec) -> TrialOutcome:
             max_steps_override=spec.max_steps_override,
             ablate=spec.ablate,
             context_budget_tokens=spec.context_budget_tokens,
+            repo_memory_path=spec.repo_memory_path,
             context_ceiling_tokens=spec.context_ceiling_tokens,
             max_wall_clock_override=spec.max_wall_clock_override,
         )
@@ -999,6 +1005,7 @@ def run_experiment(
     max_steps_override: int | None = None,
     ablate: frozenset[str] = frozenset(),
     context_budget_tokens: int = 32_000,
+    repo_memory_path: str | None = None,
     context_ceiling_tokens: int | None = None,
     max_wall_clock_override: int | None = None,
     adapter_version: str | None = None,
@@ -1041,6 +1048,9 @@ def run_experiment(
     # harness does; both belong in the fingerprint so they can never be resumed together.
     run_config["ablate"] = sorted(ablate)
     run_config["context_budget_tokens"] = context_budget_tokens if kind == "v3" else None
+    # Recorded unconditionally: a warm run and a cold run are different configurations, and
+    # resume refuses to blend them only if the difference is on the manifest.
+    run_config["repo_memory_path"] = repo_memory_path
     # Unlike the V3-only budget, the ceiling constrains every harness, so it belongs to the
     # experiment rather than to one arm of it.
     run_config["context_ceiling_tokens"] = context_ceiling_tokens
@@ -1076,6 +1086,7 @@ def run_experiment(
                     max_steps_override=max_steps_override,
                     ablate=ablate,
                     context_budget_tokens=context_budget_tokens,
+                    repo_memory_path=repo_memory_path,
                     context_ceiling_tokens=context_ceiling_tokens,
                     max_wall_clock_override=max_wall_clock_override,
                 )
@@ -1225,6 +1236,14 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         metavar="CAPABILITY",
         help="disable one of V3's additions (repeatable) so an ablation isolates the other",
+    )
+    parser.add_argument(
+        "--repo-memory",
+        default=None,
+        metavar="PATH",
+        help="enable cross-run repository memory backed by this JSON store. Notes written "
+             "while solving a case are withheld from that same case, so a warm run measures "
+             "transfer rather than recall of its own answer",
     )
     parser.add_argument(
         "--context-budget-tokens",
@@ -1390,6 +1409,7 @@ def main(argv: list[str] | None = None) -> int:
             max_steps_override=args.max_steps,
             ablate=frozenset(args.ablate),
             context_budget_tokens=args.context_budget_tokens,
+            repo_memory_path=args.repo_memory,
             context_ceiling_tokens=args.context_ceiling_tokens,
             max_wall_clock_override=args.max_wall_clock,
             adapter_version=probe.version if kind == "claude_code" else None,

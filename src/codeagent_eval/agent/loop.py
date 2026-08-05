@@ -19,6 +19,7 @@ from codeagent_eval.agent.context import ContextManager
 from codeagent_eval.agent.memory import ScratchPad
 from codeagent_eval.agent.planner import PlanTracker, parse_plan_items
 from codeagent_eval.agent.prompts import build_system_prompt
+from codeagent_eval.agent.repo_memory import RepoMemory
 from codeagent_eval.llm import LlmCallRecord, LlmProvider, llm_trace_scope
 from codeagent_eval.models import AgentTask, TraceEvent, TraceEventType, utc_now_iso
 from codeagent_eval.sandbox.worktree import WorktreeSandbox
@@ -49,6 +50,12 @@ class AgentConfig:
     # V3-only run-scoped working memory. It remains available when conversation turns are
     # compacted, while its rendered contents still consume the measured prompt budget.
     enable_scratchpad: bool = False
+    #: Cross-run repository memory. Off even in V3 unless a store path is supplied: it changes
+    #: what a trial starts from, so a run that has it and a run that does not are different
+    #: configurations and must not be aggregated together by accident.
+    repo_memory_path: str | None = None
+    #: Set false only to measure what the same-case filter prevents.
+    repo_memory_exclude_same_case: bool = True
     context_budget_tokens: int = 32_000
     compaction_threshold: float = 0.75
     #: Hard context-window ceiling, applied to EVERY harness version. It stands in for a
@@ -72,6 +79,8 @@ class AgentConfig:
             "enable_planner": version == "v3" and "planner" not in ablate,
             "enable_context_management": version == "v3" and "context" not in ablate,
             "enable_scratchpad": version == "v3" and "scratchpad" not in ablate,
+            # repo_memory_path stays at its default here: it is supplied per run, not implied
+            # by a harness version, so ablating "repo_memory" simply withholds the path.
         }
         return cls(version=version, **{**defaults, **overrides})
 
@@ -151,6 +160,7 @@ class _AgentSession:
     state: _RunState
     context: ContextManager | None
     scratchpad: ScratchPad | None
+    repo_memory: RepoMemory | None
     deadline: float
     started_at: str
     started: float
@@ -175,6 +185,7 @@ class MiniAgent:
             default_tools(
                 planning=self.config.enable_planner,
                 memory=self.config.enable_scratchpad,
+                repo_memory=bool(self.config.repo_memory_path),
             )
         )
         self._session: _AgentSession | None = None
@@ -185,6 +196,7 @@ class MiniAgent:
             self.config.version,
             task.project_instructions,
             scratchpad=self.config.enable_scratchpad,
+            repo_memory=bool(self.config.repo_memory_path),
             allow_test_edits=task.allow_test_edits,
         )
         ctx = ToolContext(
@@ -194,6 +206,16 @@ class MiniAgent:
         )
         scratchpad = ScratchPad() if self.config.enable_scratchpad else None
         ctx.scratchpad = scratchpad
+        repo_memory = (
+            RepoMemory.load(
+                self.config.repo_memory_path,
+                case_id=case_id,
+                exclude_same_case=self.config.repo_memory_exclude_same_case,
+            )
+            if self.config.repo_memory_path
+            else None
+        )
+        ctx.repo_memory = repo_memory
         tools = self.registry.openai_tools()
         messages: list[dict[str, Any]] = [{"role": "user", "content": _initial_user_message(task, sandbox)}]
         context = (
@@ -216,6 +238,7 @@ class MiniAgent:
             state=_RunState(),
             context=context,
             scratchpad=scratchpad,
+            repo_memory=repo_memory,
             deadline=started + task.timeout_seconds,
             started_at=utc_now_iso(),
             started=started,
@@ -282,8 +305,8 @@ class MiniAgent:
                     **request_payload,
                 )
                 turn = self.provider.tool_completion(
-                    system_prompt=_system_prompt_with_scratchpad(
-                        session.system_prompt, session.scratchpad
+                    system_prompt=_system_prompt_with_memory(
+                        session.system_prompt, session.scratchpad, session.repo_memory
                     ),
                     messages=session.messages,
                     tools=session.tools,
@@ -442,12 +465,14 @@ class MiniAgent:
             session.started + session.paused_seconds,
             session.context,
             session.scratchpad,
+            session.repo_memory,
         )
 
     def _finalize(
         self, task, sandbox, state, stop_reason, final_message, llm_records, started_at, started,
         context: ContextManager | None = None,
         scratchpad: ScratchPad | None = None,
+        repo_memory: RepoMemory | None = None,
     ) -> TrialResult:
         patch = sandbox.export_patch()
         changed = sandbox.changed_files()
@@ -469,6 +494,11 @@ class MiniAgent:
         plan_stats = state.planner.stats() if self.config.enable_planner else {}
         checks.update(context.stats.as_dict(context.budget_tokens) if context else {})
         checks.update(scratchpad.stats.as_dict(scratchpad.notes) if scratchpad else {})
+        if repo_memory is not None:
+            checks.update(repo_memory.stats.as_dict())
+            # Persisted at the end of the trial rather than on each write: a trial killed at its
+            # budget must not leave a store that a later run reads as settled knowledge.
+            repo_memory.save()
         return TrialResult(
             stop_reason=stop_reason,
             steps=state.step,
@@ -557,7 +587,18 @@ def _completion_feedback(reasons: list[str]) -> str:
     )
 
 
-def _system_prompt_with_scratchpad(base: str, scratchpad: ScratchPad | None) -> str:
+def _system_prompt_with_memory(
+    base: str, scratchpad: ScratchPad | None, repo_memory: RepoMemory | None = None
+) -> str:
+    """Compose the prompt from both memory scopes.
+
+    Repository memory goes first and the scratchpad second, so a note the agent wrote during
+    this session takes precedence in its own reading over anything carried in from an earlier
+    one — recent, task-specific understanding should override a stale general hint.
+    """
+    carried = repo_memory.render() if repo_memory is not None else ""
+    if carried:
+        base = f"{base}\n\n{carried}"
     rendered = scratchpad.render() if scratchpad is not None else ""
     return f"{base}\n\n{rendered}" if rendered else base
 

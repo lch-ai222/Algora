@@ -2,10 +2,11 @@
 
 from codeagent_eval.tools.base import Tool, ToolContext, ToolRegistry, ToolResult
 from codeagent_eval.tools.coding_tools import default_tools
-from codeagent_eval.tools.memory_tools import UpdateScratchpadTool
+from codeagent_eval.tools.memory_tools import RememberRepoTool, UpdateScratchpadTool
 from codeagent_eval.tools.planning_tools import UpdatePlanTool
 
 __all__ = [
+    "RememberRepoTool",
     "Tool",
     "ToolContext",
     "ToolRegistry",

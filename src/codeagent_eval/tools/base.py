@@ -18,6 +18,7 @@ from codeagent_eval.sandbox.worktree import WorktreeSandbox
 
 if TYPE_CHECKING:
     from codeagent_eval.agent.memory import ScratchPad
+    from codeagent_eval.agent.repo_memory import RepoMemory
 
 
 @dataclass
@@ -29,6 +30,7 @@ class ToolContext:
     default_timeout: int = 120
     page_size: int = 200
     scratchpad: ScratchPad | None = None
+    repo_memory: RepoMemory | None = None
 
 
 class ToolResult(BaseModel):

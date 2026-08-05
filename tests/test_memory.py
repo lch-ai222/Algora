@@ -233,7 +233,7 @@ def test_scratchpad_ablation_is_recorded_in_adapter_identity_and_manifest(git_re
         result = adapter.run("finish")
         adapter.cleanup()
 
-    assert adapter.adapter_version.endswith("+v3.2-no_scratchpad")
+    assert adapter.adapter_version.endswith("+v3.3-no_scratchpad")
     assert result.env_manifest["ablate"] == ["scratchpad"]
     assert result.memory == {}
     assert "scratchpad_used" not in result.completion_checks

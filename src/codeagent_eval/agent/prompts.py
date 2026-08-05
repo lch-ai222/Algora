@@ -55,6 +55,13 @@ and open questions that must survive context compaction or a user follow-up. Upd
 stale notes as understanding changes. Do not copy the transcript, tool output, or task plan into \
 the scratchpad; it is bounded and every note consumes context budget."""
 
+_REPO_MEMORY_GUIDANCE = """
+
+9. RECORD WHAT OUTLIVES THIS TASK: use remember_repo for facts about the codebase that will \
+still hold for a different task — layout, conventions, how tests are run, recurring pitfalls. \
+Do not record this task, its diagnosis, or its fix: those are not shown back to you, and \
+writing them only spends budget."""
+
 _PROMPTS = {"v1": _V1, "v2": _V2, "v3": _V3}
 
 _WRITABLE_TEST_GUIDANCE = (
@@ -68,6 +75,7 @@ def build_system_prompt(
     project_instructions: str | None = None,
     *,
     scratchpad: bool | None = None,
+    repo_memory: bool = False,
     allow_test_edits: bool = False,
 ) -> str:
     if version not in PROMPT_VERSIONS:
@@ -85,6 +93,10 @@ def build_system_prompt(
         if version != "v3":
             raise ValueError("scratchpad prompt guidance is available only in v3")
         base += _SCRATCHPAD_GUIDANCE
+    if repo_memory:
+        if version != "v3":
+            raise ValueError("repo memory prompt guidance is available only in v3")
+        base += _REPO_MEMORY_GUIDANCE
     if project_instructions:
         # V2 injects repo conventions (AGENTS.md); V1 may too if provided by the task.
         base = f"{base}\n\n--- Project instructions (AGENTS.md) ---\n{project_instructions.strip()}"
