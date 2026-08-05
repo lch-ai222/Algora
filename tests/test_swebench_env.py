@@ -145,3 +145,41 @@ def test_an_agent_edit_to_an_oracle_file_is_recorded_rather_than_scored():
         touched_test_files=("tests/test_cli.py",),
     )
     assert attempt.as_dict()["touched_test_files"] == ["tests/test_cli.py"]
+
+
+def test_an_oracle_file_the_agent_created_is_removed_not_just_checked_out(tmp_path):
+    """``git checkout --`` cannot restore a path that does not exist at the base commit.
+
+    The oracle's test_patch both modifies existing files and creates new ones. An agent that
+    writes its own file where the patch will add one blocks the patch from applying, so the
+    attempt fails as a harness error instead of being graded. Removing untracked files at
+    oracle-owned paths is what makes both cases behave the same.
+    """
+    import subprocess
+
+    from codeagent_eval.benchmark.swebench_agent import _test_paths
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "."], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    (repo / "keep.py").write_text("x = 1\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+
+    created = repo / "tests" / "static" / "config.toml"
+    created.parent.mkdir(parents=True)
+    created.write_text("agent = true\n")
+
+    patch = "diff --git a/tests/static/config.toml b/tests/static/config.toml\n" \
+            "--- /dev/null\n+++ b/tests/static/config.toml\n@@ -0,0 +1 @@\n+oracle = true\n"
+    assert _test_paths(patch) == {"tests/static/config.toml"}
+
+    for path in _test_paths(patch):
+        done = subprocess.run(["git", "checkout", "--", path], cwd=repo,
+                              capture_output=True, text=True, check=False)
+        assert done.returncode != 0, "an untracked path cannot be checked out"
+        (repo / path).unlink(missing_ok=True)
+
+    assert not created.exists()

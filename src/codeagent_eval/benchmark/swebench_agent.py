@@ -237,8 +237,17 @@ def grade(instance: SWEBenchInstance, attempt: InstanceAttempt, env: BuiltEnviro
         return
     # Restore anything the test patch owns, so an agent that edited those files cannot change
     # the oracle. The edit itself is already recorded on the attempt.
+    #
+    # Two cases, and only handling the first leaves a hole. Files the patch *modifies* exist at
+    # base and are restored by checkout. Files it *creates* do not, so checkout cannot touch
+    # them — and an agent that created its own file at that path makes test_patch fail to
+    # apply. Measured: Cline wrote tests/static/config.toml on flask-4992, exactly where the
+    # oracle adds one, which turned a gradeable attempt into a harness error. Removing an
+    # untracked file at an oracle-owned path closes it, and the edit stays on the record.
     for path in _test_paths(instance.test_patch):
-        _git(["checkout", "--", path], graded)
+        restored = _git(["checkout", "--", path], graded)
+        if restored.returncode != 0:
+            (graded / path).unlink(missing_ok=True)
     if not _apply(graded, instance.test_patch):
         attempt.error = "test_patch did not apply after the agent's changes"
         return

@@ -1,0 +1,158 @@
+[
+  {
+    "instance_id": "pallets__flask-4045",
+    "adapter": "mini_agent",
+    "resolved": false,
+    "fail_to_pass": false,
+    "pass_to_pass": true,
+    "weak_oracle": false,
+    "changed_files": [
+      "CHANGES.rst",
+      "src/flask/blueprints.py"
+    ],
+    "touched_test_files": [],
+    "stop_reason": "final",
+    "duration_ms": 136246,
+    "prompt_tokens": 195556,
+    "completion_tokens": 8706,
+    "tool_call_count": 32,
+    "steps": 24,
+    "error": null,
+    "environment": {
+      "repo": "pallets/flask",
+      "version": "2.0",
+      "python": "/Users/lichanghao/ai/Algora/.swebench_cache/venvs/pallets__flask-2.0/bin/python",
+      "source_dir": "src",
+      "frozen_packages": [
+        "Jinja2==3.0.3",
+        "MarkupSafe==3.0.3",
+        "Pygments==2.20.0",
+        "Werkzeug==2.0.3",
+        "attrs==26.1.0",
+        "click==8.0.4",
+        "iniconfig==2.3.0",
+        "itsdangerous==2.0.1",
+        "packaging==26.3",
+        "pluggy==1.6.0",
+        "py==1.11.0",
+        "pytest==6.2.5",
+        "toml==0.10.2"
+      ],
+      "install_errors": [
+        "pip install -r /Users/lichanghao/ai/Algora/.swebench_cache/setup/pallets__flask-2.0/requirem: with exit code 1\n      [end of output]\n  \n  note: This error originates from a subprocess, and is likely not a problem with pip.\n  ERROR: Failed building wheel for greenlet\nerror: failed-wheel-build-for-install\n\n\u00d7 Failed to build installable wheels for some pyproject.toml based projects\n\u2570\u2500> greenlet"
+      ]
+    },
+    "status": "unresolved"
+  },
+  {
+    "instance_id": "pallets__flask-4992",
+    "adapter": "mini_agent",
+    "resolved": false,
+    "fail_to_pass": false,
+    "pass_to_pass": true,
+    "weak_oracle": false,
+    "changed_files": [
+      "CHANGES.rst",
+      "src/flask/config.py"
+    ],
+    "touched_test_files": [],
+    "stop_reason": "final",
+    "duration_ms": 594025,
+    "prompt_tokens": 216648,
+    "completion_tokens": 20112,
+    "tool_call_count": 30,
+    "steps": 32,
+    "error": null,
+    "environment": {
+      "repo": "pallets/flask",
+      "version": "2.3",
+      "python": "/Users/lichanghao/ai/Algora/.swebench_cache/venvs/pallets__flask-2.3/bin/python",
+      "source_dir": "src",
+      "frozen_packages": [
+        "Jinja2==3.1.6",
+        "MarkupSafe==3.0.3",
+        "Werkzeug==2.3.8",
+        "asgiref==3.6.0",
+        "blinker==1.9.0",
+        "click==8.1.8",
+        "iniconfig==2.0.0",
+        "itsdangerous==2.1.2",
+        "packaging==23.0",
+        "pluggy==1.0.0",
+        "pytest==7.3.0",
+        "python-dotenv==1.0.0"
+      ],
+      "install_errors": []
+    },
+    "status": "unresolved"
+  },
+  {
+    "instance_id": "pallets__flask-5063",
+    "adapter": "mini_agent",
+    "resolved": false,
+    "fail_to_pass": false,
+    "pass_to_pass": true,
+    "weak_oracle": true,
+    "changed_files": [],
+    "touched_test_files": [],
+    "stop_reason": "budget_time",
+    "duration_ms": 626100,
+    "prompt_tokens": 233003,
+    "completion_tokens": 61629,
+    "tool_call_count": 25,
+    "steps": 30,
+    "error": null,
+    "environment": {
+      "repo": "pallets/flask",
+      "version": "2.3",
+      "python": "/Users/lichanghao/ai/Algora/.swebench_cache/venvs/pallets__flask-2.3/bin/python",
+      "source_dir": "src",
+      "frozen_packages": [
+        "Jinja2==3.1.6",
+        "MarkupSafe==3.0.3",
+        "Werkzeug==2.3.8",
+        "asgiref==3.6.0",
+        "blinker==1.9.0",
+        "click==8.1.8",
+        "iniconfig==2.0.0",
+        "itsdangerous==2.1.2",
+        "packaging==23.0",
+        "pluggy==1.0.0",
+        "pytest==7.3.0",
+        "python-dotenv==1.0.0"
+      ],
+      "install_errors": []
+    },
+    "status": "unresolved"
+  },
+  {
+    "instance_id": "psf__requests-1963",
+    "status": "unsupported",
+    "detail": "psf/requests is not buildable locally: the 2012-2016 releases in SWE-bench Lite vendor urllib3, chardet and idna inside requests/packages and declare no dependencies, so the package cannot import without an era-matched set installed alongside it; the test suite then needs pytest-httpbin, which pulls httpbin and an old Flask. Reproducing that chain is what the official Docker images exist for."
+  },
+  {
+    "instance_id": "psf__requests-2148",
+    "status": "unsupported",
+    "detail": "psf/requests is not buildable locally: the 2012-2016 releases in SWE-bench Lite vendor urllib3, chardet and idna inside requests/packages and declare no dependencies, so the package cannot import without an era-matched set installed alongside it; the test suite then needs pytest-httpbin, which pulls httpbin and an old Flask. Reproducing that chain is what the official Docker images exist for."
+  },
+  {
+    "instance_id": "psf__requests-2317",
+    "status": "unsupported",
+    "detail": "psf/requests is not buildable locally: the 2012-2016 releases in SWE-bench Lite vendor urllib3, chardet and idna inside requests/packages and declare no dependencies, so the package cannot import without an era-matched set installed alongside it; the test suite then needs pytest-httpbin, which pulls httpbin and an old Flask. Reproducing that chain is what the official Docker images exist for."
+  },
+  {
+    "instance_id": "psf__requests-2674",
+    "status": "unsupported",
+    "detail": "psf/requests is not buildable locally: the 2012-2016 releases in SWE-bench Lite vendor urllib3, chardet and idna inside requests/packages and declare no dependencies, so the package cannot import without an era-matched set installed alongside it; the test suite then needs pytest-httpbin, which pulls httpbin and an old Flask. Reproducing that chain is what the official Docker images exist for."
+  },
+  {
+    "instance_id": "psf__requests-3362",
+    "status": "unsupported",
+    "detail": "psf/requests is not buildable locally: the 2012-2016 releases in SWE-bench Lite vendor urllib3, chardet and idna inside requests/packages and declare no dependencies, so the package cannot import without an era-matched set installed alongside it; the test suite then needs pytest-httpbin, which pulls httpbin and an old Flask. Reproducing that chain is what the official Docker images exist for."
+  },
+  {
+    "instance_id": "psf__requests-863",
+    "status": "unsupported",
+    "detail": "psf/requests is not buildable locally: the 2012-2016 releases in SWE-bench Lite vendor urllib3, chardet and idna inside requests/packages and declare no dependencies, so the package cannot import without an era-matched set installed alongside it; the test suite then needs pytest-httpbin, which pulls httpbin and an old Flask. Reproducing that chain is what the official Docker images exist for."
+  }
+]
