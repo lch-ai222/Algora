@@ -42,6 +42,12 @@ DEFAULT_TOOL_OUTPUT_LIMITS: dict[str, int] = {
 }
 DEFAULT_TOOL_OUTPUT_LIMIT = 3000
 
+#: Applied regardless of pressure. One enormous read can exceed the whole budget inside a
+#: single step, before any measurement has a chance to react, so there has to be a ceiling that
+#: does not wait for evidence. It is deliberately far above the per-tool limits: its job is to
+#: prevent a catastrophe, not to manage the window.
+HARD_OUTPUT_LIMIT = 60_000
+
 
 @dataclass
 class CompactionRecord:
@@ -57,6 +63,10 @@ class ContextStats:
     compactions: int = 0
     pressure_notices: int = 0
     truncated_outputs: int = 0
+    #: Outputs cut by the unconditional ceiling rather than by pressure-driven limits. A
+    #: non-zero count with no pressure means a single result was large enough to be a hazard
+    #: on its own.
+    hard_capped_outputs: int = 0
     truncated_chars: int = 0
     peak_prompt_tokens: int = 0
     last_prompt_tokens: int = 0
@@ -68,6 +78,7 @@ class ContextStats:
             "context_compactions": self.compactions,
             "context_pressure_notices": self.pressure_notices,
             "context_truncated_outputs": self.truncated_outputs,
+            "context_hard_capped_outputs": self.hard_capped_outputs,
             "context_truncated_chars": self.truncated_chars,
             "context_peak_prompt_tokens": self.peak_prompt_tokens,
             "context_last_prompt_tokens": self.last_prompt_tokens,
@@ -135,12 +146,43 @@ class ContextManager:
 
     # -- truncation --------------------------------------------------------- #
     def truncate_tool_output(self, tool_name: str, content: str) -> str:
-        limit = self.tool_output_limits.get(tool_name, DEFAULT_TOOL_OUTPUT_LIMIT)
+        """Trim a tool result, tightly only when the window is actually under pressure.
+
+        Truncation used to be unconditional while compaction was conditional, and that
+        asymmetry was the whole defect. Measured at a 120s budget: compaction fired in zero of
+        sixteen trials because the trajectory peaked around 11k against a 32k budget, while
+        every ``read_file`` was still being cut to 6000 characters. V3 paid the cost of
+        managing a window it never came close to filling, and scored below V2, which manages
+        nothing.
+
+        So the tight per-tool limits now apply from the same threshold that warns about
+        compaction. Below it a trial sees whole files, which is what a short trajectory can
+        afford. The hard ceiling still applies always, because a single huge read can overrun
+        the budget before the next measurement exists.
+        """
+        under_pressure = self.under_pressure()
+        limit = (
+            self.tool_output_limits.get(tool_name, DEFAULT_TOOL_OUTPUT_LIMIT)
+            if under_pressure
+            else HARD_OUTPUT_LIMIT
+        )
         trimmed, dropped = truncate(content, limit)
         if dropped:
             self.stats.truncated_outputs += 1
             self.stats.truncated_chars += dropped
+            if not under_pressure:
+                self.stats.hard_capped_outputs += 1
         return trimmed
+
+    def under_pressure(self) -> bool:
+        """Whether the measured window is close enough to its budget to manage.
+
+        Reads only what the provider has actually reported. Before the first measurement a
+        trial is by definition not under pressure — estimating here would reintroduce the
+        heuristic the rest of this module exists to avoid.
+        """
+        measured = self.stats.last_prompt_tokens
+        return bool(measured) and measured >= self.budget_tokens * self.warn_threshold
 
     # -- measurement -------------------------------------------------------- #
     def observe(self, prompt_tokens: int | None) -> None:

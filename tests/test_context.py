@@ -13,6 +13,7 @@ import pytest
 from codeagent_eval.adapters import BudgetContract, MiniAgentAdapter
 from codeagent_eval.agent.context import (
     DEFAULT_TOOL_OUTPUT_LIMIT,
+    HARD_OUTPUT_LIMIT,
     ContextManager,
     _safe_tail_start,
     estimate_tokens,
@@ -57,9 +58,15 @@ def test_short_output_is_untouched():
     assert truncate("small", 100) == ("small", 0)
 
 
-def test_limits_are_per_tool():
+def _pressured(mgr):
+    """Report a measurement above the pressure threshold, the way a provider turn would."""
+    mgr.observe(int(mgr.budget_tokens * mgr.warn_threshold) + 1)
+    return mgr
+
+
+def test_limits_are_per_tool_once_the_window_is_under_pressure():
     """Reading a file is worth more context than listing a directory."""
-    mgr = manager()
+    mgr = _pressured(manager())
     long_text = "y" * 20_000
 
     assert len(mgr.truncate_tool_output("read_file", long_text)) < 6100
@@ -69,14 +76,48 @@ def test_limits_are_per_tool():
     )
 
 
+def test_a_roomy_window_keeps_the_whole_output():
+    """The defect this replaced: truncation was unconditional while compaction was not.
+
+    At a 120s budget compaction fired in zero of sixteen trials because the trajectory peaked
+    near 11k against 32k, and meanwhile every read was still being cut to 6000 characters. The
+    harness paid for managing a window it never filled, and scored below the harness that
+    manages nothing.
+    """
+    mgr = manager()
+    mgr.observe(100)  # measured, and far below the threshold
+    text = "y" * 20_000
+    assert mgr.truncate_tool_output("read_file", text) == text
+    assert mgr.stats.truncated_outputs == 0
+
+
+def test_an_enormous_output_is_capped_even_with_room_to_spare():
+    """One huge read can overrun the budget inside a step, before the next measurement exists."""
+    mgr = manager()
+    mgr.observe(100)
+    trimmed = mgr.truncate_tool_output("read_file", "y" * (HARD_OUTPUT_LIMIT * 3))
+    assert len(trimmed) < HARD_OUTPUT_LIMIT + 100
+    assert mgr.stats.hard_capped_outputs == 1
+
+
+def test_pressure_is_measured_never_estimated():
+    """Before the provider has reported anything, a trial is not under pressure.
+
+    Estimating here would reintroduce the char/4 heuristic the rest of this module avoids, and
+    the estimate drifts per model and per tool schema.
+    """
+    assert manager().under_pressure() is False
+
+
 def test_an_unknown_tool_falls_back_to_the_default_limit():
-    assert len(manager().truncate_tool_output("some_new_tool", "z" * 9999)) <= (
+    mgr = _pressured(manager())
+    assert len(mgr.truncate_tool_output("some_new_tool", "z" * 9999)) <= (
         DEFAULT_TOOL_OUTPUT_LIMIT + 100
     )
 
 
 def test_truncation_is_counted_for_the_trial_record():
-    mgr = manager()
+    mgr = _pressured(manager())
     mgr.truncate_tool_output("read_file", "y" * 20_000)
     mgr.truncate_tool_output("read_file", "short")
 
