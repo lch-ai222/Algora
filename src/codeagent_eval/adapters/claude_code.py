@@ -336,7 +336,8 @@ class _ProcessOutcome:
 
 
 def _stream_process(
-    argv: list[str], *, cwd: Path, env: dict[str, str], deadline_s: float, raw_log: Path
+    argv: list[str], *, cwd: Path, env: dict[str, str], deadline_s: float, raw_log: Path,
+    append: bool = False,
 ) -> _ProcessOutcome:
     """Run the CLI, persisting every stdout line to ``raw_log`` as it arrives.
 
@@ -387,7 +388,7 @@ def _stream_process(
             else:
                 malformed += 1
 
-    with raw_log.open("w", encoding="utf-8") as sink:
+    with raw_log.open("a" if append else "w", encoding="utf-8") as sink:
         out_thread = threading.Thread(target=drain_stdout, args=(sink,), daemon=True)
         err_thread = threading.Thread(target=drain_stderr, daemon=True)
         out_thread.start()
@@ -461,6 +462,8 @@ class ClaudeCodeAdapter:
         self._workdir: Path | None = None
         self._config_dir: Path | None = None
         self._session_id: str | None = None
+        self._session_result: AgentRunResult | None = None
+        self._session_native_log: Path | None = None
         self._probe_cache: ProbeResult | None = None
 
     # -- capability contract ------------------------------------------------ #
@@ -547,6 +550,8 @@ class ClaudeCodeAdapter:
         self._sandbox = runtime
         self._workdir = workdir.resolve()
         self._session_id = None
+        self._session_result = None
+        self._session_native_log = None
         if self.config.isolate_config:
             self._config_dir = Path(tempfile.mkdtemp(prefix="cae-claude-cfg-"))
 
@@ -558,6 +563,9 @@ class ClaudeCodeAdapter:
             raise UnsupportedCapability(
                 "no Claude Code session to continue; run() must succeed with a session_id first"
             )
+        exhausted = self._session_budget_exhausted()
+        if exhausted is not None:
+            return exhausted
         return self._invoke(feedback, resume=True)
 
     def cleanup(self) -> None:
@@ -569,6 +577,8 @@ class ClaudeCodeAdapter:
         self._workdir = None
         self._config_dir = None
         self._session_id = None
+        self._session_result = None
+        self._session_native_log = None
 
     # -- execution ---------------------------------------------------------- #
     def _invoke(self, prompt: str, *, resume: bool) -> AgentRunResult:
@@ -583,12 +593,14 @@ class ClaudeCodeAdapter:
         started_at = utc_now_iso()
         started = time.monotonic()
 
+        remaining_wall_clock = self._remaining_wall_clock_s()
         outcome = _stream_process(
             self._build_argv(prompt, resume=resume),
             cwd=self._workdir,
             env=self._child_env(),
-            deadline_s=float(budget.max_wall_clock_s),
+            deadline_s=remaining_wall_clock,
             raw_log=raw_log,
+            append=resume,
         )
         duration_ms = int((time.monotonic() - started) * 1000)
 
@@ -606,7 +618,7 @@ class ClaudeCodeAdapter:
 
         stop_reason = self._stop_reason(parsed, outcome)
         cost_trusted = self._native_cost_trusted() and parsed.total_cost_usd is not None
-        return AgentRunResult(
+        segment = AgentRunResult(
             adapter=self.name,
             adapter_version=probe.version,
             patch=patch,
@@ -644,19 +656,95 @@ class ClaudeCodeAdapter:
             started_at=started_at,
             finished_at=utc_now_iso(),
         )
+        result = self._merge_session_result(segment) if resume else segment
+        self._session_result = result
+        return result
 
     def _build_argv(self, prompt: str, *, resume: bool) -> list[str]:
         argv = [self.config.cli_path, "-p", prompt, "--output-format", "stream-json", "--verbose"]
         if resume and self._session_id:
             argv += ["--resume", self._session_id]
         if self._budget and self._budget.max_steps is not None:
-            argv += ["--max-turns", str(self._budget.max_steps)]
+            used = self._session_result.steps if self._session_result else 0
+            argv += ["--max-turns", str(max(1, self._budget.max_steps - used))]
         if self.config.model:
             argv += ["--model", self.config.model]
         if self.config.permission_mode:
             argv += ["--permission-mode", self.config.permission_mode]
         argv += list(self.config.extra_args)
         return argv
+
+    def _remaining_wall_clock_s(self) -> float:
+        assert self._budget is not None
+        used = (self._session_result.duration_ms / 1000) if self._session_result else 0.0
+        return max(0.001, self._budget.max_wall_clock_s - used)
+
+    def _session_budget_exhausted(self) -> AgentRunResult | None:
+        if self._session_result is None or self._budget is None:
+            return None
+        reason = None
+        if self._session_result.duration_ms >= self._budget.max_wall_clock_s * 1000:
+            reason = "budget_time"
+        elif (
+            self._budget.max_steps is not None
+            and self._session_result.steps >= self._budget.max_steps
+        ):
+            reason = "budget_steps"
+        if reason is None:
+            return None
+        checks = {
+            **self._session_result.completion_checks,
+            "over_timeout": reason == "budget_time",
+            "over_steps": reason == "budget_steps",
+        }
+        exhausted = self._session_result.model_copy(
+            update={"stop_reason": reason, "final_message": None, "completion_checks": checks}
+        )
+        self._session_result = exhausted
+        return exhausted
+
+    def _merge_session_result(self, segment: AgentRunResult) -> AgentRunResult:
+        """Return one cumulative result for the whole resumed CLI session."""
+        previous = self._session_result
+        if previous is None:
+            return segment
+        checks = {
+            **segment.completion_checks,
+            "has_changes": bool(segment.changed_files),
+            "ran_tests": bool(
+                previous.completion_checks.get("ran_tests")
+                or segment.completion_checks.get("ran_tests")
+            ),
+            "provider_error": bool(
+                previous.completion_checks.get("provider_error")
+                or segment.completion_checks.get("provider_error")
+            ),
+            "session_invocations": int(
+                previous.completion_checks.get("session_invocations", 1)
+            ) + 1,
+            # Claude's resume result does not document whether total_cost_usd is incremental
+            # or cumulative. Summing it may double-count; taking the last value may omit the
+            # first turn. Until that contract is verified, multi-turn native cost is unknown.
+            "multi_turn_cost_reason": "resume cost accumulation semantics are unverified",
+        }
+        shifted_events = [
+            event.model_copy(update={"step": event.step + previous.steps})
+            for event in segment.events
+        ]
+        return segment.model_copy(update={
+            "events": [*previous.events, *shifted_events],
+            "prompt_tokens": previous.prompt_tokens + segment.prompt_tokens,
+            "completion_tokens": previous.completion_tokens + segment.completion_tokens,
+            "cached_tokens": previous.cached_tokens + segment.cached_tokens,
+            "cost_usd": None,
+            "cost_source": "unavailable",
+            "duration_ms": previous.duration_ms + segment.duration_ms,
+            "steps": previous.steps + segment.steps,
+            "tool_call_count": previous.tool_call_count + segment.tool_call_count,
+            "llm_calls": [*previous.llm_calls, *segment.llm_calls],
+            "completion_checks": checks,
+            "started_at": previous.started_at,
+        })
 
     def _child_env(self) -> dict[str, str]:
         env = {
@@ -677,13 +765,16 @@ class ClaudeCodeAdapter:
         return env
 
     def _native_log_path(self) -> Path:
+        if self._session_native_log is not None:
+            return self._session_native_log
         case = (self._task.case_id if self._task else None) or "trial"
         safe_case = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in case)
         # Absolute: the recorded path is provenance, and a relative one silently changes
         # meaning when an artifact is read from a different working directory.
-        return (
+        self._session_native_log = (
             self.config.native_log_dir.resolve() / f"{self.name}-{safe_case}-{uuid4().hex[:8]}.jsonl"
         )
+        return self._session_native_log
 
     def _strip_harness_artifacts(self) -> list[str]:
         """Remove CLI-authored scaffolding that was not present at the base commit."""

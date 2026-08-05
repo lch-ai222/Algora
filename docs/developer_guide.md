@@ -24,17 +24,18 @@
    - `claude_code`：调用 headless CLI，原始 stream-json 边流边落盘，结束后归一化为同一结果契约；Claude Code 2.1.220 + 智谱 GLM-5.2 已完成协议/repo smoke 和原 4-case 模型受控横向实验。
    - `reference`：`apply_reference_fix`（拷回干净版），上界。
    - `none`：不动，下界。
-4. **在注入 hidden 前**捕获 `patch` 与 `changed_files`（否则 hidden 文件污染 diff）。
-5. `inject_hidden_tests` → 把 case 的 hidden 测试拷进 worktree `tests/`。
-6. 评分：`grade_tests`（target/regression/hidden）→ `grade_constraints` → `grade_patch` → `combine`（Task/Strict）。
-7. `attribute_failure`（失败归因）→ `_persist_trial`（config/trajectory/patch/grader/failure-tags；adapter 路径另写 `agent-result.json`）。`config.json` 记录运行溯源：`adapter/adapter_version/harness/provider/model/temperature/complexity/max_tokens/max_steps/timeout_seconds`（`summary.json` 顶层 `run_config` 同）。
-8. 清理 worktree 与现构仓库。
+4. multi-turn case 由 `FeedbackDriver` 在 Agent 每次 final 后只运行当前 visible tests，再公开固定 follow-up 和该轮 visible test 文件并调用 `adapter.continue_()`；消息、计划、上下文和总预算不重置。后续测试通过 path-limited harness commit 进入 diff baseline，既不算 Agent patch，也不会掩盖 Agent 随后的测试篡改。
+5. **在注入 hidden 前**捕获 `patch` 与 `changed_files`（否则 hidden 文件污染 diff）；尚未送达的 follow-up tests 只为最终评分补齐，不进入反馈。
+6. `inject_hidden_tests` → 把 case 的 hidden 测试拷进 worktree `tests/`。
+7. 评分：`grade_tests`（全部已声明 visible + regression + hidden）→ `grade_constraints` → `grade_patch` → `combine`（Task/Strict）。
+8. `attribute_failure`（失败归因）→ `_persist_trial`（config/trajectory/patch/grader/failure-tags；adapter 路径另写 `agent-result.json`）。`config.json` 记录运行溯源：`adapter/adapter_version/harness/provider/model/temperature/complexity/max_tokens/max_steps/timeout_seconds`（`summary.json` 顶层 `run_config` 同）。
+9. 清理 worktree 与现构仓库。
 
-`run_experiment` 在其上做 cases×repeats、聚合（mean+方差、pass@k/pass^k、failure_tags、动作/模型轮次/测试次数中位数）、写 `summary.json/csv`。`--workers N` 只改变调度，不改变聚合顺序；每个 trial 最后写完成标记，`--resume` 只采纳 manifest 指纹一致且非 infra-invalid 的完整 trial。provider/网络错误是 infra-invalid，不进入成功率分母；进程退出码 3 表示实验含基础设施失败。
+`run_experiment` 在其上做 cases×repeats、聚合（mean+方差、pass@k/pass^k、failure_tags、动作/模型轮次/测试次数中位数；多轮另有 completion/recovery）、写 `summary.json/csv`。`--workers N` 只改变调度，不改变聚合顺序；每个 trial 最后写完成标记，`--resume` 只采纳 manifest 指纹一致、trial schema 一致且非 infra-invalid 的完整 trial。provider/网络错误是 infra-invalid，不进入成功率分母；进程退出码 3 表示实验含基础设施失败。
 
 失败模式检测当前作为 artifacts 后处理运行：`scripts/scan_failure_modes.py` 重放 trajectory/diff，调用 `detectors/reward_hacking.py`、`instruction_drift.py`、`context_amnesia.py`。统计比较由 `scripts/compare_experiments.py` 调用 `stats/` 的 case-cluster bootstrap、exact McNemar 和 Wilson 区间；这些结果不反写 grader，避免分析层改变原始评分证据。
 
-当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。W3-3 统计收口、W3-4 repro bundle 与 W3-5a 静态报告已沿离线路径完成；下一主线是 W3-1 multi-turn 与 W2-2 ScratchPad，W3-5b CrossAgent UI 仍待接入。
+当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。W3-1 multi-turn、W3-3 统计、W3-4 repro bundle 与 W3-5a 静态报告已沿离线路径完成；下一主线是 W2-2 ScratchPad，W3-5b CrossAgent UI 仍待接入。
 
 ## 3. LLM Provider（`llm.py`）
 
@@ -83,8 +84,8 @@
 ### 6.1 Agent Adapter（`adapters/`）
 
 - `base.py`：runtime-checkable `AgentAdapter` Protocol；不可变 `BudgetContract`；`AgentRunResult` 是跨 Agent 的 patch/轨迹/token/cost/停止原因/环境清单契约；`UnsupportedCapability` 禁止静默降级。归一化 prompt/completion 总量必须进入 `TrialResult`，不能假设外部框架会提供逐调用 `LlmCallRecord`，否则 summary 会静默报 0 token。
-- `mini_agent.py`：包装 in-process MiniAgent，硬执行 wall-clock/step/context ceiling；对总成本/总 token 等无法保证的预算明确拒绝。每回合输出上限与全程上下文上限是两个不同契约。
-- `claude_code.py`：调用 `claude -p --output-format stream-json --verbose`；独立 `CLAUDE_CONFIG_DIR` 隔离操作者 hooks/MCP/settings；wall-clock 通过进程组 SIGTERM→SIGKILL；未知/畸形记录只降级轨迹，不丢已花预算的 trial。第三方 `ANTHROPIC_BASE_URL` 下 native USD 成本语义不可信，必须降为 unavailable。Claude Code 2.1.220 + GLM-5.2 已通过协议流、repo smoke 和原 4-case 横向矩阵；该版本的 help 不列 `--max-turns`，但实跑接受，说明 capability 不能只靠 help 文本猜测。8-case 复验仍须继续把 `ENOTFOUND`/限流按 infra-invalid 处理。
+- `mini_agent.py`：包装 in-process MiniAgent，硬执行 wall-clock/step/context ceiling；V3 的 `continue_()` 保留 conversation/planner/context/worktree，并在整个 session 上累计预算。follow-up 期间 harness 跑 visible tests 的时间不计入 Agent wall-clock；对总成本等无法保证的硬预算仍明确拒绝。
+- `claude_code.py`：调用 `claude -p --output-format stream-json --verbose`；独立 `CLAUDE_CONFIG_DIR` 隔离操作者 hooks/MCP/settings；wall-clock 通过进程组 SIGTERM→SIGKILL；未知/畸形记录只降级轨迹，不丢已花预算的 trial。`continue_()` 用 session ID resume，后续调用只获得剩余 turns/time，原始流追加到同一 native log。第三方 endpoint 成本语义不可信；此外 resume 的 `total_cost_usd` 是增量还是累计尚未验证，多轮成本也必须降为 unavailable。Claude Code 2.1.220 + GLM-5.2 已通过单轮协议流、repo smoke 和原 4-case 横向矩阵；真实多轮 E5 仍待额度恢复。
 - `normalize.py`：跨框架工具语义表；例如 Read→FILE_READ、Bash+pytest→TEST_RESULT、TodoWrite→PLAN_UPDATE。推断字段必须标 provenance，不能伪装成原生真值。
 - `registry.py`：显式名称→构造器，当前为 `mini_agent` 和 `claude_code`。
 - 成本：MiniAgent 由固定费率表派生，Claude Code 仅在 native Anthropic 语义成立时接受 native 成本；不可用必须是 `cost_usd=null`、`cost_source=unavailable`。
@@ -106,6 +107,8 @@
 隔离设计要点：每 case 只引入自己的缺陷，其余模块正确 → regression 在 base 通过；对抗 case 把“正确修复所需的不变量”放在**分离的可见测试文件**里（V2 跑全套能发现，V1 只跑命名测试发现不了）。
 
 `datasets/mini_store_long/` 使用独立 `repo_src` 快照，避免为了长任务改坏短程历史基线。当前 8 个 hard case 覆盖 API 迁移、跨模块退货、级联库存、build/CLI、折扣取整、税率单一真源、释放记账和订单快照；每条带 canary。质量门禁是干净仓库 83 tests + long selfcheck 8/8 + reference/none 1.0/0.0。现有横向/H3 headline 仍来自原 4-case 矩阵，扩充 suite 后必须重跑才能升级统计结论。
+
+`datasets/mini_store_multiturn/` 复用干净 `mini_store_src`，含 pricing requirement change、inventory recovery、cart constraint persistence 三条 2–3 轮 case。`turns/<round-id>/tests/` 初始不在 worktree，随 follow-up 变为 visible；`hidden/` 始终等到最终评分。质量门禁为 selfcheck 3/3 + reference/none 1.0/0.0。该门禁只证明机制和 oracle 有效，不是实际模型 recovery rate。
 
 ## 8. Graders（`graders/`）
 
@@ -225,24 +228,24 @@ macOS 当前配置 `EVALPLUS_MAX_MEMORY_BYTES=-1` 规避 rlimit 兼容错误，�
 
 ## 15. 启动与测试
 
-见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 376 passed/1 skipped）+ `ruff check` + `scripts/selfcheck.py`（短程 9/9）+ `scripts/selfcheck.py datasets/mini_store_long`（长程 8/8）+ `scripts/check_bounds.py --suite ...`（两套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
+见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 382 passed/1 skipped）+ `ruff check` + 三套 selfcheck（短程 9/9、长程 8/8、多轮 3/3）+ `scripts/check_bounds.py --suite ...`（三套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
 
 ## 16. 测试覆盖现状
 
-- `test_llm_provider`（provider spec、served model、finish_reason/trace）、`test_pricing`（alias/cache/tier/币种/不完整定价）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch）、`test_tools`（coding + planning 工具）、`test_agent_loop`（V1/V2/V3、完成门禁、context ceiling/compaction、planner 指标）、`test_adapters` 与 `test_claude_code_adapter`（协议/预算/真实 subprocess stand-in/归一化/成本/配置隔离）、`test_parallel_runner`（并行/checkpoint/resume/infra 重试）、`test_long_suite`（8-case schema/isolation/reference/none）、`test_reward_hacking`、`test_instruction_drift`、`test_context_amnesia`、`test_scan_failure_modes`、`test_repro_bundle`（脱敏、空/非空 patch replay、篡改/oracle 漂移/旧 schema）、`test_stats`（case 宏平均、完整/部分成本、配对聚类区间）、`test_report`（artifact 兼容、infra/cost 诚实性、转义、不可覆盖）、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`、`test_api`。
+- `test_llm_provider`（provider spec、served model、finish_reason/trace）、`test_pricing`（alias/cache/tier/币种/不完整定价）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch）、`test_tools`（coding + planning 工具）、`test_agent_loop`（V1/V2/V3、完成门禁、context ceiling/compaction、planner、多轮上下文与逐轮重验）、`test_adapters` 与 `test_claude_code_adapter`（协议/累计预算/真实 subprocess stand-in/归一化/成本/配置隔离）、`test_multi_turn`（staged visible tests、hidden 防泄漏、diff baseline、恢复指标）、`test_parallel_runner`（并行/checkpoint/resume/infra 重试）、`test_long_suite`（8-case schema/isolation/reference/none）、`test_reward_hacking`、`test_instruction_drift`、`test_context_amnesia`、`test_scan_failure_modes`、`test_repro_bundle`（脱敏、空/非空 patch replay、篡改/oracle 漂移/旧 schema）、`test_stats`（case 宏平均、完整/部分成本、配对聚类区间）、`test_report`（artifact 兼容、infra/cost 诚实性、转义、不可覆盖）、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`、`test_api`。
 
 ## 17. 新任务类型与 Oracle 要求
 
 任务扩充优先级见 `benchmark_methodology_and_roadmap.md`：P0 为 bugfix、spec、instruction
 following、refactor；P1 为 review、test generation、performance、security 和并发/资源类缺陷；
-P2 为 multi-turn。
+P2 的确定性 multi-turn 第一阶段已落地，更开放的用户模拟和长期状态仍属后续研究。
 
 - Instruction Following 必须把功能成功与约束成功分开，产出真实 Task/Strict 差异。
 - Refactor 必须用完整回归/API contract 证明行为保持，不能用 Judge 代替程序 oracle。
 - Code Review 的每项判断必须引用代码证据，并用人工 gold 量 Judge 可信度。
 - Test Generation 不能只看新测试能否通过，至少使用已知缺陷检出率或 mutation testing。
 - Performance/Security 先过功能门禁，再用稳定性能输入或 exploit/negative tests 评分。
-- Multi-turn 需要用户模拟器、信息释放策略、多轮 oracle 和泄漏防护，不能简单拼接消息冒充。
+- Multi-turn 当前以固定反馈、分阶段 visible oracle 和 hidden 隔离保证可复现；更开放的用户模拟器进入评测前，还必须补稳定性和泄漏评估，不能简单拼接消息冒充。
 
 每个新 case 还必须记录能力标签、难度、语言、来源、reference、oracle、可能捷径、污染检查、
 flaky 检查、数据版本和修订/废弃原因。

@@ -28,7 +28,7 @@ Algora 是一个**仓库级 Coding Agent + 确定性评测流水线**，目标�
 
 三个必须分清的层：
 
-1. **Coding Agent（被测对象）** — `src/codeagent_eval/agent/` + `tools/` + `sandbox/`。MiniAgent 的 loop、6 个工具、进程隔离沙箱。V1/V2 是同一 agent 的两套 harness（prompt + 完成策略 + 守卫）。
+1. **Coding Agent（被测对象）** — `src/codeagent_eval/agent/` + `tools/` + `sandbox/`。MiniAgent 的 loop、6 个工具、进程隔离沙箱。V1/V2/V3 是同一 agent 的 harness 演进；V3 增加 planner、context 与有累计预算的会话续接。
 2. **Evaluation Pipeline（评测系统）** — `benchmark/` + `graders/` + `runner.py` + `failure_taxonomy.py` + `compare.py`。这是**确定性 pipeline，不是又一个评测 agent**。
 3. **Console（React 控制台）** — `backend/` + `frontend/`。只读地可视化已产出的 artifacts。
 
@@ -36,6 +36,7 @@ Algora 是一个**仓库级 Coding Agent + 确定性评测流水线**，目标�
 
 - **分级评分优先级不可倒置**：确定性程序验证（测试）> 静态规则（约束/patch）> LLM-Judge > 人工。能程序判的绝不用模型判；LLM-Judge **绝不**用于判「测试是否过 / 文件是否改 / 是否超时」这类有程序 oracle 的维度。
 - **hidden 测试对被测 agent 不可见**：hidden 测试存在 suite 的 case 目录里，只在**评分时**注入 worktree（`inject_hidden_tests`），trial 运行期间绝不可读。任何改动都要保证这一点，`scripts/selfcheck.py` 是硬门槛。
+- **多轮后续测试分阶段可见**：`FeedbackDriver` 只运行/回灌当前已公开的 visible tests；下一轮测试随用户 follow-up 才注入，并进入 harness diff baseline。hidden/regression 信息仍不得回灌，未来轮测试不得在初始 worktree 出现。
 - **无污染**：mini_store 是自建私有集；每个 case 用 `materialize_case` 现构一个**只含该 case 缺陷、且 git 历史里没有正确答案**的仓库，杜绝 agent 用 `git checkout` 取到解。
 - **V1/V2 归因纪律**：对比 V1/V2 时**同模型、同 benchmark、同预算、同温度、同步数、同环境**，变化只归因到 harness。违反此纪律的对比结果无效。
 - **Task Success vs Strict Success 双指标**：Task=功能正确（target+regression+hidden 全过）；Strict=Task 且工程合规（约束通过 + patch 干净、未改测试）。不要合并成单一指标。
@@ -60,6 +61,7 @@ src/codeagent_eval/
 backend/app/        FastAPI 只读 API（读 artifacts/runs/）。
 frontend/           Vite + React + TS 控制台。
 datasets/           mini_store_src（干净源）+ mini_store_suite（9 个 case + defect/hidden）。
+                    mini_store_long（8 个 hard case）+ mini_store_multiturn（3 个 staged case）。
 scripts/            selfcheck.py（硬门槛）+ compare_runs.py。
 artifacts/runs/     每次实验的 trace/patch/grader/failure-tags/summary。不提交。
 ```
@@ -87,6 +89,8 @@ python3.11 -m venv .venv && .venv/bin/pip install -e ".[dev,api]"
 
 # benchmark 硬门槛（9 个 case 必须全 valid）
 .venv/bin/python scripts/selfcheck.py
+.venv/bin/python scripts/selfcheck.py datasets/mini_store_long
+.venv/bin/python scripts/selfcheck.py datasets/mini_store_multiturn
 
 # 闭环
 .venv/bin/python -m codeagent_eval.runner --agent reference     # 上界（无 LLM）
@@ -104,6 +108,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5173
 
 - `datasets/mini_store_src/` — 干净（正确）源 + 可见测试；提交。
 - `datasets/mini_store_suite/` — `suite.json` + `cases/<id>/{defect,hidden}/`；提交。
+- `datasets/mini_store_multiturn/` — 3 条多轮 case；`turns/<round-id>/tests/` 只在对应 follow-up 时公开，hidden 仍只在最终评分注入；提交。
 - `artifacts/runs/<experiment_id>/` — 每 trial 的 `config.json / trajectory.jsonl / patch.diff / grader-results.json / failure-tags.json` + 顶层 `summary.json/csv`；**不提交**（`.gitignore`）。清理直接 `rm -rf artifacts/runs/<id>`。
   - `config.json` 记录**运行溯源**：`agent / provider / model / temperature / complexity / max_tokens / max_steps / timeout_seconds`；`summary.json` 顶层 `run_config` 记同一套（整个实验恒定）。V1/V2 对比只有在这些一致时才成立（归因纪律），故必须落盘可审计。
 

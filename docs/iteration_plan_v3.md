@@ -12,11 +12,11 @@
 |---|---|---|---|
 | **W1** | W1-1～W1-7（7/7）；长程 suite 后续从 4 扩到 8 case | — | — |
 | **W2** | W2-1 context、W2-3 context amnesia、W2-4 reward hacking、W2-6 instruction drift（4/8） | — | W2-2 ScratchPad、W2-5 hackbait、W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
-| **W3** | W3-3 统计收口、W3-4 repro bundle | W3-5 静态报告完成/CrossAgent UI 待做、W3-6 部分实验、W3-7 README/横向报告 | W3-1 multi-turn、W3-2 RepoMemory |
+| **W3** | W3-1 multi-turn、W3-3 统计收口、W3-4 repro bundle | W3-5 静态报告完成/CrossAgent UI 待做、W3-6 部分实验、W3-7 README/横向报告 | W3-2 RepoMemory |
 
-当前门禁：**376 passed / 1 skipped，Ruff 全绿，短/长 selfcheck 9/9 + 8/8；长程干净仓库 83 passed**。模型受控横向报告与 H3 消融仍基于原 4-case 矩阵；扩到 8 case 只提升了下一轮实验的统计设计，尚未自动提升既有结论的证据等级。
+当前门禁：**382 passed / 1 skipped，Ruff 全绿，短/长/多轮 selfcheck 9/9 + 8/8 + 3/3；三套 reference/none=1.00/0.00；长程干净仓库 83 passed**。模型受控横向报告与 H3 消融仍基于原 4-case 矩阵；扩到 8 case 和新增 3-case 多轮 suite 只提升了下一轮实验设计，尚未自动提升既有真实模型结论的证据等级。
 
-**执行约束更新（2026-08-05）**：W3-6 的 8-case 受控矩阵拆为 **W3-6a**，因 GLM API 无可用额度标记为外部阻塞。既有 4-case 结果不作废，也不以其他模型替跑后混入同一比较；原 GLM 端点恢复、preflight 通过且额度覆盖固定矩阵后继续。W3-3 统计、W3-4 repro bundle 和 W3-5a 静态报告已沿离线路径完成；后续顺序为 W3-1/W2-2 multi-turn 与 ScratchPad → W3-5b CrossAgent UI → W2-5 hackbait 基础设施。
+**执行约束更新（2026-08-05）**：W3-6 的 8-case 受控矩阵拆为 **W3-6a**，因 GLM API 无可用额度标记为外部阻塞。既有 4-case 结果不作废，也不以其他模型替跑后混入同一比较；原 GLM 端点恢复、preflight 通过且额度覆盖固定矩阵后继续。W3-1 multi-turn、W3-3 统计、W3-4 repro bundle 和 W3-5a 静态报告已沿离线路径完成；后续顺序为 W2-2 ScratchPad → W3-5b CrossAgent UI → W2-5 hackbait 基础设施。多轮真实模型 E5 与 W3-6a 一起等待额度恢复。
 
 #### 详细执行记录（保留历史时间点与假设修正）
 
@@ -70,8 +70,8 @@
 
 | # | JD 职责原文（要点） | 当前覆盖（2026-08-05） | 仍缺证据 | 状态 |
 |---|---|---|---|---|
-| 1 | Code Agent 框架开发与迭代：**代码理解、工具调用、多轮交互、记忆管理、任务规划** | 6 个 coding 工具、planner、确定性 compaction、完成守卫均已落地并做过消融 | 代码理解仍是 grep/read；ScratchPad、跨 run memory、multi-turn、subagent 均未实现 | 🟨 部分覆盖 |
-| 2 | 面向**主流 Code Agent及自研框架**的系统化评测；覆盖真实开发任务、**长程多轮交互**、**完整工具链（构建/测试/部署）** | Claude Code + MiniAgent 的同模型横向实验；9 短程 + 8 长程；build/CLI case | 第二外部 Agent、multi-turn、deploy、官方 SWE-bench、多语言均缺；headline 尚未在 8-case 重跑 | 🟨 部分覆盖 |
+| 1 | Code Agent 框架开发与迭代：**代码理解、工具调用、多轮交互、记忆管理、任务规划** | 6 个 coding 工具、planner、确定性 compaction、完成守卫、真实会话续接和累计预算均已落地；context/planner 已做消融 | 代码理解仍是 grep/read；ScratchPad、跨 run memory、subagent 未实现；multi-turn 真实模型恢复率未测 | 🟨 部分覆盖 |
+| 2 | 面向**主流 Code Agent及自研框架**的系统化评测；覆盖真实开发任务、**长程多轮交互**、**完整工具链（构建/测试/部署）** | Claude Code + MiniAgent 的同模型横向实验；9 短程 + 8 长程 + 3 多轮；build/CLI case | 第二外部 Agent、deploy、官方 SWE-bench、多语言均缺；8-case 与多轮矩阵尚未实跑 | 🟨 部分覆盖 |
 | 3 | 自动化评测框架：**多 Agent 并行、环境隔离、过程可观测、结果自动化分析与可视化报告** | 进程池、trial 续跑、容器断网门禁、统一 TraceEvent、统计脚本、离线 JSON/MD/HTML 报告和只读控制台均完成 | 专用 CrossAgent UI 未实现；“并行 trial”不等于 Agent 内多智能体协作 | ✅ 主体完成 |
 | 4 | 自动识别**指令偏移、上下文遗忘、测试投机**；产出**可复现缺陷诊断包与回归用例** | 三个独立检测器均已实现并回扫真实 artifacts；repro bundle + 无模型 replay 已完成 | hackbait suite 未实现；不受约束的投机样本仅 16 个 | ✅ 工程闭环完成，行为样本待扩 |
 | 5 | 深度洞察与产品驱动：输出分析报告，为框架优化提供建议 | 已有模型受控横向报告、预算/成本/上下文消融，并据此纠正 planner 结论 | 8-case 复验、第二模型/第二外部 Agent、独立 capability-gap 与 failure-atlas 报告尚缺 | 🟨 部分覆盖 |
@@ -83,7 +83,7 @@
 | **框架开发经验** | MiniAgent loop、工具、sandbox、planner、context、adapter 契约和真实消融 | ✅ 有直接代码与数据 |
 | **深度用户视角**（1 年+ AI 编程工具） | 仓库只能证明实际接入并分析过 Claude Code，不能证明一年时长 | ⚠️ 需由履历和案例补证，不应由项目文档代替 |
 | **Python + 系统级语言** | Python 主体扎实；TypeScript 控制台规模仍小 | 🟨 Python 强，第二语言深度证据弱 |
-| **软件工程素养** | 376 tests、Ruff、Protocol、CI/nightly、容器门禁、测量缺陷回归 | ✅ 强覆盖 |
+| **软件工程素养** | 382 tests、Ruff、Protocol、CI/nightly、容器门禁、测量缺陷回归 | ✅ 强覆盖 |
 | **评测与数据思维** | 私有 benchmark、kappa、cluster bootstrap、Wilson、McNemar、分层宏平均、成本覆盖/配对统计、预注册与变量控制 | ✅ 强覆盖；repo/language 与 token/tool/time per success 待补 |
 | 加分：**开源经历** | 当前仓库是否公开及外部采用情况不由代码内容证明 | ❌/待外部证据 |
 | 加分：**平台工程** | 并行调度、checkpoint、manifest 指纹、环境清单、CI | ✅ 强覆盖 |
@@ -118,7 +118,7 @@
 | ID | 差距 | 严重度 | 根因 |
 |---|---|---|---|
 | G1 | Claude Code 横向已完成；第二外部 adapter 未接，8-case 矩阵未重跑 | 🟠 高 | 现有 headline 仍是 4 case、单模型；无法形成三方结论 |
-| G2 | context 与 planner 已落地；memory/multi-turn 未做 | 🟠 高 | W1-4/W2-1 已关闭一半差距；后两项仍需独立 oracle 与隔离设计 |
+| G2 | context、planner 与 multi-turn 已落地；memory 未做 | 🟡 中 | staged visible oracle、续接和预算隔离已完成；ScratchPad/RepoMemory 仍需独立隔离设计，真实多轮 E5 待额度 |
 | G3 | 长程 suite 已扩到 8 case，但主要矩阵仍只跑过旧 4 case | 🟠 高 | 数据扩充与结论升级之间还差一次同配置复验 |
 | G4 | ~~三类检测器之后缺 repro bundle/回归 fixture~~ **已关闭** | ✅ | 脱敏 bundle、checksum/suite 指纹、无模型 grader replay 已完成 |
 | G5 | reward hacking 行为样本不足；无 hackbait suite | 🟡 中 | 640 patch 中只有 16 个不受沙箱强制，零事件上界仍为 19.4% |
@@ -332,7 +332,7 @@ class EvalCase(BaseModel):
 |---|---|---|---|
 | `mini_store_suite`（短程） | 9 case | 13 case（+2 instruction-following、+1 refactor、+1 build） | 基础回归；模型阶梯的区分度底座 |
 | `mini_store_long`（长程） ✅ | 8 case；原 4-case 校准动作中位数 30、模型轮次 13.5 | 在 8 case 上重跑消融/横向评测 | **解锁 context/memory/plan 的测量**；三方横向对比主战场 |
-| `mini_store_multiturn` 🆕 | — | 3 case（复用短程 case + FeedbackDriver） | 失败恢复率；多轮后约束是否漂移 |
+| `mini_store_multiturn` ✅ | 3 case（2–3 轮 staged visible tests） | 额度恢复后跑 v3 / Claude Code repeats | 失败恢复率；多轮后约束是否漂移 |
 | `mini_store_hackbait` 🆕 | — | 3 case，`allow_test_edits=True` 且欠定义/偏难 | 测试投机检出率 |
 | `swebench_official` 🆕 | 兼容样例 1 条 | 3–5 条官方 Verified 实例 | 证据等级从 Compatibility 升到 Smoke Slice |
 | `evalplus_official` | 5 题 ✅ | 不变 | 已完成，不重复投入 |
@@ -391,7 +391,7 @@ class EvalCase(BaseModel):
 
 | ID | 任务 | 线 | 依赖 | 工时 | 验收标准 |
 |---|---|---|---|---|---|
-| **W3-1 ⬜** | `multi_turn.py` 确定性反馈回合 + 3 条多轮 case | 🟠🟣 | W1-2 | 1.5d | 未开始 |
+| **W3-1 ✅** | `multi_turn.py` 确定性反馈回合 + 3 条多轮 case | 🟠🟣 | W1-2 | 1.5d | visible-only feedback、分阶段测试、MiniAgent/Claude session 续接、累计预算、recovery 指标完成；3/3 selfcheck 与 bounds 通过，真实 E5 待额度 |
 | **W3-2 ⬜** | `memory.py` 跨 run RepoMemory + 隔离验证 | 🟠 | W2-2 | 1d | 未开始；不得绕过 repeats 泄漏防护 |
 | **W3-3 ✅** | `stats/`：cluster bootstrap CI + exact McNemar + 分层宏平均 + 成本统计 | 🔵 | — | 1d | difficulty/task_type/horizon 宏平均、cost/success 和严格配对的 case-cluster 成本区间已完成；repo/language 与 token/tool/time per success 留作 B3 扩展 |
 | **W3-4 ✅** | `detectors/repro_bundle.py`：诊断包 + 自动回归 fixture | 🔵 | W2-4/6 | 1d | 空/非空失败 patch 离线 replay；hidden/凭据/篡改/oracle 漂移/legacy 边界均有测试 |
@@ -401,7 +401,7 @@ class EvalCase(BaseModel):
 | **W3-7 🟨** | 框架开源清理（密钥审计、命名统一、README 架构图）+ 洞察报告 | ⚫ | W3-6 | 0.5d | README 与横向报告已完成；开源核验、命名统一和独立洞察文档未闭环 |
 
 **当前可后置项**：W3-2（跨 run memory）→ W2-5（hackbait 专用 suite）→ B3 的 repo/language 与 token/tool/time 扩展。跨 run memory 风险高且不应只为“打勾”实现。
-**当前不可后置项**：W3-1 multi-turn、W3-5b CrossAgent UI、W2-8 第二外部 adapter、W2-7 官方实例；它们直接对应尚未闭环的 JD 证据。W3-6a 同属高优先级，但在外部额度恢复前暂停，不以改变模型换取表面进度。
+**当前不可后置项**：W2-2 run 内 ScratchPad、W3-5b CrossAgent UI、W2-8 第二外部 adapter、W2-7 官方实例；它们直接对应尚未闭环的 JD 证据。W3-6a 与多轮 E5 同属高优先级，但在外部额度恢复前暂停，不以改变模型换取表面进度。
 
 ---
 
@@ -601,10 +601,10 @@ class EvalCase(BaseModel):
 | 交付物 | 当前状态 | 对应 JD |
 |---|---|---|
 | `adapters/` 异构 Agent 接入层 + 轨迹归一化 | ✅ MiniAgent + Claude Code；第二外部 Agent 未接 | 职责 2、3 |
-| MiniAgent v3（context + memory + planner + multi-turn） | 🟨 context/planner 完成；memory/multi-turn 未做 | 职责 1 |
+| MiniAgent v3（context + memory + planner + multi-turn） | 🟨 context/planner/multi-turn 完成；memory 未做，多轮 live 指标待跑 | 职责 1 |
 | `detectors/` 三类失败模式检测器 + repro bundle | ✅ 检测、脱敏诊断、自动 fixture、无模型 replay 完成 | 职责 4 |
-| `stats/` + `report.py` + 跨 Agent 前端视图 | 🟨 统计核心完成；report/UI 未做 | 职责 3、5 |
-| 长程 / 多轮 / hackbait / SWE-bench 官方四类 suite | 🟨 长程 8-case 完成；其余三类未做 | 职责 2 |
+| `stats/` + `report.py` + 跨 Agent 前端视图 | 🟨 统计与静态 JSON/MD/HTML 完成；专用 UI 未做 | 职责 3、5 |
+| 长程 / 多轮 / hackbait / SWE-bench 官方四类 suite | 🟨 长程 8-case、多轮 3-case 完成；后两类未做 | 职责 2 |
 | `.github/workflows/` CI + nightly eval | ✅ 完成 | 加分项 |
 | `docs/cross_agent_report_v1.md` 横向对比报告 | ✅ 双 Agent/三 scaffold、原 4-case；非三方外部 Agent | 职责 2、5 |
 | `docs/failure_mode_atlas_v1.md` | ⬜ 未创建 | 职责 4 |

@@ -35,7 +35,7 @@ class TestGrade(BaseModel):
 
 
 def grade_tests(sandbox: WorktreeSandbox, case: EvalCase, timeout: int = 120) -> TestGrade:
-    target = run_pytest(sandbox, case.visible_tests, timeout=timeout)
+    target = run_pytest(sandbox, case.all_visible_tests, timeout=timeout)
     regression = run_pytest(sandbox, case.regression_tests, timeout=timeout)
     hidden = run_pytest(sandbox, case.hidden_tests, timeout=timeout)
     tp, rp, hp = target.all_passed, regression.all_passed, hidden.all_passed

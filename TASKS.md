@@ -18,10 +18,10 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | DOC | 长期文档（本批） | — | ✅ 完成 |
 | B1 | HumanEval+/EvalPlus 官方 Smoke Slice | P0 | ✅ 完成 |
 | B2 | SWE-bench 官方实例 Smoke Slice | P0 | ⬜ 待开发 |
-| B3 | 统计增强与分层报告 | P0/P1 | 🟨 统计核心完成，分层/成本待补 |
+| B3 | 统计增强与分层报告 | P0/P1 | 🟨 计划内核心完成，扩展字段待补 |
 | B4 | Terminal-Bench/Harbor Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
 | B5 | OctoBench Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
-| G1 | 私有 Golden Dataset 类型扩充 | P0/P1/P2 | 🟨 长程 8-case 完成，其他类型待补 |
+| G1 | 私有 Golden Dataset 类型扩充 | P0/P1/P2 | 🟨 长程 8-case + 多轮 3-case 完成，其他类型待补 |
 | V3 W1-1 | `mini_store_long` 长程 suite | P0 | ✅ 完成 |
 | V3 W1-2 | AgentAdapter + MiniAgentAdapter + runner 接入 | P0 | ✅ 完成 |
 | V3 W1-3 | ClaudeCodeAdapter | P0 | ✅ 代码；✅ protocol + repo live |
@@ -37,7 +37,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W2-6 | 指令偏移检测器 | P0 | ✅ 完成 |
 | V3 W2-7 | SWE-bench 官方 Smoke Slice | P0 | ⬜ 未开始 |
 | V3 W2-8 | 第二外部 Agent adapter | P0 | ⬜ 未开始 |
-| V3 W3-1 | 确定性 multi-turn + 3 case | P0 | ⬜ 未开始 |
+| V3 W3-1 | 确定性 multi-turn + 3 case | P0 | ✅ 离线工程闭环完成 |
 | V3 W3-2 | 跨 run RepoMemory | P1 | ⬜ 未开始 |
 | V3 W3-3 | 统计增强 | P0/P1 | ✅ 计划内统计完成 |
 | V3 W3-4 | repro bundle + 回归 fixture | P0 | ✅ 完成 |
@@ -66,7 +66,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] provider/网络错误作为 infra-invalid 排除出能力分母；compare 拒绝基础设施无效 run。
 - [x] V2 拒绝截断、空回复、无改动、未测试和末次测试失败的假完成；V1 行为不变。
 - [x] 成本费率缺失时记录 `cost_usd=null`、`cost_source=unavailable`，不伪造零成本。
-- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（376 passed/1 skipped）。
+- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（382 passed/1 skipped）。
 
 ### W1-3 · ClaudeCodeAdapter ✅（代码 + live）
 
@@ -130,7 +130,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ### Week 3 · 统计、产品化与收口
 
-- [ ] **W3-1 Multi-turn**：确定性反馈驱动与 3 条多轮 case 未实现。
+- [x] **W3-1 Multi-turn**：确定性 visible-only feedback、分阶段测试公开、MiniAgent/Claude session 续接、全会话预算、恢复指标和 3 条 2–3 轮 case 均已完成；3/3 selfcheck、reference/none=1.00/0.00。真实模型 E5 因额度待跑，不把离线机制验收写成恢复率结论。
 - [ ] **W3-2 RepoMemory**：跨任务记忆与 trial 间清空验证未实现。
 - [x] **W3-3 Statistics**：case-cluster bootstrap、exact McNemar、Wilson、task_type/difficulty/horizon 分层宏平均、完整成本覆盖门禁、cost/success 与 case-cluster 配对成本 bootstrap 均已实现；缺失/旧 `0.0/derived` 成本保持 unavailable。
 - [x] **W3-4 Repro bundle**：失败 trial 可生成脱敏诊断包与回归 fixture；无模型 replay 会重新 materialize、应用 patch、评分并比对稳定签名。hidden 测试代码/节点/失败正文和 native log 不入包，suite 指纹漂移、checksum 篡改、凭据形态 patch、infra-invalid 均拒绝误归因；旧 schema 可生成诊断包但明确拒绝编造 replay 证据。
@@ -240,21 +240,21 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [ ] 选择少量官方 OctoBench 环境，验证 Task/Strict 分离和持续约束。
 - **验收**：分别完成 protocol-conformant smoke slice；不作为全量 leaderboard 结果。
 
-## G1 · 私有 Golden Dataset 扩充 🟨（长程地基已完成）
+## G1 · 私有 Golden Dataset 扩充 🟨（长程与确定性多轮地基已完成）
 
 - [x] P0（部分）：长程跨模块 spec、行为保持/API 迁移 refactor、级联 bugfix、build/CLI case 已落地；短程 instruction-following 仍待补。
 - [ ] P1：带证据的 code review；以缺陷检出率/mutation score 评分的 test generation；performance；security；并发/资源泄漏/事务一致性。
-- [ ] P2：multi-turn 需求澄清、需求变化与跨轮状态；先设计用户模拟器、多轮 oracle、稳定性与泄漏防护。
+- [x] P2（第一阶段）：3 条确定性 multi-turn case、分阶段 visible oracle、session 续接、累计预算、恢复指标与泄漏防护已落地；开放式用户模拟器和真实模型 E5 尚未完成。
 - [ ] 所有 case 补齐来源、标签、难度、语言、reference/oracle、污染/flaky/捷径检查、版本和修订记录。
 
 ---
 
 ## 当前推荐执行顺序
 
-V3 W1 全部完成，W2-1/3/4/6 完成，W3-3/4 完成，W3-5/6/7 部分完成。W3-6a 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
+V3 W1 全部完成，W2-1/3/4/6 完成，W3-1/3/4 完成，W3-5/6/7 部分完成。W3-6a 与多轮 E5 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
 
-1. 完成 W3-1 确定性 multi-turn，并用 scripted provider 离线验收；随后实现 run 内 ScratchPad。
+1. 完成 W2-2 run 内 ScratchPad，并用 scripted provider 验证常驻记忆、context budget 与 trial 隔离。
 2. 完成 W3-5b 专用 CrossAgent UI，直接消费 W3-5a 的同源报告数据或现有只读 API。
 3. 完成 W2-5 hackbait 基础设施与 suite；真实模型 hacking-rate 等额度恢复后再测。
-4. 额度恢复后执行 W3-6a：在当前 8-case 长程 suite 上按原模型、wall-clock、温度和 repeats 重跑受控矩阵。
+4. 额度恢复后执行 W3-6a 与 E5：长程 8-case 重跑受控矩阵，并在多轮 3-case 上测真实恢复率。
 5. 再推进第二外部 Agent 与 B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。

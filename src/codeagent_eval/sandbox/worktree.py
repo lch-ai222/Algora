@@ -196,6 +196,26 @@ class WorktreeSandbox:
         )
         return [line for line in out.splitlines() if line.strip()]
 
+    def checkpoint_harness_files(self, paths: list[str], *, message: str) -> None:
+        """Advance the diff baseline with evaluator-authored files only.
+
+        Multi-turn acceptance tests become visible between agent turns. They must exist in
+        the worktree without being charged as the agent's patch. A path-limited commit keeps
+        all agent source edits uncommitted, then advances the sandbox baseline to that commit;
+        later edits to the revealed tests are therefore still visible and gradeable.
+        """
+        if not paths:
+            return
+        resolved: list[str] = []
+        for path in paths:
+            candidate = self.resolve(path)
+            if not candidate.is_file():
+                raise SandboxError(f"cannot checkpoint missing harness file: {path}")
+            resolved.append(str(candidate.relative_to(self.root.resolve())))
+        self._git(["add", "--", *resolved], cwd=self.root)
+        self._git(["commit", "-qm", message, "--only", "--", *resolved], cwd=self.root)
+        self._resolved_base = self._git(["rev-parse", "HEAD"], cwd=self.root).strip()
+
     # -- internal ----------------------------------------------------------- #
     def _git(self, args: list[str], cwd: Path, check: bool = True) -> str:
         proc = subprocess.run(

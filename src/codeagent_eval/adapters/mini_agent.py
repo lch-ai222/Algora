@@ -66,6 +66,7 @@ class MiniAgentAdapter:
         self._budget: BudgetContract | None = None
         self._sandbox: WorktreeSandbox | None = None
         self._context_ceiling: int | None = None
+        self._agent: MiniAgent | None = None
 
     def probe(self) -> ProbeResult:
         enabled = getattr(self.provider, "enabled", True)
@@ -86,6 +87,8 @@ class MiniAgentAdapter:
             caps.add(Capability.PLANNING)
         if self.harness == "v3" and "context" not in self.ablate:
             caps.add(Capability.COMPACTION)
+        if self.harness == "v3":
+            caps.add(Capability.MULTI_TURN)
         return caps
 
     def prepare(
@@ -126,16 +129,22 @@ class MiniAgentAdapter:
             context_ceiling_tokens=self._context_ceiling,
             max_tokens=self.max_completion_tokens,
         )
-        trial = MiniAgent(self.provider, config).run(task, self._sandbox, case_id=task.case_id)
+        self._agent = MiniAgent(self.provider, config)
+        trial = self._agent.run(task, self._sandbox, case_id=task.case_id)
         return self._normalize(trial)
 
-    def continue_(self, feedback: str) -> AgentRunResult:  # noqa: ARG002
-        raise UnsupportedCapability("MiniAgent does not support multi-turn continuation yet")
+    def continue_(self, feedback: str) -> AgentRunResult:
+        if self.harness != "v3":
+            raise UnsupportedCapability("multi-turn continuation is available only in harness v3")
+        if self._agent is None:
+            raise UnsupportedCapability("run() must start a MiniAgent session before continue_()")
+        return self._normalize(self._agent.continue_(feedback))
 
     def cleanup(self) -> None:
         self._task = None
         self._budget = None
         self._sandbox = None
+        self._agent = None
 
     def _normalize(self, trial: TrialResult) -> AgentRunResult:
         prompt_tokens = sum(call.prompt_tokens for call in trial.llm_calls)

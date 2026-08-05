@@ -578,12 +578,18 @@ def test_continue_requires_a_session_then_resumes_it(fake_claude, git_repo, tmp_
             adapter.continue_("try again")
 
         fake_claude.script(lines=[json.dumps(init_record()), json.dumps(result_record())])
-        adapter.run("fix add")
-        adapter.continue_("tests still fail")
+        first = adapter.run("fix add")
+        continued = adapter.continue_("tests still fail")
         adapter.cleanup()
 
     argv = fake_claude.invocation()["argv"]
     assert argv[argv.index("--resume") + 1] == "sess-1"
+    assert int(argv[argv.index("--max-turns") + 1]) == 12 - first.steps
+    assert continued.steps == first.steps * 2
+    assert continued.completion_checks["session_invocations"] == 2
+    assert continued.cost_usd is None and continued.cost_source == "unavailable"
+    assert "unverified" in continued.completion_checks["multi_turn_cost_reason"]
+    assert len(Path(continued.native_trajectory_path).read_text().splitlines()) == 4
 
 
 # --------------------------------------------------------------------------- #

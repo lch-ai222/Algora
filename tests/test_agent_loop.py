@@ -35,6 +35,16 @@ class ScriptedProvider:
         return turn
 
 
+class RecordingScriptedProvider(ScriptedProvider):
+    def __init__(self, turns: list[LlmToolTurn]):
+        super().__init__(turns)
+        self.messages: list[list[dict]] = []
+
+    def tool_completion(self, **kwargs):
+        self.messages.append([dict(item) for item in kwargs["messages"]])
+        return super().tool_completion(**kwargs)
+
+
 def _fix_bug_script() -> list[LlmToolTurn]:
     return [
         LlmToolTurn(tool_calls=[LlmToolCall(call_id="c1", name="read_file", arguments={"path": "app.py"})]),
@@ -173,6 +183,62 @@ def test_v2_repeated_action_guard(git_repo: Path):
     with WorktreeSandbox(git_repo) as sb:
         result = agent.run(task, sb)
     assert result.stop_reason == "repeated_action"
+
+
+def test_v3_continuation_preserves_conversation_and_total_step_budget(git_repo: Path):
+    provider = RecordingScriptedProvider([
+        LlmToolTurn(content="initial answer", tool_calls=[]),
+        LlmToolTurn(
+            tool_calls=[LlmToolCall(call_id="edit", name="apply_patch", arguments={
+                "path": "app.py",
+                "old_str": "return a - b  # bug: should be +",
+                "new_str": "return a + b",
+            })]
+        ),
+        LlmToolTurn(content="follow-up complete", tool_calls=[]),
+    ])
+    agent = MiniAgent(provider, AgentConfig.for_harness("v3"))
+    task = AgentTask(instruction="inspect the request", workspace_path="", max_steps=3)
+
+    with WorktreeSandbox(git_repo) as sandbox:
+        first = agent.run(task, sandbox)
+        final = agent.continue_("The visible check still needs the addition fix.")
+
+    assert first.steps == 1
+    assert final.steps == 3
+    assert final.stop_reason == "final"
+    assert "+    return a + b" in final.patch
+    assert any(event.type == TraceEventType.USER_FEEDBACK for event in final.events)
+    continued_messages = provider.messages[1]
+    assert any(item.get("content") == "initial answer" for item in continued_messages)
+    assert any("visible check" in item.get("content", "") for item in continued_messages)
+
+
+def test_v3_followup_requires_fresh_verification_not_a_previous_turn_test(git_repo: Path):
+    provider = ScriptedProvider([
+        *_fix_bug_script(),
+        LlmToolTurn(content="follow-up done without retesting", tool_calls=[]),
+        LlmToolTurn(tool_calls=[LlmToolCall(
+            call_id="retest", name="run_command", arguments={"command": "pytest -q"}
+        )]),
+        LlmToolTurn(content="follow-up verified", tool_calls=[]),
+    ])
+    agent = MiniAgent(provider, AgentConfig.for_harness("v3"))
+    task = AgentTask(
+        instruction="fix and test addition",
+        workspace_path="",
+        max_steps=8,
+        require_tests_run_before_finish=True,
+    )
+
+    with WorktreeSandbox(git_repo) as sandbox:
+        first = agent.run(task, sandbox)
+        final = agent.continue_("Reconfirm the behavior before delivery.")
+
+    assert first.stop_reason == "final"
+    assert final.stop_reason == "final"
+    assert final.completion_checks["premature_final_attempts"] == 1
+    assert final.completion_checks["last_test_passed"] is True
 
 
 @pytest.mark.skipif(

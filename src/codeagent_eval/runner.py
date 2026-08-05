@@ -44,13 +44,16 @@ from codeagent_eval.adapters import (
     EXTERNAL_ADAPTERS,
     AgentRunResult,
     BudgetContract,
+    Capability,
     ClaudeCodeConfig,
     create_adapter,
 )
 from codeagent_eval.agent.loop import AgentConfig, TrialResult
 from codeagent_eval.benchmark import (
     EvalCase,
+    FeedbackDriver,
     apply_reference_fix,
+    inject_all_feedback_tests,
     inject_hidden_tests,
     load_suite,
     materialize_case,
@@ -74,7 +77,7 @@ HARNESS_KINDS = ("v1", "v2", "v3")
 
 #: Bumped when a persisted trial's on-disk shape changes, so `--resume` refuses to mix
 #: artifacts it cannot interpret rather than silently aggregating stale ones.
-TRIAL_SCHEMA_VERSION = 2
+TRIAL_SCHEMA_VERSION = 3
 
 
 # --------------------------------------------------------------------------- #
@@ -90,6 +93,7 @@ def _run_adapter_trial(
     case: EvalCase,
     provider,
     *,
+    suite_dir: Path | None = None,
     adapter_name: str = "mini_agent",
     max_completion_tokens: int = 2048,
     adapter_config=None,
@@ -119,9 +123,75 @@ def _run_adapter_trial(
     adapter.prepare(sandbox.root, task, budget, runtime=sandbox)
     try:
         result = adapter.run(task.instruction)
+        if case.multi_turn is not None:
+            if suite_dir is None:
+                raise ValueError("suite_dir is required for multi-turn cases")
+            if Capability.MULTI_TURN not in adapter.capabilities():
+                raise RuntimeError(f"adapter {adapter.name} does not support multi-turn cases")
+            result = _run_feedback_rounds(
+                adapter, result, FeedbackDriver(case, suite_dir), sandbox
+            )
         return result.to_trial_result(), result
     finally:
         adapter.cleanup()
+
+
+def _run_feedback_rounds(
+    adapter, result: AgentRunResult, driver: FeedbackDriver, sandbox: WorktreeSandbox
+) -> AgentRunResult:
+    """Continue one prepared adapter and attach auditable recovery facts to its final result."""
+    turns = []
+    outcomes = []
+    while result.stop_reason == "final":
+        turn = driver.next_turn(sandbox)
+        if turn is None:
+            break
+        outcomes.append(turn.visible_outcome)
+        turns.append({
+            "index": turn.index,
+            "round_id": turn.round_id,
+            "feedback": turn.feedback,
+            "visible_passed_before_followup": turn.visible_outcome.all_passed,
+            "visible_failed": turn.visible_outcome.failed,
+            "visible_errors": turn.visible_outcome.errors,
+            "injected_files": list(turn.injected_files),
+        })
+        result = adapter.continue_(turn.feedback)
+
+    final_outcome = driver.evaluate(sandbox)
+    outcomes.append(final_outcome)
+    initial_passed = outcomes[0].all_passed
+    completed = len(turns) == len(driver.case.multi_turn.rounds) and result.stop_reason == "final"
+    recovery_turn = next(
+        (index + 1 for index, outcome in enumerate(outcomes) if index > 0 and outcome.all_passed),
+        None,
+    )
+    checks = {
+        **result.completion_checks,
+        "multi_turn": True,
+        "feedback_rounds_required": len(driver.case.multi_turn.rounds),
+        "feedback_rounds_delivered": len(turns),
+        "multi_turn_completed": completed,
+        "initial_visible_passed": initial_passed,
+        "final_visible_passed": final_outcome.all_passed if completed else False,
+        "recovered_visible": bool(not initial_passed and completed and final_outcome.all_passed),
+        "recovery_turn": recovery_turn if completed else None,
+        "feedback_turns": turns,
+        "final_visible_failed": final_outcome.failed,
+        "final_visible_errors": final_outcome.errors,
+    }
+    if not any(event.type == TraceEventType.USER_FEEDBACK for event in result.events):
+        feedback_events = [
+            TraceEvent(
+                step=result.steps,
+                type=TraceEventType.USER_FEEDBACK,
+                name=turn["round_id"],
+                payload={"index": turn["index"], "content": turn["feedback"]},
+            )
+            for turn in turns
+        ]
+        result = result.model_copy(update={"events": [*result.events, *feedback_events]})
+    return result.model_copy(update={"completion_checks": checks})
 
 
 def task_harness(task: AgentTask) -> str:
@@ -198,8 +268,10 @@ def _run_config(
 
 
 def _run_reference_trial(sandbox, suite_dir, clean_repo, case) -> TrialResult:
+    revealed = inject_all_feedback_tests(sandbox.root, suite_dir, case)
+    sandbox.checkpoint_harness_files(revealed, message="harness: reveal all multi-turn rounds")
     restored = apply_reference_fix(sandbox.root, suite_dir, clean_repo, case)
-    preflight = run_pytest(sandbox, [*case.visible_tests, *case.regression_tests])
+    preflight = run_pytest(sandbox, [*case.all_visible_tests, *case.regression_tests])
     return TrialResult(
         stop_reason="final",
         steps=1,
@@ -283,6 +355,7 @@ def run_trial(
                     sb,
                     case,
                     provider,
+                    suite_dir=suite_dir,
                     max_completion_tokens=max_completion_tokens,
                     ablate=ablate,
                     context_budget_tokens=context_budget_tokens,
@@ -294,6 +367,7 @@ def run_trial(
                     sb,
                     case,
                     None,
+                    suite_dir=suite_dir,
                     adapter_name=kind,
                     adapter_config=adapter_config,
                     **budget_kwargs,
@@ -306,6 +380,7 @@ def run_trial(
 
             # Capture the agent's real change BEFORE injecting hidden tests.
             patch, changed_files = trial.patch, trial.changed_files
+            inject_all_feedback_tests(sb.root, suite_dir, case)
             inject_hidden_tests(sb.root, suite_dir, case)
 
             test = grade_tests(sb, case)
@@ -688,6 +763,13 @@ def _aggregate_case(
         if t.plan["stats"].get("plan_adherence") is not None
     ]
     costs = [t.cost_usd for t in valid_trials if t.cost_usd is not None]
+    multi_turn_trials = [t for t in valid_trials if t.completion_checks.get("multi_turn")]
+    initial_visible_failures = sum(
+        not t.completion_checks.get("initial_visible_passed", False) for t in multi_turn_trials
+    )
+    visible_recoveries = sum(
+        bool(t.completion_checks.get("recovered_visible")) for t in multi_turn_trials
+    )
     cost_sources = sorted({t.cost_source for t in valid_trials})
     valid_count = len(valid_trials)
     infra_failures = k - valid_count
@@ -728,6 +810,21 @@ def _aggregate_case(
         # Items claimed done with no file write or test run in between: plan theatre.
         "plan_done_without_action_total": sum(
             t.plan["stats"]["plan_done_without_action"] for t in planned
+        ),
+        "multi_turn_trials": len(multi_turn_trials),
+        "multi_turn_completion_rate": (
+            round(
+                sum(bool(t.completion_checks.get("multi_turn_completed")) for t in multi_turn_trials)
+                / len(multi_turn_trials),
+                4,
+            )
+            if multi_turn_trials else None
+        ),
+        "initial_visible_failures": initial_visible_failures,
+        "visible_recoveries": visible_recoveries,
+        "visible_recovery_rate": (
+            round(visible_recoveries / initial_visible_failures, 4)
+            if initial_visible_failures else None
         ),
         "failure_tags": failure_tags,
     }

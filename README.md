@@ -199,13 +199,14 @@ data          benchmark/ (case · materialize · swebench · evalplus)
 python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev,api]"
 cp .env.example .env          # fill in a provider key
-.venv/bin/python -m pytest -q # 376 passed, 1 skipped — offline, no API key needed
+.venv/bin/python -m pytest -q # 382 passed, 1 skipped — offline, no API key needed
 ```
 
 ```bash
 # Benchmark health: every case solvable by reference, none by doing nothing
 python scripts/selfcheck.py datasets/mini_store_suite
 python scripts/check_bounds.py --suite datasets/mini_store_suite --workers 2
+python scripts/selfcheck.py datasets/mini_store_multiturn
 
 # The self-built agent
 python -m codeagent_eval.runner --adapter mini_agent --harness v3 \
@@ -250,13 +251,14 @@ Console: `uvicorn backend.app.main:app --port 8000` + `cd frontend && npm run de
 
 ## Status and evidence levels
 
-`376 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short and 8/8 long · deterministic
-bounds reference=1.00 / none=0.00 on both suites · CI green including a containerized
+`382 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short, 8/8 long and 3/3 multi-turn ·
+deterministic bounds reference=1.00 / none=0.00 on all three private suites · CI green including a containerized
 `--network none` evaluation gate.
 
 | area | level |
 |---|---|
 | `mini_store` short + long | complete private benchmark, self-built, uncontaminated |
+| `mini_store_multiturn` | 3 staged cases; deterministic visible feedback, 2–3 turns, recovery metrics |
 | Cross-agent comparison | live, model-controlled; 8–12 trials per arm |
 | Reward-hacking detection | validated detector; 640 patches scanned, 16 of them unconstrained |
 | Instruction-drift detection | trajectory replay; 364 trials scanned, 16 of them unconstrained |
@@ -266,7 +268,7 @@ bounds reference=1.00 / none=0.00 on both suites · CI green including a contain
 | SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
 | Terminal-Bench / OctoBench | protocol study only |
 
-Not done: run/cross-run memory, multi-turn, a second external-agent adapter, the dedicated
+Not done: run/cross-run memory, live multi-turn model measurements, a second external-agent adapter, the dedicated
 CrossAgent console view, and SWE-bench official instances. The long suite now has 8 cases,
 meeting `MIN_USEFUL_CLUSTERS`; however, the headline cross-agent and ablation tables above still
 come from the original 4-case matrix. With case as the clustering unit, only rerunning on the

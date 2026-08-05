@@ -186,13 +186,13 @@ def test_capabilities_track_the_harness_and_its_ablations():
     a comparison table would show two rows both claiming to plan."""
     assert MiniAgentAdapter(None, harness="v2").capabilities() == set()
     assert MiniAgentAdapter(None, harness="v3").capabilities() == {
-        Capability.PLANNING, Capability.COMPACTION
+        Capability.PLANNING, Capability.COMPACTION, Capability.MULTI_TURN
     }
     assert MiniAgentAdapter(None, harness="v3", ablate=frozenset({"planner"})).capabilities() == {
-        Capability.COMPACTION
+        Capability.COMPACTION, Capability.MULTI_TURN
     }
     assert MiniAgentAdapter(None, harness="v3", ablate=frozenset({"context"})).capabilities() == {
-        Capability.PLANNING
+        Capability.PLANNING, Capability.MULTI_TURN
     }
     with pytest.raises(ValueError, match="unsupported MiniAgent harness"):
         MiniAgentAdapter(None, harness="v4")

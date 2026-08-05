@@ -24,6 +24,7 @@ sys.path.insert(0, str(_ROOT / "src"))
 
 from codeagent_eval.benchmark import (  # noqa: E402
     apply_reference_fix,
+    inject_all_feedback_tests,
     inject_hidden_tests,
     load_suite,
     materialize_case,
@@ -51,12 +52,20 @@ def check_case(suite_dir: Path, clean_repo: Path, case, build_root: Path) -> boo
         hidden_paths = {node_id.split("::", 1)[0] for node_id in case.hidden_tests}
         hidden_absent = all(not (sb.root / path).exists() for path in hidden_paths)
         passed &= _ok(hidden_absent, "hidden tests absent in fresh workspace")
+        followup_paths = {
+            path
+            for round_ in (case.multi_turn.rounds if case.multi_turn else [])
+            for path in round_.visible_test_files
+        }
+        followups_absent = all(not (sb.root / path).exists() for path in followup_paths)
+        passed &= _ok(followups_absent, "future-turn tests absent before feedback")
+        inject_all_feedback_tests(sb.root, suite_dir, case)
 
         # Named tests must actually fail. A run that only reports a non-zero exit code — a
         # collection or import error — is not evidence the defect is real: it means the target
         # tests never ran, so what the case claims to exercise is untested and the grader would
         # be scoring "did the agent make the package importable" instead.
-        base_target = run_pytest(sb, case.visible_tests)
+        base_target = run_pytest(sb, case.all_visible_tests)
         if base_target.failed:
             detail = f"failed={base_target.failed}"
         else:
@@ -68,7 +77,8 @@ def check_case(suite_dir: Path, clean_repo: Path, case, build_root: Path) -> boo
     # (4): apply reference fix, everything passes (incl. hidden)
     with WorktreeSandbox(repo) as sb:
         restored = apply_reference_fix(sb.root, suite_dir, clean_repo, case)
-        fixed_target = run_pytest(sb, case.visible_tests)
+        inject_all_feedback_tests(sb.root, suite_dir, case)
+        fixed_target = run_pytest(sb, case.all_visible_tests)
         passed &= _ok(fixed_target.all_passed, "target tests PASS after reference fix",
                       f"restored={restored}")
         fixed_regr = run_pytest(sb, case.regression_tests)

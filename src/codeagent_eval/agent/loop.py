@@ -133,6 +133,28 @@ class _RunState:
         self.events.append(TraceEvent(step=self.step, type=type_, name=name, payload=payload))
 
 
+@dataclass
+class _AgentSession:
+    task: AgentTask
+    sandbox: WorktreeSandbox
+    case_id: str | None
+    system_prompt: str
+    ctx: ToolContext
+    tools: list[dict[str, Any]]
+    messages: list[dict[str, Any]]
+    state: _RunState
+    context: ContextManager | None
+    deadline: float
+    started_at: str
+    started: float
+    next_step: int = 1
+    llm_records: list[LlmCallRecord] = field(default_factory=list)
+    last_stop_reason: str | None = None
+    terminal: bool = False
+    paused_at: float | None = None
+    paused_seconds: float = 0.0
+
+
 class MiniAgent:
     def __init__(
         self,
@@ -145,8 +167,10 @@ class MiniAgent:
         self.registry = registry or ToolRegistry(
             default_tools(planning=self.config.enable_planner)
         )
+        self._session: _AgentSession | None = None
 
     def run(self, task: AgentTask, sandbox: WorktreeSandbox, *, case_id: str | None = None) -> TrialResult:
+        """Start a fresh session and run until the agent yields one final response."""
         system_prompt = build_system_prompt(self.config.version, task.project_instructions)
         ctx = ToolContext(
             sandbox=sandbox,
@@ -155,8 +179,6 @@ class MiniAgent:
         )
         tools = self.registry.openai_tools()
         messages: list[dict[str, Any]] = [{"role": "user", "content": _initial_user_message(task, sandbox)}]
-
-        state = _RunState()
         context = (
             ContextManager(
                 self.config.context_budget_tokens,
@@ -165,23 +187,83 @@ class MiniAgent:
             if self.config.enable_context_management
             else None
         )
-        deadline = time.monotonic() + task.timeout_seconds
-        started_at = utc_now_iso()
         started = time.monotonic()
-        stop_reason = "max_steps"
+        self._session = _AgentSession(
+            task=task,
+            sandbox=sandbox,
+            case_id=case_id,
+            system_prompt=system_prompt,
+            ctx=ctx,
+            tools=tools,
+            messages=messages,
+            state=_RunState(),
+            context=context,
+            deadline=started + task.timeout_seconds,
+            started_at=utc_now_iso(),
+            started=started,
+        )
+        return self._advance_session()
 
-        with llm_trace_scope(case_id=case_id, node_name=f"agent_{self.config.version}") as llm_records:
-            for step in range(1, task.max_steps + 1):
+    def continue_(self, feedback: str) -> TrialResult:
+        """Resume the same conversation, worktree, plan, context, and total budget."""
+        session = self._session
+        if session is None:
+            raise RuntimeError("run() must start a MiniAgent session before continue_()")
+        if session.terminal or session.last_stop_reason != "final":
+            raise RuntimeError(
+                f"MiniAgent session cannot continue after {session.last_stop_reason or 'no result'}"
+            )
+        if not feedback.strip():
+            raise ValueError("multi-turn feedback must be non-empty")
+        now = time.monotonic()
+        if session.paused_at is not None:
+            paused = now - session.paused_at
+            session.paused_seconds += paused
+            session.deadline += paused
+            session.paused_at = None
+        session.state.emit(
+            TraceEventType.USER_FEEDBACK,
+            name="deterministic_feedback",
+            content=feedback,
+        )
+        session.messages.append({"role": "user", "content": feedback})
+        # A user follow-up is new evidence and may legitimately cause the agent to rerun the
+        # last command. Preserve the trace, but reset only the consecutive-action loop window.
+        session.state.action_signatures.clear()
+        # Completion discipline applies to every user request. A test from turn one is not
+        # evidence that the newly revealed acceptance criteria were verified in turn two.
+        session.state.ran_tests = False
+        session.state.last_test_exit = None
+        return self._advance_session()
+
+    def _advance_session(self) -> TrialResult:
+        session = self._session
+        if session is None:
+            raise RuntimeError("MiniAgent session has not been started")
+        task, sandbox, state = session.task, session.sandbox, session.state
+        stop_reason = "max_steps"
+        result_final: str | None = None
+
+        with llm_trace_scope(
+            case_id=session.case_id, node_name=f"agent_{self.config.version}"
+        ) as segment_records:
+            while session.next_step <= task.max_steps:
+                step = session.next_step
+                session.next_step += 1
                 state.step = step
-                if time.monotonic() > deadline:
+                if time.monotonic() > session.deadline:
                     stop_reason = "timeout"
                     break
 
-                state.emit(TraceEventType.MODEL_REQUEST, name=f"step_{step}", message_count=len(messages))
+                state.emit(
+                    TraceEventType.MODEL_REQUEST,
+                    name=f"step_{step}",
+                    message_count=len(session.messages),
+                )
                 turn = self.provider.tool_completion(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    tools=tools,
+                    system_prompt=session.system_prompt,
+                    messages=session.messages,
+                    tools=session.tools,
                     complexity=self.config.complexity,
                     temperature=self.config.temperature,
                     max_tokens=self.config.max_tokens,
@@ -200,8 +282,8 @@ class MiniAgent:
                 prompt_tokens = (getattr(self.provider, "last_usage", None) or {}).get("prompt_tokens")
                 if prompt_tokens:
                     state.peak_prompt_tokens = max(state.peak_prompt_tokens, prompt_tokens)
-                if context is not None:
-                    context.observe(prompt_tokens)
+                if session.context is not None:
+                    session.context.observe(prompt_tokens)
                 ceiling = self.config.context_ceiling_tokens
                 if ceiling and prompt_tokens and prompt_tokens > ceiling:
                     # Edits made before the overflow stand — a real context exhaustion does not
@@ -233,8 +315,8 @@ class MiniAgent:
                             finish_reason=turn.finish_reason,
                         )
                         if turn.content:
-                            messages.append({"role": "assistant", "content": turn.content})
-                        messages.append(
+                            session.messages.append({"role": "assistant", "content": turn.content})
+                        session.messages.append(
                             {
                                 "role": "user",
                                 "content": _completion_feedback(rejection_reasons),
@@ -243,13 +325,11 @@ class MiniAgent:
                         continue
                     state.emit(TraceEventType.FINAL_ANSWER, content=turn.content)
                     result_final = turn.content
+                    session.messages.append({"role": "assistant", "content": turn.content or ""})
                     stop_reason = "final"
-                    return self._finalize(
-                        task, sandbox, state, stop_reason, result_final, llm_records,
-                        started_at, started, context,
-                    )
+                    break
 
-                messages.append(_assistant_message(turn))
+                session.messages.append(_assistant_message(turn))
                 looped = False
                 for call in turn.tool_calls:
                     state.tool_calls += 1
@@ -260,7 +340,7 @@ class MiniAgent:
                     if call.arguments_error:
                         tool_content = f"argument error: {call.arguments_error}"
                         state.emit(TraceEventType.TOOL_RESULT, name=call.name, ok=False, content=tool_content)
-                        messages.append(_tool_message(call.call_id, tool_content))
+                        session.messages.append(_tool_message(call.call_id, tool_content))
                         continue
 
                     if self.config.detect_repeated_actions and _is_repeated(state, signature, self.config):
@@ -268,7 +348,7 @@ class MiniAgent:
                         break
                     state.action_signatures.append(signature)
 
-                    result = self.registry.dispatch(ctx, call.name, call.arguments)
+                    result = self.registry.dispatch(session.ctx, call.name, call.arguments)
                     _record_side_events(state, call.name, call.arguments, result)
                     warning = (
                         _record_plan(state, result)
@@ -276,33 +356,47 @@ class MiniAgent:
                         else None
                     )
                     content = (
-                        context.truncate_tool_output(call.name, result.content)
-                        if context is not None
+                        session.context.truncate_tool_output(call.name, result.content)
+                        if session.context is not None
                         else result.content
                     )
                     if warning:
                         content += warning
-                    messages.append(_tool_message(call.call_id, content))
+                    session.messages.append(_tool_message(call.call_id, content))
 
                 if looped:
                     state.emit(TraceEventType.ERROR, name="repeated_action", signature=state.action_signatures[-1])
                     stop_reason = "repeated_action"
                     break
 
-                if context is not None and context.should_compact(messages):
-                    messages, record = context.compact(messages, step, _progress_digest(state))
+                if session.context is not None and session.context.should_compact(session.messages):
+                    session.messages, record = session.context.compact(
+                        session.messages, step, _progress_digest(state)
+                    )
                     if record is not None:
                         state.emit(
                             TraceEventType.COMPACTION,
-                            name=f"compaction_{context.stats.compactions}",
+                            name=f"compaction_{session.context.stats.compactions}",
                             before_tokens=record.before_tokens,
                             dropped_messages=record.dropped_messages,
                             kept_recent_messages=record.kept_recent_messages,
                             digest_chars=record.digest_chars,
                         )
 
+        session.llm_records.extend(segment_records)
+        session.last_stop_reason = stop_reason
+        session.terminal = stop_reason != "final"
+        session.paused_at = time.monotonic() if stop_reason == "final" else None
         return self._finalize(
-            task, sandbox, state, stop_reason, None, llm_records, started_at, started, context
+            task,
+            sandbox,
+            state,
+            stop_reason,
+            result_final,
+            session.llm_records,
+            session.started_at,
+            session.started + session.paused_seconds,
+            session.context,
         )
 
     def _finalize(
