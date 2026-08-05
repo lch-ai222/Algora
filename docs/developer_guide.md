@@ -35,7 +35,7 @@
 
 失败模式检测当前作为 artifacts 后处理运行：`scripts/scan_failure_modes.py` 重放 trajectory/diff，调用 `detectors/reward_hacking.py`、`instruction_drift.py`、`context_amnesia.py`。统计比较由 `scripts/compare_experiments.py` 调用 `stats/` 的 case-cluster bootstrap、exact McNemar 和 Wilson 区间；这些结果不反写 grader，避免分析层改变原始评分证据。
 
-当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。W2-2 ScratchPad、W3-1 multi-turn、W3-3 统计、W3-4 repro bundle 与 W3-5a 静态报告已沿离线路径完成；下一主线是 W3-5b CrossAgent UI。
+当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。W2-2 ScratchPad、W3-1 multi-turn、W3-3 统计、W3-4 repro bundle 与 W3-5 报告/UI 已沿离线路径完成；下一主线是 W2-5 hackbait 基础设施。
 
 ## 3. LLM Provider（`llm.py`）
 
@@ -160,7 +160,15 @@
   --out artifacts/reports/<report-id>
 ```
 
-历史产物若以 `0.0/derived` 表示未知价格，报告按 unavailable 处理而不是解释成免费；只有显式 free 来源才接受零成本。输出目录已 gitignore，不能覆盖既有报告；清理使用 `rm -rf artifacts/reports/<report-id>`。W3-5a 到此完成，W3-5b 的专用 CrossAgent 前端视图仍未实现。
+历史产物若以 `0.0/derived` 表示未知价格，报告按 unavailable 处理而不是解释成免费；只有显式 free 来源才接受零成本。输出目录已 gitignore，不能覆盖既有报告；清理使用 `rm -rf artifacts/reports/<report-id>`。
+
+### 9.3 CrossAgent 只读控制台
+
+`backend/app/store.py` 发现所有合法实验目录，不再依赖 adapter 名称前缀；它用 W3-5a 的 loader 验证 suite、artifact schema 和有效 trial 后才返回 `report_ready=true`。实验/Case ID 必须是单层受限标识且 resolve 后仍位于 artifacts 根目录，suite 只能按 `datasets/*/suite.json` 内声明的唯一名称解析，调用方不能传文件系统路径。
+
+`GET /api/cross-agent?experiments=<id>&experiments=<id>` 接受同 suite 的 1–6 个唯一实验，在内存调用 `build_report_data()` 并直接返回 `algora.static_report.v1`；不写报告、不执行 trial、不调用模型。跨 suite、重复/非法 ID、未知 suite、无有效 trial 和 artifact/schema 错误分别以 4xx 拒绝，不能跳过坏 arm 后给残缺结论。
+
+`frontend/src/views/CrossAgent.tsx` 只渲染这份事实模型：Task/Strict case-cluster CI、valid/infra、成本覆盖、provenance/预算、case matrix、三维 strata、exact McNemar、配对成本和 evidence boundaries。前端唯一额外判断是请求前的 provenance 审计：模型不同、模型字段缺失或 case×repeat 规模明显不同时显式警告；它不重算任何统计值。启动 API 与 Vite 后从顶栏进入 **Cross-Agent Report**。W3-5 至此完成。
 
 ## 10. 版本对比（`compare.py`）
 
@@ -232,7 +240,7 @@ macOS 当前配置 `EVALPLUS_MAX_MEMORY_BYTES=-1` 规避 rlimit 兼容错误，�
 
 ## 15. 启动与测试
 
-见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 391 passed/1 skipped）+ `ruff check` + 三套 selfcheck（短程 9/9、长程 8/8、多轮 3/3）+ `scripts/check_bounds.py --suite ...`（三套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
+见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 393 passed/1 skipped）+ `ruff check` + 三套 selfcheck（短程 9/9、长程 8/8、多轮 3/3）+ `scripts/check_bounds.py --suite ...`（三套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
 
 ## 16. 测试覆盖现状
 

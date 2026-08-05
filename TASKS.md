@@ -41,7 +41,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W3-2 | 跨 run RepoMemory | P1 | ⬜ 未开始 |
 | V3 W3-3 | 统计增强 | P0/P1 | ✅ 计划内统计完成 |
 | V3 W3-4 | repro bundle + 回归 fixture | P0 | ✅ 完成 |
-| V3 W3-5 | 静态报告 + 跨 Agent UI | P0 | 🟨 静态报告完成，UI 待做 |
+| V3 W3-5 | 静态报告 + 跨 Agent UI | P0 | ✅ 完成 |
 | V3 W3-6 | 全量实验与假设回填 | P0 | 🟨 4-case 矩阵完成；W3-6a 因 GLM 额度暂停 |
 | V3 W3-7 | 开源清理 + 洞察报告 | P1 | 🟨 README/横向报告部分完成 |
 
@@ -66,7 +66,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] provider/网络错误作为 infra-invalid 排除出能力分母；compare 拒绝基础设施无效 run。
 - [x] V2 拒绝截断、空回复、无改动、未测试和末次测试失败的假完成；V1 行为不变。
 - [x] 成本费率缺失时记录 `cost_usd=null`、`cost_source=unavailable`，不伪造零成本。
-- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（391 passed/1 skipped）。
+- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（393 passed/1 skipped）。
 
 ### W1-3 · ClaudeCodeAdapter ✅（代码 + live）
 
@@ -121,7 +121,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 ### Week 2 其余任务
 
 - [x] **W2-2 ScratchPad**：有界 run-scoped key/value notes、动态 system context、`update_scratchpad` 工具、compaction/multi-turn 保留、context ceiling 计量、trial 隔离、独立消融和 artifact/summary 指标均完成。它不落目标仓库；跨 run RepoMemory 仍不得先于泄漏隔离设计。
-- [x] **W2-3 Context amnesia**：被动 canary 检测、early/late split、短轨迹拒绝给 decay、跨 adapter 路径归一化均已完成；正式曲线报告仍归 W3-5。
+- [x] **W2-3 Context amnesia**：被动 canary 检测、early/late split、短轨迹拒绝给 decay、跨 adapter 路径归一化均已完成；W3-5 展示聚合证据，专门的时间序列曲线留作 B3 可视化扩展。
 - [x] **W2-4 Reward hacking**：8 类信号、evidence span、人工 hack 样本全命中、reference 零误报与历史回扫均已完成。
 - [ ] **W2-5 Hackbait suite**：未实现；当前只有 16 个未被沙箱强制拦截的 Claude Code trial，零检出上界仍宽。
 - [x] **W2-6 Instruction drift**：轨迹重放、首次违规步、obedience ratio、self-corrected/persisted 已完成。
@@ -134,7 +134,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [ ] **W3-2 RepoMemory**：跨任务记忆与 trial 间清空验证未实现。
 - [x] **W3-3 Statistics**：case-cluster bootstrap、exact McNemar、Wilson、task_type/difficulty/horizon 分层宏平均、完整成本覆盖门禁、cost/success 与 case-cluster 配对成本 bootstrap 均已实现；缺失/旧 `0.0/derived` 成本保持 unavailable。
 - [x] **W3-4 Repro bundle**：失败 trial 可生成脱敏诊断包与回归 fixture；无模型 replay 会重新 materialize、应用 patch、评分并比对稳定签名。hidden 测试代码/节点/失败正文和 native log 不入包，suite 指纹漂移、checksum 篡改、凭据形态 patch、infra-invalid 均拒绝误归因；旧 schema 可生成诊断包但明确拒绝编造 replay 证据。
-- 🟨 **W3-5 Report/UI（部分）**：`report.py` + `build_static_report.py` 已从历史 artifacts 生成同源 JSON、Markdown 和无外部依赖 HTML，含 provenance、case matrix、分层、配对检验、成本覆盖与可见的小样本警告；专用 CrossAgent 前端视图仍未实现。
+- [x] **W3-5 Report/UI**：`report.py` + `build_static_report.py` 生成同源 JSON/Markdown/离线 HTML；只读 `/api/cross-agent` 与 `CrossAgent.tsx` 直接复用该事实模型，提供多 arm 选择、provenance/受控性预警、case matrix、分层、配对检验、成本覆盖和证据边界。
 - 🟨 **W3-6（部分）**：4-case 模型受控横向矩阵、H2/H3 和检测器历史回扫已有数据；第二模型/第二外部 Agent 和全部预注册假设未完成。
 - ⏸️ **W3-6a（外部额度阻塞）**：新的 8-case Claude Code / MiniAgent 模型受控矩阵保持原设计待跑。当前 GLM API 无可用额度，恢复条件是同一 GLM 模型端点可完成 preflight 且额度足够覆盖固定矩阵；不得临时换模型并把结果并入原受控比较。
 - 🟨 **W3-7（部分）**：README 与 `cross_agent_report_v1.md` 已完成；开源状态核验、命名统一和完整 capability-gap/failure-atlas 文档未完成。
@@ -251,9 +251,8 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ## 当前推荐执行顺序
 
-V3 W1 全部完成，W2-1/2/3/4/6 完成，W3-1/3/4 完成，W3-5/6/7 部分完成。W3-6a、ScratchPad live 消融与多轮 E5 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
+V3 W1 全部完成，W2-1/2/3/4/6 完成，W3-1/3/4/5 完成，W3-6/7 部分完成。W3-6a、ScratchPad live 消融与多轮 E5 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
 
-1. 完成 W3-5b 专用 CrossAgent UI，直接消费 W3-5a 的同源报告数据或现有只读 API。
-2. 完成 W2-5 hackbait 基础设施与 suite；真实模型 hacking-rate 等额度恢复后再测。
-3. 额度恢复后执行 W3-6a、ScratchPad live 消融与 E5：长程 8-case 重跑受控矩阵，并在多轮 3-case 上测真实恢复率。
-4. 再推进第二外部 Agent 与 B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。
+1. 完成 W2-5 hackbait 基础设施与 suite；真实模型 hacking-rate 等额度恢复后再测。
+2. 额度恢复后执行 W3-6a、ScratchPad live 消融与 E5：长程 8-case 重跑受控矩阵，并在多轮 3-case 上测真实恢复率。
+3. 再推进第二外部 Agent 与 B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。

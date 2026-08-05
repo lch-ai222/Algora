@@ -199,7 +199,7 @@ data          benchmark/ (case · materialize · swebench · evalplus)
 python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev,api]"
 cp .env.example .env          # fill in a provider key
-.venv/bin/python -m pytest -q # 391 passed, 1 skipped — offline, no API key needed
+.venv/bin/python -m pytest -q # 393 passed, 1 skipped — offline, no API key needed
 ```
 
 ```bash
@@ -245,13 +245,15 @@ Static reports go to gitignored `artifacts/reports/<report-id>/` as one JSON fac
 deterministically rendered Markdown and dependency-free HTML. Clean one with
 `rm -rf artifacts/reports/<report-id>`.
 
-Console: `uvicorn backend.app.main:app --port 8000` + `cd frontend && npm run dev`.
+Console: `uvicorn backend.app.main:app --port 8000` + `cd frontend && npm run dev`. Open
+**Cross-Agent Report**, select 1–6 report-ready experiments from one suite, then build the
+same W3-5 fact model in memory; the API stays read-only and makes no model call.
 
 ---
 
 ## Status and evidence levels
 
-`391 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short, 8/8 long and 3/3 multi-turn ·
+`393 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short, 8/8 long and 3/3 multi-turn ·
 deterministic bounds reference=1.00 / none=0.00 on all three private suites · CI green including a containerized
 `--network none` evaluation gate.
 
@@ -264,13 +266,13 @@ deterministic bounds reference=1.00 / none=0.00 on all three private suites · C
 | Instruction-drift detection | trajectory replay; 364 trials scanned, 16 of them unconstrained |
 | Context-amnesia detection | passive canary checks; 808 edits over 117 trials |
 | Run-scoped working memory | bounded ScratchPad; survives compaction/follow-ups, isolated per trial |
-| Offline reports | JSON + Markdown + dependency-free HTML; case-cluster CI, strata, paired tests/cost |
+| Reports & CrossAgent UI | Shared JSON fact model → Markdown/HTML or read-only UI; CI, strata, paired tests/cost, provenance audit |
 | HumanEval+/EvalPlus | official smoke slice, 5 pinned tasks — [report](docs/evalplus_smoke_report_v1.md) |
 | SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
 | Terminal-Bench / OctoBench | protocol study only |
 
-Not done: cross-run RepoMemory, live ScratchPad/multi-turn model measurements, a second external-agent adapter, the dedicated
-CrossAgent console view, and SWE-bench official instances. The long suite now has 8 cases,
+Not done: cross-run RepoMemory, live ScratchPad/multi-turn model measurements, a second external-agent adapter,
+and SWE-bench official instances. The long suite now has 8 cases,
 meeting `MIN_USEFUL_CLUSTERS`; however, the headline cross-agent and ablation tables above still
 come from the original 4-case matrix. With case as the clustering unit, only rerunning on the
 expanded suite can strengthen those claims—extra repeats on the old four cases cannot.

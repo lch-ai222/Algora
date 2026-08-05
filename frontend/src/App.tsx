@@ -3,12 +3,14 @@ import { Experiments } from "./views/Experiments";
 import { ExperimentDetail } from "./views/ExperimentDetail";
 import { TraceViewer } from "./views/TraceViewer";
 import { Compare } from "./views/Compare";
+import { CrossAgent } from "./views/CrossAgent";
 
 export type Route =
   | { view: "experiments" }
   | { view: "detail"; expId: string }
   | { view: "trace"; expId: string; caseId: string; rep: number }
-  | { view: "compare"; baseline?: string; candidate?: string };
+  | { view: "compare"; baseline?: string; candidate?: string }
+  | { view: "cross-agent" };
 
 export function App() {
   const [route, setRoute] = useState<Route>({ view: "experiments" });
@@ -29,9 +31,13 @@ export function App() {
             </>
           )}
           {route.view === "compare" && <span>version compare</span>}
+          {route.view === "cross-agent" && <span>cross-agent report</span>}
         </div>
         <div className="spacer" />
-        <a onClick={() => setRoute({ view: "compare" })}>Version Compare →</a>
+        <div className="row topnav">
+          <a onClick={() => setRoute({ view: "cross-agent" })}>Cross-Agent Report</a>
+          <a onClick={() => setRoute({ view: "compare" })}>Version Compare</a>
+        </div>
       </div>
 
       {route.view === "experiments" && <Experiments setRoute={setRoute} />}
@@ -42,6 +48,7 @@ export function App() {
       {route.view === "compare" && (
         <Compare baseline={route.baseline} candidate={route.candidate} setRoute={setRoute} />
       )}
+      {route.view === "cross-agent" && <CrossAgent />}
     </div>
   );
 }

@@ -58,8 +58,8 @@ src/codeagent_eval/
   failure_taxonomy.py  失败自动归因（§9 taxonomy）。
   compare.py        版本对比（improved/regressed/stable + delta）。
   runner.py         CLI 闭环：执行 → 评分 → 归因 → 聚合 → 落盘。
-backend/app/        FastAPI 只读 API（读 artifacts/runs/）。
-frontend/           Vite + React + TS 控制台。
+backend/app/        FastAPI 只读 API（读 artifacts/runs/，按需生成 W3-5 报告事实模型）。
+frontend/           Vite + React + TS 控制台（实验/轨迹/版本对比/CrossAgent 报告）。
 datasets/           mini_store_src（干净源）+ mini_store_suite（9 个 case + defect/hidden）。
                     mini_store_long（8 个 hard case）+ mini_store_multiturn（3 个 staged case）。
 scripts/            selfcheck.py（硬门槛）+ compare_runs.py。
