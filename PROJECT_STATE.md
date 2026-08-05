@@ -673,6 +673,20 @@ Suite: Task 0.50 / Strict 0.25，工具调用 15–31。
 
 **新增的观测面**：Cline 是无约束 agent，路径与命令规则**自由观测**而非被 harness 拦截，所以指令偏移的分母里第一次有了非 Claude-Code 的样本（1/4，且 shipped the breach）。canary 观测到 11 次编辑、遵守率 0.667。
 
+### V3 W2-8 续 · glm-5.2 耗时标定与一个 token 归零缺陷（2026-08-05）
+
+开跑 8-case 矩阵前先在 glm-5.2 上标定 Cline，两项发现都会影响矩阵设计。
+
+**1. 被预算杀掉的 trial 报 token = 0。** 与之前"Claude Code 零 token 消耗"同类缺陷复现：token 只从流的 `run_result` 取，而进程被 wall-clock 杀掉时永远不会发出这条记录。3 条 trial 里 2 条撞满 400s，各报 0 token——却分别做了 14 和 11 次工具调用。
+
+会话存储里的逐消息 `metrics` 能熬过 kill，改为**以它为主源**，流的聚合值降级为回退。修后同样两条 trial 报 **711k / 220k token**。
+
+顺带处理一个会被引入的新 bug：`collect_session_events` 每轮重读全部会话文件，所以它的合计**天然是整场累计值**；多轮合并时若再累加会翻倍。因此 manifest 记录 `token_source`，合并按来源决定"取"还是"加"。两个方向都有测试。
+
+**2. glm-5.2 下 Cline 明显更慢，400s 不算宽松档。** 5 条 case 实测：188s 完成 1 条，其余撞满 400s 上限。对比 glm-4.5-air 中位数 161s。既有横向报告里的 glm-5.2 耗时（Claude Code 中位 156s / max 267s，MiniAgent 138s / max 237s）对 Cline 不适用——**宽松档需要重新取值**，否则 Cline arm 在"宽松"档下仍是被截断的。
+
+**token 消耗也远超此前估算**：Cline glm-5.2 单 trial 228k / 220k / 711k（`long-build-and-cli` 是异常值，且它撞满 400s 仍未跑完）。此前按 170k/trial 的估算对 Cline arm 偏低一个量级。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：

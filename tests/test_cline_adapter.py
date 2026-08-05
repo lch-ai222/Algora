@@ -315,3 +315,71 @@ def test_auth_failure_is_raised_before_any_trial_time_is_spent(git_repo, fake_cl
     adapter = ClineAdapter(_config(fake_cline))
     with WorktreeSandbox(git_repo) as sandbox, pytest.raises(UnsupportedCapability, match="auth"):
         adapter.prepare(sandbox.root, _task(sandbox), BudgetContract(max_wall_clock_s=30), runtime=sandbox)
+
+
+# --------------------------------------------------------------------------- #
+# Token provenance
+# --------------------------------------------------------------------------- #
+def test_a_budget_killed_run_still_reports_the_tokens_it_spent(git_repo, fake_cline):
+    """The stream reports usage only in ``run_result``, which a killed process never emits.
+
+    Measured against glm-5.2, two trials of three hit the wall clock and reported zero tokens
+    while having made fourteen tool calls each — the same shape as the "Claude Code consumed no
+    tokens" defect this project fixed once already. The per-message metrics in the session
+    store survive the kill, so they are the primary source.
+    """
+    fake_cline.script(
+        messages=[
+            {
+                "role": "assistant",
+                "content": [tool_use("editor", path="app.py", new_text="x")],
+                "modelInfo": {"id": "glm-5.2"},
+                "metrics": {"inputTokens": 4_000, "outputTokens": 120, "cacheReadTokens": 900},
+            },
+        ],
+        lines=[],  # no run_result: the process was killed before it could summarize
+        sleep_s=30,
+    )
+    adapter = ClineAdapter(_config(fake_cline))
+    with WorktreeSandbox(git_repo) as sandbox:
+        adapter.prepare(sandbox.root, _task(sandbox), BudgetContract(max_wall_clock_s=2), runtime=sandbox)
+        try:
+            result = adapter.run("fix it")
+        finally:
+            adapter.cleanup()
+
+    assert result.stop_reason == "budget_time"
+    assert (result.prompt_tokens, result.completion_tokens) == (4_000, 120)
+    assert result.cached_tokens == 900
+    assert result.env_manifest["token_source"] == "session_store"
+
+
+def test_session_derived_tokens_are_not_summed_again_across_turns(git_repo, fake_cline):
+    """``collect_session_events`` re-reads every session file, so its totals already cover
+    the whole session. Summing them per turn would inflate a multi-turn arm's cost."""
+    def message(inp: int, out: int) -> dict:
+        return {
+            "role": "assistant",
+            "content": [tool_use("editor", path="app.py", new_text="x")],
+            "modelInfo": {"id": "glm-5.2"},
+            "metrics": {"inputTokens": inp, "outputTokens": out},
+        }
+
+    adapter = ClineAdapter(_config(fake_cline))
+    with WorktreeSandbox(git_repo) as sandbox:
+        fake_cline.script(messages=[message(1_000, 50)], lines=[json.dumps(run_result())])
+        adapter.prepare(sandbox.root, _task(sandbox), BudgetContract(max_wall_clock_s=30), runtime=sandbox)
+        try:
+            first = adapter.run("fix it")
+            # The store now holds both turns, as Cline would have written them.
+            fake_cline.script(
+                messages=[message(1_000, 50), message(1_500, 70)],
+                lines=[json.dumps(run_result())],
+            )
+            second = adapter.continue_("also handle the empty case")
+        finally:
+            adapter.cleanup()
+
+    assert first.prompt_tokens == 1_000
+    assert second.prompt_tokens == 2_500, "cumulative totals must be taken, not re-added"
+    assert second.completion_tokens == 120

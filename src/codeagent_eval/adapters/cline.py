@@ -108,6 +108,13 @@ class ParsedSession:
     duration_ms: int = 0
     session_id: str | None = None
     served_model: str | None = None
+    #: Usage summed from the persisted messages. The stream reports usage only in its final
+    #: ``run_result`` record, which a process killed at its wall clock never emits — so a
+    #: budget-killed trial reported zero tokens while plainly having made fourteen tool calls.
+    #: The per-message metrics survive the kill, so they are the primary source.
+    session_prompt_tokens: int = 0
+    session_completion_tokens: int = 0
+    session_cached_tokens: int = 0
     #: Session files that could not be read. Non-zero means the trajectory is incomplete and
     #: the detectors are seeing less than happened, so it is surfaced rather than swallowed.
     unreadable_sessions: int = 0
@@ -197,6 +204,11 @@ def parse_session_file(path: Path, parsed: ParsedSession, *, start_step: int = 0
     for message in messages:
         if not isinstance(message, dict):
             continue
+        metrics = message.get("metrics")
+        if isinstance(metrics, dict):
+            parsed.session_prompt_tokens += _as_int(metrics.get("inputTokens"))
+            parsed.session_completion_tokens += _as_int(metrics.get("outputTokens"))
+            parsed.session_cached_tokens += _as_int(metrics.get("cacheReadTokens"))
         if message.get("role") == "assistant":
             step += 1
             parsed.model_turns += 1
@@ -417,6 +429,7 @@ class ClineAdapter:
             session_id=summary["session_id"],
         )
         collect_session_events(self._data_dir, parsed)
+        token_source = self._reconcile_tokens(parsed)
         if parsed.tool_calls == 0 and summary["tool_calls"] > 0:
             # The stream saw tool calls the session store did not yield. Rather than report a
             # trajectory the detectors would read as "made no edits", say so out loud.
@@ -441,7 +454,7 @@ class ClineAdapter:
             native_stop_reason=self._native_stop_reason(parsed, outcome),
             duration_ms=duration_ms,
             budget=self._budget,
-            env_manifest=self._env_manifest(parsed, outcome, removed),
+            env_manifest=self._env_manifest(parsed, outcome, removed, token_source),
             steps=parsed.model_turns,
             tool_call_count=parsed.tool_calls,
             final_message=parsed.final_message,
@@ -577,8 +590,29 @@ class ClineAdapter:
             checks["unreadable_sessions"] = parsed.unreadable_sessions
         return checks
 
+    @staticmethod
+    def _reconcile_tokens(parsed: ParsedSession) -> str:
+        """Prefer the persisted per-message usage; fall back to the stream's final record.
+
+        Returns which source was used, because the two are not interchangeable downstream:
+        the session totals cover the whole session and must not be summed again across
+        resumed turns, while the stream's are per-invocation and must be.
+        """
+        stream_total = parsed.prompt_tokens + parsed.completion_tokens
+        session_total = parsed.session_prompt_tokens + parsed.session_completion_tokens
+        if session_total:
+            parsed.prompt_tokens = parsed.session_prompt_tokens
+            parsed.completion_tokens = parsed.session_completion_tokens
+            parsed.cached_tokens = parsed.session_cached_tokens
+            return "session_store"
+        return "stream_run_result" if stream_total else "unavailable"
+
     def _env_manifest(
-        self, parsed: ParsedSession, outcome: ProcessOutcome, removed: list[str]
+        self,
+        parsed: ParsedSession,
+        outcome: ProcessOutcome,
+        removed: list[str],
+        token_source: str = "unavailable",
     ) -> dict[str, Any]:
         return {
             "adapter": self.name,
@@ -593,6 +627,7 @@ class ClineAdapter:
             "cline_session_id": parsed.session_id,
             "native_cost_usd_untrusted": parsed.native_cost_usd,
             "cost_provenance": "cline price table does not describe this endpoint",
+            "token_source": token_source,
             "malformed_stream_lines": outcome.malformed_lines,
             "unreadable_sessions": parsed.unreadable_sessions,
             "removed_harness_artifacts": removed,
@@ -621,11 +656,17 @@ class ClineAdapter:
             ) + 1,
         }
         # Session events are re-read in full from the store each turn, so the later parse
-        # already contains the earlier turns; concatenating would double the trajectory.
+        # already contains the earlier turns; concatenating would double the trajectory. The
+        # same is true of session-derived token counts, which is why the source decides
+        # whether they are summed or taken as-is.
+        cumulative = (segment.env_manifest or {}).get("token_source") == "session_store"
         return segment.model_copy(update={
-            "prompt_tokens": previous.prompt_tokens + segment.prompt_tokens,
-            "completion_tokens": previous.completion_tokens + segment.completion_tokens,
-            "cached_tokens": previous.cached_tokens + segment.cached_tokens,
+            "prompt_tokens": segment.prompt_tokens if cumulative
+            else previous.prompt_tokens + segment.prompt_tokens,
+            "completion_tokens": segment.completion_tokens if cumulative
+            else previous.completion_tokens + segment.completion_tokens,
+            "cached_tokens": segment.cached_tokens if cumulative
+            else previous.cached_tokens + segment.cached_tokens,
             "cost_usd": None,
             "cost_source": "unavailable",
             "duration_ms": previous.duration_ms + segment.duration_ms,
