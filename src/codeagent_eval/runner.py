@@ -48,6 +48,7 @@ from codeagent_eval.adapters import (
     BudgetContract,
     Capability,
     ClaudeCodeConfig,
+    ClineConfig,
     create_adapter,
 )
 from codeagent_eval.agent.loop import AgentConfig, TrialResult
@@ -1285,6 +1286,30 @@ def main(argv: list[str] | None = None) -> int:
         help="read the operator's real ~/.claude instead of an isolated per-trial config; "
              "needed for OAuth auth but makes the run non-reproducible elsewhere",
     )
+    cline = parser.add_argument_group("cline adapter")
+    cline.add_argument("--cline-cli", default="cline", help="path to the cline executable")
+    cline.add_argument("--cline-model", default=None, help="model id for the selected provider")
+    cline.add_argument(
+        "--cline-provider",
+        default="openai",
+        help="cline provider id; 'openai' selects its OpenAI-compatible client",
+    )
+    cline.add_argument(
+        "--cline-api-key-env",
+        default="ZHIPU_API_KEY",
+        help="environment variable holding the API key (the value is never logged)",
+    )
+    cline.add_argument(
+        "--cline-base-url-env",
+        default="ZHIPU_BASE_URL",
+        help="environment variable holding the OpenAI-compatible base URL",
+    )
+    cline.add_argument("--cline-compaction", default="agentic", choices=("agentic", "basic", "off"))
+    cline.add_argument(
+        "--cline-use-operator-config",
+        action="store_true",
+        help="read the operator's real ~/.cline instead of an isolated per-trial data dir",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -1293,6 +1318,21 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
 
     adapter_config = None
+    if kind == "cline":
+        adapter_config = ClineConfig(
+            cli_path=args.cline_cli,
+            provider=args.cline_provider,
+            model=args.cline_model,
+            api_key_env=args.cline_api_key_env,
+            base_url_env=args.cline_base_url_env,
+            compaction=args.cline_compaction,
+            isolate_config=not args.cline_use_operator_config,
+        )
+        probe = create_adapter(kind, config=adapter_config).probe()
+        if not probe.available:
+            print(f"ERROR: adapter={kind} unavailable. {probe.detail}", file=sys.stderr)
+            return 2
+        print(f"adapter={kind} version={probe.version}")
     if kind == "claude_code":
         adapter_config = ClaudeCodeConfig(
             cli_path=args.claude_cli,

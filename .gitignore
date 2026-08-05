@@ -38,3 +38,6 @@ tmp.md
 
 # OS
 .DS_Store
+
+# Locally installed third-party agent CLIs (see docs: adapters are probed from PATH)
+.agents/

@@ -13,6 +13,7 @@ from codeagent_eval.adapters.claude_code import (
     ClaudeCodeConfig,
     parse_stream_json,
 )
+from codeagent_eval.adapters.cline import CLINE_SEMANTICS, ClineAdapter, ClineConfig
 from codeagent_eval.adapters.mini_agent import ABLATABLE, MiniAgentAdapter
 from codeagent_eval.adapters.normalize import (
     CLAUDE_CODE_SEMANTICS,
@@ -23,6 +24,9 @@ from codeagent_eval.adapters.normalize import (
 from codeagent_eval.adapters.registry import ADAPTER_NAMES, EXTERNAL_ADAPTERS, create_adapter
 
 __all__ = [
+    "CLINE_SEMANTICS",
+    "ClineConfig",
+    "ClineAdapter",
     "ABLATABLE",
     "ADAPTER_NAMES",
     "CLAUDE_CODE_SEMANTICS",

@@ -197,3 +197,48 @@ def test_the_canary_reaches_the_instruction_the_agent_sees():
     obedience to a rule nobody was given."""
     for c in load_suite("datasets/mini_store_long").cases:
         assert c.canary.description in c.render_instruction()
+
+
+# --------------------------------------------------------------------------- #
+# Cross-adapter write vocabulary
+# --------------------------------------------------------------------------- #
+#: One realistic write payload per framework this project can drive. Each entry is the
+#: argument shape that framework's edit tool actually emits, copied from a real trajectory.
+WRITE_PAYLOADS = {
+    "mini_agent/apply_patch": {"path": "mini_store/cart.py", "new_str": "def items(self): ..."},
+    "claude_code/Edit": {
+        "file_path": "/tmp/wt/mini_store/cart.py",
+        "old_string": "old",
+        "new_string": "def items(self): ...",
+    },
+    "claude_code/Write": {"file_path": "/tmp/wt/mini_store/cart.py", "content": "body"},
+    "cline/editor": {
+        "path": "./mini_store/cart.py",
+        "old_text": "old",
+        "new_text": "def items(self): ...",
+    },
+}
+
+
+@pytest.mark.parametrize("label", sorted(WRITE_PAYLOADS))
+def test_every_supported_framework_write_is_observed(label):
+    """A write the detector cannot parse is a violation it can never report.
+
+    This is not a hypothetical. The key list was written against Claude Code's vocabulary, and
+    when the Cline adapter arrived its ``editor`` tool wrote ``new_text`` — so every external
+    edit was dropped, ``edits_observed`` came back 0, and the canary reported nothing wrong
+    about a trajectory that had plainly edited a file. Silence and compliance look identical
+    downstream, which is why this is pinned per framework rather than in aggregate.
+    """
+    event = TraceEvent(
+        step=1,
+        type=TraceEventType.TOOL_CALL,
+        name=label.split("/", 1)[1],
+        payload={"tool": label.split("/", 1)[1], "arguments": WRITE_PAYLOADS[label]},
+    )
+    edits = edits_from_trace([event])
+
+    assert len(edits) == 1, f"{label} write was not observed by the canary detector"
+    assert edits[0].content
+    assert "cart.py" in edits[0].path
+    assert "mini_store/cart.py" in path_candidates(edits[0].path)

@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from codeagent_eval.adapters.base import AgentAdapter
 from codeagent_eval.adapters.claude_code import ClaudeCodeAdapter, ClaudeCodeConfig
+from codeagent_eval.adapters.cline import ClineAdapter, ClineConfig
 from codeagent_eval.adapters.mini_agent import MiniAgentAdapter
 
-ADAPTER_NAMES = ("mini_agent", "claude_code")
+ADAPTER_NAMES = ("mini_agent", "claude_code", "cline")
 
 #: Adapters that drive a separate coding-agent process. They ignore ``provider``/``harness``
 #: (the framework owns its own model client) and the runner treats their name as the agent
 #: label, instead of folding them into the V1/V2 harness axis.
-EXTERNAL_ADAPTERS = ("claude_code",)
+EXTERNAL_ADAPTERS = ("claude_code", "cline")
 
 
 def create_adapter(
@@ -44,4 +45,8 @@ def create_adapter(
         if config is not None and not isinstance(config, ClaudeCodeConfig):
             raise TypeError("claude_code requires a ClaudeCodeConfig")
         return ClaudeCodeAdapter(config)
+    if name == "cline":
+        if config is not None and not isinstance(config, ClineConfig):
+            raise TypeError("cline requires a ClineConfig")
+        return ClineAdapter(config)
     raise ValueError(f"unknown adapter {name!r}; available: {', '.join(ADAPTER_NAMES)}")

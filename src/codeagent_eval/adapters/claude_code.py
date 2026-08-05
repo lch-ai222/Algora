@@ -34,10 +34,8 @@ import json
 import os
 import platform
 import shutil
-import signal
 import subprocess
 import tempfile
-import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,6 +51,8 @@ from codeagent_eval.adapters.base import (
     UnsupportedCapability,
 )
 from codeagent_eval.adapters.normalize import CLAUDE_CODE_SEMANTICS, is_test_command
+from codeagent_eval.adapters.process import ProcessOutcome as _ProcessOutcome
+from codeagent_eval.adapters.process import stream_process as _stream_process
 from codeagent_eval.models import AgentTask, TraceEvent, TraceEventType, utc_now_iso
 from codeagent_eval.sandbox import WorktreeSandbox
 
@@ -325,128 +325,6 @@ def _as_int(value: Any) -> int:
 # --------------------------------------------------------------------------- #
 # Subprocess streaming with a hard wall-clock deadline
 # --------------------------------------------------------------------------- #
-@dataclass
-class _ProcessOutcome:
-    records: list[dict[str, Any]]
-    malformed_lines: int
-    stderr: str
-    returncode: int | None
-    timed_out: bool
-    launch_error: str | None = None
-
-
-def _stream_process(
-    argv: list[str], *, cwd: Path, env: dict[str, str], deadline_s: float, raw_log: Path,
-    append: bool = False,
-) -> _ProcessOutcome:
-    """Run the CLI, persisting every stdout line to ``raw_log`` as it arrives.
-
-    Writing through to disk during the run (rather than after) is what makes a
-    budget-killed trial diagnosable: the partial trajectory is already durable when the
-    process group is terminated.
-    """
-    raw_log.parent.mkdir(parents=True, exist_ok=True)
-    records: list[dict[str, Any]] = []
-    malformed = 0
-    stderr_chunks: list[str] = []
-
-    try:
-        proc = subprocess.Popen(
-            argv,
-            cwd=str(cwd),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            start_new_session=True,
-        )
-    except (FileNotFoundError, PermissionError, OSError) as exc:
-        return _ProcessOutcome([], 0, "", None, False, launch_error=str(exc))
-
-    def drain_stderr() -> None:
-        assert proc.stderr is not None
-        for line in proc.stderr:
-            stderr_chunks.append(line)
-
-    def drain_stdout(sink) -> None:
-        nonlocal malformed
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            sink.write(line if line.endswith("\n") else line + "\n")
-            sink.flush()
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                payload = json.loads(stripped)
-            except json.JSONDecodeError:
-                malformed += 1
-                continue
-            if isinstance(payload, dict):
-                records.append(payload)
-            else:
-                malformed += 1
-
-    with raw_log.open("a" if append else "w", encoding="utf-8") as sink:
-        out_thread = threading.Thread(target=drain_stdout, args=(sink,), daemon=True)
-        err_thread = threading.Thread(target=drain_stderr, daemon=True)
-        out_thread.start()
-        err_thread.start()
-
-        timed_out = False
-        try:
-            proc.wait(timeout=deadline_s)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            _terminate_process_group(proc)
-
-        # Bounded join: readers exit once the pipes close after process death.
-        out_thread.join(timeout=_GRACE_PERIOD_S)
-        err_thread.join(timeout=_GRACE_PERIOD_S)
-
-    return _ProcessOutcome(
-        records=records,
-        malformed_lines=malformed,
-        stderr="".join(stderr_chunks),
-        returncode=proc.returncode,
-        timed_out=timed_out,
-    )
-
-
-def _terminate_process_group(proc: subprocess.Popen) -> None:
-    """SIGTERM the whole group, then SIGKILL. Child tools (pytest, node) must die too —
-    a survivor would keep mutating the worktree while the patch is being exported."""
-    try:
-        pgid = os.getpgid(proc.pid)
-    except (OSError, AttributeError):
-        pgid = None
-
-    def signal_group(sig: int) -> None:
-        if pgid is not None and hasattr(os, "killpg"):
-            try:
-                os.killpg(pgid, sig)
-                return
-            except OSError:
-                pass
-        try:
-            proc.send_signal(sig)
-        except OSError:
-            pass
-
-    signal_group(signal.SIGTERM)
-    try:
-        proc.wait(timeout=_GRACE_PERIOD_S)
-        return
-    except subprocess.TimeoutExpired:
-        pass
-    signal_group(signal.SIGKILL)
-    try:
-        proc.wait(timeout=_GRACE_PERIOD_S)
-    except subprocess.TimeoutExpired:
-        pass
-
-
 # --------------------------------------------------------------------------- #
 # Adapter
 # --------------------------------------------------------------------------- #

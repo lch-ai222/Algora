@@ -637,6 +637,42 @@ rep0/rep1 完全一致，rep2 只有 3 次编辑、低于 `MIN_EDITS_FOR_SPLIT=4
 
 **必须同时陈述的边界**：采用率 0/9 → 9/9 是无重叠的阶跃，属机制事实；但成功率 0.444 → 0.556 **不显著**（exact McNemar p=1.0，不一致 trial 3 个且方向 1:2 分裂）。**预警让能力被使用，是否让结果变好尚未测出**——这需要在 8 case 上以足够 repeats 做正式消融。
 
+### V3 W2-8 · 第二个外部 Agent adapter（Cline）(2026-08-05)
+
+接入 **Cline CLI 3.0.49**（cline.bot），走智谱 OpenAI 兼容端点，模型受控。这是 JD 点名的三个框架里的第二个，也是把 `AgentAdapter` 从"一次性封装"变成**可验证协议**的关键一步。
+
+#### 接第二个框架立刻证伪了协议的一部分
+
+`context_amnesia._CONTENT_KEYS` 只认 `new_str`/`new_string`/`content`/`contents`——那是 **Claude Code 的词汇，不是协议的**。Cline 的 `editor` 写 `new_text`，于是每一次外部编辑都被丢掉：轨迹里明明有 `file_write` 落在 `mini_store/cart.py`，canary 却报 `edits_observed=0`。
+
+**沉默和守规在下游看起来完全一样**——canary 会报"完美遵守"。已修，并加了逐框架的写入词汇契约测试（mini_agent / claude_code Edit / claude_code Write / cline editor 各一条），第三个 adapter 再踩就会红。这条正是"加第二个 adapter"本身的价值。
+
+#### Cline 与 Claude Code 在种类上的差异
+
+| 差异 | 处理 |
+|---|---|
+| `--json` 的 `hook_event` 只有时间戳，**没有工具名/路径/命令** | 事后读 `--data-dir` 下持久化的会话（含完整 `tool_use` 输入）。非侵入——注入 hook 会改变被测行为 |
+| 会话读不到时轨迹是残缺的 | `trajectory_incomplete` + `unreadable_sessions` 显式上报。短轨迹与未读轨迹对检测器完全同形 |
+| CLI 的 `totalCost` 来自它自己的价目表 | 第三方端点上语义错误 → `cost_source=unavailable`，原值只留在 manifest 里 |
+| resume 会重读整份会话 | 合并时**不拼接事件**（会翻倍），只累加 token/时长 |
+
+顺带把 `_stream_process` / `_terminate_process_group` 抽到 `adapters/process.py` 共用——三条理由（边跑边落盘、杀整个进程组、畸形行计数不丢弃）写在模块 docstring 里。
+
+#### 首次实测（glm-4.5-air，4 条长程 case，各 1 次）
+
+| case | Task | Strict | 改动文件 |
+|---|---|---|---|
+| long-tax-single-source | 1.0 | 1.0 | 3（正确） |
+| long-release-accounting | 1.0 | **0.0** | 3 > 上限 2，**逐 caller 打补丁** |
+| long-discount-rounding | 0.0 | 0.0 | 1 |
+| long-order-snapshot | 0.0 | 0.0 | `orders.py`（**症状处**） |
+
+Suite: Task 0.50 / Strict 0.25，工具调用 15–31。
+
+**必须说明**：单独跑 `long-order-snapshot` 时 Cline 曾通过（n=1），4 case 批量时失败——**是方差不是稳定能力**，不能说"Cline 解出了 MiniAgent 解不出的 case"。两个失败模式与 MiniAgent+GLM 同型（在症状处设防、逐 caller 打补丁）。
+
+**新增的观测面**：Cline 是无约束 agent，路径与命令规则**自由观测**而非被 harness 拦截，所以指令偏移的分母里第一次有了非 Claude-Code 的样本（1/4，且 shipped the breach）。canary 观测到 11 次编辑、遵守率 0.667。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：

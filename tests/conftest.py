@@ -71,3 +71,46 @@ def fake_claude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeClaude:
     monkeypatch.setenv("CLAUDE_FAKE_SCRIPT", str(handle.scenario_path))
     monkeypatch.setenv("CLAUDE_FAKE_DUMP", str(handle.dump_path))
     return handle
+
+
+@dataclass
+class FakeCline:
+    """Handle to an executable ``cline`` stand-in plus its scenario/argv-dump files."""
+
+    cli_path: Path
+    scenario_path: Path
+    dump_path: Path
+
+    def script(self, **scenario) -> None:
+        self.scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
+
+    def invocation(self) -> dict:
+        """argv/env/cwd the adapter actually launched the CLI with."""
+        return json.loads(self.dump_path.read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def fake_cline(tmp_path: Path) -> FakeCline:
+    bin_dir = tmp_path / "fakebin-cline"
+    bin_dir.mkdir()
+    driver = Path(__file__).parent / "fake_cline.py"
+    handle = FakeCline(
+        cli_path=bin_dir / "cline",
+        scenario_path=tmp_path / "cline-scenario.json",
+        dump_path=tmp_path / "cline-invocation.json",
+    )
+    shim = " ".join(
+        shlex.quote(part)
+        for part in (
+            sys.executable,
+            str(driver),
+            "--fake-scenario",
+            str(handle.scenario_path),
+            "--fake-dump",
+            str(handle.dump_path),
+        )
+    )
+    handle.cli_path.write_text(f'#!/bin/sh\nexec {shim} "$@"\n', encoding="utf-8")
+    handle.cli_path.chmod(0o755)
+    handle.script()
+    return handle

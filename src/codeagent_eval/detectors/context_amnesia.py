@@ -32,9 +32,13 @@ from codeagent_eval.agent.loop import TrialResult
 from codeagent_eval.benchmark.case import CanarySpec, EvalCase
 from codeagent_eval.models import TraceEvent, TraceEventType
 
-#: Tool names that carry written content, and the argument each one puts it in.
-_CONTENT_KEYS = ("new_str", "new_string", "content", "contents")
-_PATH_KEYS = ("path", "file_path")
+#: The argument each framework puts written content in. This list is load-bearing rather than
+#: cosmetic: an edit whose content key is missing here is dropped from the observation set, and
+#: a canary that observes nothing reports perfect adherence. Adding the Cline adapter is what
+#: surfaced that — its ``editor`` tool writes ``new_text``, so every external edit vanished and
+#: the detector returned "0 edits observed" against a trajectory that plainly contained one.
+_CONTENT_KEYS = ("new_str", "new_string", "new_text", "content", "contents", "text")
+_PATH_KEYS = ("path", "file_path", "filePath")
 
 _DEF = re.compile(r"^\s*def\s+(?P<name>\w+)\s*\((?P<params>[^)]*)\)(?P<tail>[^:]*):")
 _IMPORT = re.compile(r"^\s*(?:from\s+(?P<from>[\w.]+)\s+import|import\s+(?P<import>[\w.]+))")
