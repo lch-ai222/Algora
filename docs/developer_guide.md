@@ -34,7 +34,7 @@
 
 失败模式检测当前作为 artifacts 后处理运行：`scripts/scan_failure_modes.py` 重放 trajectory/diff，调用 `detectors/reward_hacking.py`、`instruction_drift.py`、`context_amnesia.py`。统计比较由 `scripts/compare_experiments.py` 调用 `stats/` 的 case-cluster bootstrap、exact McNemar 和 Wilson 区间；这些结果不反写 grader，避免分析层改变原始评分证据。
 
-当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。W3-4 已沿离线路径完成；下一主线是消费历史 artifacts 的 W3-5 静态报告与 W3-3 统计收口。
+当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。W3-3 统计收口、W3-4 repro bundle 与 W3-5a 静态报告已沿离线路径完成；下一主线是 W3-1 multi-turn 与 W2-2 ScratchPad，W3-5b CrossAgent UI 仍待接入。
 
 ## 3. LLM Provider（`llm.py`）
 
@@ -128,6 +128,8 @@
 - `detectors/context_amnesia.py`：对只在开场注入一次的 canary 做被动编辑检查，以 early/late decay 区分“从未理解”和“后期丢失”；轨迹过短拒绝给 decay。
 - `detectors/repro_bundle.py`：把有效失败 trial 转成脱敏诊断包和自动 replay fixture。bundle 只保存稳定 grade signature 与 hidden 聚合状态，不保存 hidden 代码、节点名、失败正文或 native log；replay 校验 checksum/suite 指纹后，重新 materialize → 应用 patch → 注入 hidden → 调正式 grader。infra-invalid 不接受，旧 schema 只做诊断、不伪造 replay。
 - `stats/bootstrap.py`：以 case 为聚类单位；少于 8 个聚类主动警告。`mcnemar.py` 要求完整配对网格，`intervals.py` 用 Wilson 处理零事件。
+- `stats/strata.py`：先在 case 内平均 repeats，再对 case 做宏平均，支持 `difficulty`、`task_type`、`horizon`；缺失分层值直接拒绝，避免把未知样本悄悄混入某层。
+- `stats/costs.py`：只有完整定价的有效 trial 才给总成本与 cost/success；配对成本要求两组 case×repeat 网格完全一致，并按 case 聚类 bootstrap。部分定价只展示 coverage 与已观测成本，不给看似精确但必然低估的总成本。
 
 复现命令：
 
@@ -138,7 +140,20 @@
   artifacts/repro_bundles/<bundle-id>
 ```
 
-生成物位于 `artifacts/repro_bundles/`，已 gitignore；清理单个 bundle 使用 `rm -rf artifacts/repro_bundles/<bundle-id>`。尚未实现：hackbait 专用 suite、分层宏平均、成本配对统计和静态报告导出。
+生成物位于 `artifacts/repro_bundles/`，已 gitignore；清理单个 bundle 使用 `rm -rf artifacts/repro_bundles/<bundle-id>`。尚未实现：hackbait 专用 suite，以及 repo/language 分层所需的统一 schema 字段。
+
+### 9.2 静态报告（`report.py`）
+
+`scripts/build_static_report.py` 直接消费一个或多个历史实验目录，输出同源的 `report.json`、`report.md`、`report.html`。JSON 是事实源，Markdown/HTML 只负责渲染；HTML 无外部脚本、字体或网络依赖。报告包含 Task/Strict case-cluster 区间、case 矩阵、difficulty/task_type/horizon 宏平均、全配对 exact McNemar、成本覆盖率与完整定价时的 cost/success 和配对成本区间。infra-invalid 不进入能力分母，但已调度 case 仍留在矩阵中，防止失败样本从报告中消失。
+
+```bash
+.venv/bin/python scripts/build_static_report.py \
+  artifacts/runs/<experiment-a> artifacts/runs/<experiment-b> \
+  --labels agent-a,agent-b --suite datasets/mini_store_long \
+  --out artifacts/reports/<report-id>
+```
+
+历史产物若以 `0.0/derived` 表示未知价格，报告按 unavailable 处理而不是解释成免费；只有显式 free 来源才接受零成本。输出目录已 gitignore，不能覆盖既有报告；清理使用 `rm -rf artifacts/reports/<report-id>`。W3-5a 到此完成，W3-5b 的专用 CrossAgent 前端视图仍未实现。
 
 ## 10. 版本对比（`compare.py`）
 
@@ -188,8 +203,9 @@ Adapter 至少负责：
 5. 持久化原始输入、候选输出、patch、日志、grader、版本与复现命令。
 6. 报告样本规模、预算和不可外推边界；小样例不得写成排行榜成绩。
 
-后续统一结果模型需支持：difficulty/task_type/repo/language 分层字段、case-level 置信区间、
-V1/V2 配对比较、每成功任务 token/cost/tool/time、首次 target/full-suite 通过时间和测试失败恢复率。
+统一结果模型当前已支持 difficulty/task_type/horizon 分层、case-level 置信区间、
+V1/V2 配对比较和每成功任务 cost。仍需补 repo/language 字段、每成功任务 token/tool/time、
+首次 target/full-suite 通过时间和测试失败恢复率。
 同一 case 的 repeats 是簇内重复，不得简单当作相互独立的新 case。
 
 ### 14.1 EvalPlus 官方 Smoke Slice（B1）
@@ -209,11 +225,11 @@ macOS 当前配置 `EVALPLUS_MAX_MEMORY_BYTES=-1` 规避 rlimit 兼容错误，�
 
 ## 15. 启动与测试
 
-见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 360 passed/1 skipped）+ `ruff check` + `scripts/selfcheck.py`（短程 9/9）+ `scripts/selfcheck.py datasets/mini_store_long`（长程 8/8）+ `scripts/check_bounds.py --suite ...`（两套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
+见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 376 passed/1 skipped）+ `ruff check` + `scripts/selfcheck.py`（短程 9/9）+ `scripts/selfcheck.py datasets/mini_store_long`（长程 8/8）+ `scripts/check_bounds.py --suite ...`（两套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
 
 ## 16. 测试覆盖现状
 
-- `test_llm_provider`（provider spec、served model、finish_reason/trace）、`test_pricing`（alias/cache/tier/币种/不完整定价）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch）、`test_tools`（coding + planning 工具）、`test_agent_loop`（V1/V2/V3、完成门禁、context ceiling/compaction、planner 指标）、`test_adapters` 与 `test_claude_code_adapter`（协议/预算/真实 subprocess stand-in/归一化/成本/配置隔离）、`test_parallel_runner`（并行/checkpoint/resume/infra 重试）、`test_long_suite`（8-case schema/isolation/reference/none）、`test_reward_hacking`、`test_instruction_drift`、`test_context_amnesia`、`test_scan_failure_modes`、`test_repro_bundle`（脱敏、空/非空 patch replay、篡改/oracle 漂移/旧 schema）、`test_stats`、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`、`test_api`。
+- `test_llm_provider`（provider spec、served model、finish_reason/trace）、`test_pricing`（alias/cache/tier/币种/不完整定价）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch）、`test_tools`（coding + planning 工具）、`test_agent_loop`（V1/V2/V3、完成门禁、context ceiling/compaction、planner 指标）、`test_adapters` 与 `test_claude_code_adapter`（协议/预算/真实 subprocess stand-in/归一化/成本/配置隔离）、`test_parallel_runner`（并行/checkpoint/resume/infra 重试）、`test_long_suite`（8-case schema/isolation/reference/none）、`test_reward_hacking`、`test_instruction_drift`、`test_context_amnesia`、`test_scan_failure_modes`、`test_repro_bundle`（脱敏、空/非空 patch replay、篡改/oracle 漂移/旧 schema）、`test_stats`（case 宏平均、完整/部分成本、配对聚类区间）、`test_report`（artifact 兼容、infra/cost 诚实性、转义、不可覆盖）、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`、`test_api`。
 
 ## 17. 新任务类型与 Oracle 要求
 

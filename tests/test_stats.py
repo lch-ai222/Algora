@@ -12,11 +12,15 @@ import pytest
 from codeagent_eval.stats import (
     MIN_USEFUL_CLUSTERS,
     Cluster,
+    CostObservation,
     UnpairedSamples,
     cluster_bootstrap_ci,
     exact_mcnemar_p,
     paired_comparison,
+    paired_cost_comparison,
+    stratified_macro_average,
     suite_rate,
+    summarize_costs,
     wilson_interval,
 )
 
@@ -149,6 +153,107 @@ def test_comparing_nothing_is_refused():
 def test_negative_counts_are_rejected():
     with pytest.raises(ValueError, match="non-negative"):
         exact_mcnemar_p(-1, 2)
+
+
+# --------------------------------------------------------------------------- #
+# Stratification and cost accounting
+# --------------------------------------------------------------------------- #
+def test_strata_average_cases_before_trials():
+    results = stratified_macro_average(
+        {"a": [True] * 9 + [False], "b": [False]},
+        {"a": "bugfix", "b": "bugfix"},
+    )
+
+    assert len(results) == 1
+    assert results[0].macro_average == pytest.approx(0.45)
+    assert (results[0].case_count, results[0].trial_count) == (2, 11)
+
+
+def test_missing_stratum_is_refused_instead_of_silently_dropping_a_case():
+    with pytest.raises(ValueError, match="missing strata"):
+        stratified_macro_average({"a": [True], "b": [False]}, {"a": "easy"})
+
+
+def cost(key: str, amount: float | None, success: bool = True) -> CostObservation:
+    return CostObservation(
+        key=key, case_id=key.split("/", 1)[0], task_success=success, cost_usd=amount
+    )
+
+
+def test_cost_per_success_requires_complete_cost_coverage():
+    complete = summarize_costs([cost("a/rep0", 0.2), cost("b/rep0", 0.3, False)])
+    partial = summarize_costs([cost("a/rep0", 0.2), cost("b/rep0", None)])
+
+    assert complete.total_cost_usd == pytest.approx(0.5)
+    assert complete.cost_per_success_usd == pytest.approx(0.5)
+    assert complete.available is True
+    assert partial.observed_cost_usd == pytest.approx(0.2)
+    assert partial.total_cost_usd is None
+    assert partial.cost_per_success_usd is None
+    assert partial.available is False
+
+
+def test_cost_per_success_is_undefined_when_nothing_succeeds():
+    result = summarize_costs([cost("a/rep0", 0.2, False)])
+
+    assert result.total_cost_usd == pytest.approx(0.2)
+    assert result.cost_per_success_usd is None
+    assert "undefined" in result.reason
+
+
+def test_paired_cost_reports_trial_and_case_macro_deltas():
+    a = {
+        "a/rep0": cost("a/rep0", 11),
+        "a/rep1": cost("a/rep1", 11),
+        "a/rep2": cost("a/rep2", 11),
+        "b/rep0": cost("b/rep0", 1),
+    }
+    b = {
+        "a/rep0": cost("a/rep0", 1),
+        "a/rep1": cost("a/rep1", 1),
+        "a/rep2": cost("a/rep2", 1),
+        "b/rep0": cost("b/rep0", 11),
+    }
+
+    result = paired_cost_comparison(a, b)
+
+    assert result.mean_delta_usd == pytest.approx(5.0)
+    assert result.case_macro_delta_usd == pytest.approx(0.0)
+    assert result.case_macro_delta_low_usd <= result.case_macro_delta_usd
+    assert result.case_macro_delta_high_usd >= result.case_macro_delta_usd
+    assert result.warning is not None
+    assert result.n_both_priced == result.n_pairs == 4
+
+
+def test_paired_cost_interval_is_deterministic_and_clusters_by_case():
+    a = {f"c{i}/rep{r}": cost(f"c{i}/rep{r}", i + r + 1) for i in range(8) for r in range(2)}
+    b = {f"c{i}/rep{r}": cost(f"c{i}/rep{r}", i + 0.5) for i in range(8) for r in range(2)}
+
+    first = paired_cost_comparison(a, b, n_resamples=500)
+    second = paired_cost_comparison(a, b, n_resamples=500)
+
+    assert first == second
+    assert first.n_case_clusters == 8
+    assert first.warning is None
+    assert first.case_macro_delta_usd == pytest.approx(1.0)
+
+
+def test_paired_cost_refuses_to_estimate_from_the_priced_subset():
+    a = {"a/rep0": cost("a/rep0", 0.2), "b/rep0": cost("b/rep0", None)}
+    b = {"a/rep0": cost("a/rep0", 0.3), "b/rep0": cost("b/rep0", 0.4)}
+
+    result = paired_cost_comparison(a, b)
+
+    assert result.available is False
+    assert result.mean_delta_usd is None
+    assert result.n_both_priced == 1
+
+
+def test_cost_comparison_requires_the_same_grid_and_non_negative_values():
+    with pytest.raises(UnpairedSamples):
+        paired_cost_comparison({"a/rep0": cost("a/rep0", 1)}, {"b/rep0": cost("b/rep0", 1)})
+    with pytest.raises(ValueError, match="non-negative"):
+        summarize_costs([cost("a/rep0", -1)])
 
 
 # --------------------------------------------------------------------------- #

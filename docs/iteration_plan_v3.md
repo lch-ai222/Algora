@@ -12,11 +12,11 @@
 |---|---|---|---|
 | **W1** | W1-1～W1-7（7/7）；长程 suite 后续从 4 扩到 8 case | — | — |
 | **W2** | W2-1 context、W2-3 context amnesia、W2-4 reward hacking、W2-6 instruction drift（4/8） | — | W2-2 ScratchPad、W2-5 hackbait、W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
-| **W3** | W3-4 repro bundle | W3-3 统计核心、W3-6 部分实验、W3-7 README/横向报告 | W3-1 multi-turn、W3-2 RepoMemory、W3-5 静态报告/跨 Agent UI |
+| **W3** | W3-3 统计收口、W3-4 repro bundle | W3-5 静态报告完成/CrossAgent UI 待做、W3-6 部分实验、W3-7 README/横向报告 | W3-1 multi-turn、W3-2 RepoMemory |
 
-当前门禁：**360 passed / 1 skipped，Ruff 全绿，短/长 selfcheck 9/9 + 8/8；长程干净仓库 83 passed**。模型受控横向报告与 H3 消融仍基于原 4-case 矩阵；扩到 8 case 只提升了下一轮实验的统计设计，尚未自动提升既有结论的证据等级。
+当前门禁：**376 passed / 1 skipped，Ruff 全绿，短/长 selfcheck 9/9 + 8/8；长程干净仓库 83 passed**。模型受控横向报告与 H3 消融仍基于原 4-case 矩阵；扩到 8 case 只提升了下一轮实验的统计设计，尚未自动提升既有结论的证据等级。
 
-**执行约束更新（2026-08-05）**：W3-6 的 8-case 受控矩阵拆为 **W3-6a**，因 GLM API 无可用额度标记为外部阻塞。既有 4-case 结果不作废，也不以其他模型替跑后混入同一比较；原 GLM 端点恢复、preflight 通过且额度覆盖固定矩阵后继续。W3-4 repro bundle 已沿离线路径完成；后续顺序为 W3-5/W3-3 报告统计 → W3-1/W2-2 multi-turn 与 ScratchPad → W2-5 hackbait 基础设施。
+**执行约束更新（2026-08-05）**：W3-6 的 8-case 受控矩阵拆为 **W3-6a**，因 GLM API 无可用额度标记为外部阻塞。既有 4-case 结果不作废，也不以其他模型替跑后混入同一比较；原 GLM 端点恢复、preflight 通过且额度覆盖固定矩阵后继续。W3-3 统计、W3-4 repro bundle 和 W3-5a 静态报告已沿离线路径完成；后续顺序为 W3-1/W2-2 multi-turn 与 ScratchPad → W3-5b CrossAgent UI → W2-5 hackbait 基础设施。
 
 #### 详细执行记录（保留历史时间点与假设修正）
 
@@ -72,7 +72,7 @@
 |---|---|---|---|---|
 | 1 | Code Agent 框架开发与迭代：**代码理解、工具调用、多轮交互、记忆管理、任务规划** | 6 个 coding 工具、planner、确定性 compaction、完成守卫均已落地并做过消融 | 代码理解仍是 grep/read；ScratchPad、跨 run memory、multi-turn、subagent 均未实现 | 🟨 部分覆盖 |
 | 2 | 面向**主流 Code Agent及自研框架**的系统化评测；覆盖真实开发任务、**长程多轮交互**、**完整工具链（构建/测试/部署）** | Claude Code + MiniAgent 的同模型横向实验；9 短程 + 8 长程；build/CLI case | 第二外部 Agent、multi-turn、deploy、官方 SWE-bench、多语言均缺；headline 尚未在 8-case 重跑 | 🟨 部分覆盖 |
-| 3 | 自动化评测框架：**多 Agent 并行、环境隔离、过程可观测、结果自动化分析与可视化报告** | 进程池、trial 续跑、容器断网门禁、统一 TraceEvent、只读控制台、统计脚本均完成 | 静态 HTML/MD 导出和专用跨 Agent UI 未实现；“并行 trial”不等于 Agent 内多智能体协作 | ✅ 主体完成 |
+| 3 | 自动化评测框架：**多 Agent 并行、环境隔离、过程可观测、结果自动化分析与可视化报告** | 进程池、trial 续跑、容器断网门禁、统一 TraceEvent、统计脚本、离线 JSON/MD/HTML 报告和只读控制台均完成 | 专用 CrossAgent UI 未实现；“并行 trial”不等于 Agent 内多智能体协作 | ✅ 主体完成 |
 | 4 | 自动识别**指令偏移、上下文遗忘、测试投机**；产出**可复现缺陷诊断包与回归用例** | 三个独立检测器均已实现并回扫真实 artifacts；repro bundle + 无模型 replay 已完成 | hackbait suite 未实现；不受约束的投机样本仅 16 个 | ✅ 工程闭环完成，行为样本待扩 |
 | 5 | 深度洞察与产品驱动：输出分析报告，为框架优化提供建议 | 已有模型受控横向报告、预算/成本/上下文消融，并据此纠正 planner 结论 | 8-case 复验、第二模型/第二外部 Agent、独立 capability-gap 与 failure-atlas 报告尚缺 | 🟨 部分覆盖 |
 
@@ -83,12 +83,12 @@
 | **框架开发经验** | MiniAgent loop、工具、sandbox、planner、context、adapter 契约和真实消融 | ✅ 有直接代码与数据 |
 | **深度用户视角**（1 年+ AI 编程工具） | 仓库只能证明实际接入并分析过 Claude Code，不能证明一年时长 | ⚠️ 需由履历和案例补证，不应由项目文档代替 |
 | **Python + 系统级语言** | Python 主体扎实；TypeScript 控制台规模仍小 | 🟨 Python 强，第二语言深度证据弱 |
-| **软件工程素养** | 349 tests、Ruff、Protocol、CI/nightly、容器门禁、测量缺陷回归 | ✅ 强覆盖 |
-| **评测与数据思维** | 私有 benchmark、kappa、cluster bootstrap、Wilson、McNemar、预注册与变量控制 | ✅ 强覆盖；分层/成本统计待补 |
+| **软件工程素养** | 376 tests、Ruff、Protocol、CI/nightly、容器门禁、测量缺陷回归 | ✅ 强覆盖 |
+| **评测与数据思维** | 私有 benchmark、kappa、cluster bootstrap、Wilson、McNemar、分层宏平均、成本覆盖/配对统计、预注册与变量控制 | ✅ 强覆盖；repo/language 与 token/tool/time per success 待补 |
 | 加分：**开源经历** | 当前仓库是否公开及外部采用情况不由代码内容证明 | ❌/待外部证据 |
 | 加分：**平台工程** | 并行调度、checkpoint、manifest 指纹、环境清单、CI | ✅ 强覆盖 |
 | 加分：**Benchmark / 回归 / CI/CD / 容器化** | 四项均有可执行证据 | ✅ 强覆盖 |
-| 加分：**产品化思维** | 有横向报告和预算权衡，但静态报告、capability-gap 产品建议书未完成 | 🟨 部分覆盖 |
+| 加分：**产品化思维** | 有横向报告、预算权衡和离线静态报告，但专用 CrossAgent UI、capability-gap 产品建议书未完成 | 🟨 部分覆盖 |
 
 **结论**：当前最强卖点是 JD 职责 3、职责 4 的检测部分，以及评测/平台工程加分项；职责 1、2、5 只完成了可展示的主体，不能写成“全部覆盖”。
 
@@ -111,7 +111,7 @@
 | 工具扩展 | Claude/Cline 支持 MCP，Cline 另有 browser | 固定 6 coding 工具 + planner | 🟨 对评测足够，对产品型 Agent 不足 |
 | 安全/可观测 | 主流产品有权限、checkpoint、usage 展示 | deny-by-default policy、worktree、TraceEvent、成本/环境溯源 | ✅ 项目优势，且更适合受控实验 |
 
-因此近期不应以“复刻主流 Agent 全功能”为目标。repro bundle 已完成；剩余对 JD 产出价值最高的是 multi-turn、第二外部 adapter、报告导出和官方实例。repo map/AST 可作为下一阶段 Agent 能力增强，MCP/browser 只有在形成可评测假设后再做。
+因此近期不应以“复刻主流 Agent 全功能”为目标。repro bundle 与静态报告已完成；剩余对 JD 产出价值最高的是 multi-turn、第二外部 adapter、CrossAgent UI 和官方实例。repo map/AST 可作为下一阶段 Agent 能力增强，MCP/browser 只有在形成可评测假设后再做。
 
 ### 2.2 差距清单（按严重度排序）
 
@@ -126,7 +126,7 @@
 | G7 | SWE-bench 仅自建兼容样例，无官方实例 | 🟠 高 | 面试判断近似二值 |
 | G8 | 已有离线 wheel + CLI 交付 case；仍无部署类 case | 🟡 中 | build 已覆盖，deploy 仍缺 |
 | G9 | 默认预算下短/长 suite 均易饱和 | 🟡 中 | 模型阶梯差异仅 0.16；预算收紧可把差距放大到 0.85，但不能代替更难任务 |
-| G10 | bootstrap/McNemar/Wilson 已完成；分层宏平均、成本统计未做 | 🟡 中 | W3-3 只完成统计核心 |
+| G10 | ~~bootstrap/McNemar/Wilson、difficulty/task_type/horizon 宏平均、cost/success 与配对成本统计~~ **主体关闭** | 🟢 低 | 仍缺 repo/language schema 与 token/tool/time per success，归入 B3 后续扩展 |
 | G11 | 未开源；命名不统一（Algora vs CodeAgent Eval Lab） | 🟡 中 | 简历表面 |
 
 ---
@@ -393,15 +393,15 @@ class EvalCase(BaseModel):
 |---|---|---|---|---|---|
 | **W3-1 ⬜** | `multi_turn.py` 确定性反馈回合 + 3 条多轮 case | 🟠🟣 | W1-2 | 1.5d | 未开始 |
 | **W3-2 ⬜** | `memory.py` 跨 run RepoMemory + 隔离验证 | 🟠 | W2-2 | 1d | 未开始；不得绕过 repeats 泄漏防护 |
-| **W3-3 🟨** | `stats/`：cluster bootstrap CI + exact McNemar + 分层宏平均 | 🔵 | — | 1d | bootstrap、McNemar、Wilson 已完成；分层宏平均和成本统计待补 |
+| **W3-3 ✅** | `stats/`：cluster bootstrap CI + exact McNemar + 分层宏平均 + 成本统计 | 🔵 | — | 1d | difficulty/task_type/horizon 宏平均、cost/success 和严格配对的 case-cluster 成本区间已完成；repo/language 与 token/tool/time per success 留作 B3 扩展 |
 | **W3-4 ✅** | `detectors/repro_bundle.py`：诊断包 + 自动回归 fixture | 🔵 | W2-4/6 | 1d | 空/非空失败 patch 离线 replay；hidden/凭据/篡改/oracle 漂移/legacy 边界均有测试 |
-| **W3-5 ⬜** | `report.py` 静态报告 + `CrossAgent.tsx` 前端视图 | 🔵⚫ | W3-3 | 1d | 未开始；现有控制台仍为通用 artifacts 只读视图 |
+| **W3-5 🟨** | `report.py` 静态报告 + `CrossAgent.tsx` 前端视图 | 🔵⚫ | W3-3 | 1d | W3-5a JSON/MD/离线 HTML 已完成并可消费历史 artifacts；W3-5b 专用 CrossAgent 前端视图未开始 |
 | **W3-6 🟨** | 全量实验执行（见 §6 矩阵）+ 结果回填 | 🔵 | 全部 | 1d | 4-case 横向、H2/H3 和检测器回扫完成；三方/多轮/官方实例未完成 |
 | **W3-6a ⏸️** | 8-case Claude Code / MiniAgent 模型受控矩阵 | 🔵 | GLM 额度 + endpoint preflight | 1d | 外部额度阻塞；恢复后严格沿用冻结模型与配对配置，不接受替代模型混算 |
 | **W3-7 🟨** | 框架开源清理（密钥审计、命名统一、README 架构图）+ 洞察报告 | ⚫ | W3-6 | 0.5d | README 与横向报告已完成；开源核验、命名统一和独立洞察文档未闭环 |
 
-**当前可后置项**：W3-2（跨 run memory）→ W2-5（hackbait 专用 suite）→ W3-3 的分层部分。跨 run memory 风险高且不应只为“打勾”实现。
-**当前不可后置项**：W3-1 multi-turn、W3-5 报告导出、W2-8 第二外部 adapter、W2-7 官方实例；它们直接对应尚未闭环的 JD 证据。W3-6a 同属高优先级，但在外部额度恢复前暂停，不以改变模型换取表面进度。
+**当前可后置项**：W3-2（跨 run memory）→ W2-5（hackbait 专用 suite）→ B3 的 repo/language 与 token/tool/time 扩展。跨 run memory 风险高且不应只为“打勾”实现。
+**当前不可后置项**：W3-1 multi-turn、W3-5b CrossAgent UI、W2-8 第二外部 adapter、W2-7 官方实例；它们直接对应尚未闭环的 JD 证据。W3-6a 同属高优先级，但在外部额度恢复前暂停，不以改变模型换取表面进度。
 
 ---
 

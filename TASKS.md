@@ -39,9 +39,9 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W2-8 | 第二外部 Agent adapter | P0 | ⬜ 未开始 |
 | V3 W3-1 | 确定性 multi-turn + 3 case | P0 | ⬜ 未开始 |
 | V3 W3-2 | 跨 run RepoMemory | P1 | ⬜ 未开始 |
-| V3 W3-3 | 统计增强 | P0/P1 | 🟨 bootstrap/McNemar/Wilson 完成 |
+| V3 W3-3 | 统计增强 | P0/P1 | ✅ 计划内统计完成 |
 | V3 W3-4 | repro bundle + 回归 fixture | P0 | ✅ 完成 |
-| V3 W3-5 | 静态报告 + 跨 Agent UI | P0 | ⬜ 未开始 |
+| V3 W3-5 | 静态报告 + 跨 Agent UI | P0 | 🟨 静态报告完成，UI 待做 |
 | V3 W3-6 | 全量实验与假设回填 | P0 | 🟨 4-case 矩阵完成；W3-6a 因 GLM 额度暂停 |
 | V3 W3-7 | 开源清理 + 洞察报告 | P1 | 🟨 README/横向报告部分完成 |
 
@@ -66,7 +66,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] provider/网络错误作为 infra-invalid 排除出能力分母；compare 拒绝基础设施无效 run。
 - [x] V2 拒绝截断、空回复、无改动、未测试和末次测试失败的假完成；V1 行为不变。
 - [x] 成本费率缺失时记录 `cost_usd=null`、`cost_source=unavailable`，不伪造零成本。
-- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（360 passed/1 skipped）。
+- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（376 passed/1 skipped）。
 
 ### W1-3 · ClaudeCodeAdapter ✅（代码 + live）
 
@@ -132,9 +132,9 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 - [ ] **W3-1 Multi-turn**：确定性反馈驱动与 3 条多轮 case 未实现。
 - [ ] **W3-2 RepoMemory**：跨任务记忆与 trial 间清空验证未实现。
-- 🟨 **W3-3（部分）**：cluster bootstrap、exact McNemar、Wilson 区间已实现并应用；分层宏平均、成本配对统计仍未实现。
+- [x] **W3-3 Statistics**：case-cluster bootstrap、exact McNemar、Wilson、task_type/difficulty/horizon 分层宏平均、完整成本覆盖门禁、cost/success 与 case-cluster 配对成本 bootstrap 均已实现；缺失/旧 `0.0/derived` 成本保持 unavailable。
 - [x] **W3-4 Repro bundle**：失败 trial 可生成脱敏诊断包与回归 fixture；无模型 replay 会重新 materialize、应用 patch、评分并比对稳定签名。hidden 测试代码/节点/失败正文和 native log 不入包，suite 指纹漂移、checksum 篡改、凭据形态 patch、infra-invalid 均拒绝误归因；旧 schema 可生成诊断包但明确拒绝编造 replay 证据。
-- [ ] **W3-5 Report/UI**：静态 HTML/MD 报告和专用 CrossAgent 视图未实现；现有通用控制台可读 artifacts。
+- 🟨 **W3-5 Report/UI（部分）**：`report.py` + `build_static_report.py` 已从历史 artifacts 生成同源 JSON、Markdown 和无外部依赖 HTML，含 provenance、case matrix、分层、配对检验、成本覆盖与可见的小样本警告；专用 CrossAgent 前端视图仍未实现。
 - 🟨 **W3-6（部分）**：4-case 模型受控横向矩阵、H2/H3 和检测器历史回扫已有数据；第二模型/第二外部 Agent 和全部预注册假设未完成。
 - ⏸️ **W3-6a（外部额度阻塞）**：新的 8-case Claude Code / MiniAgent 模型受控矩阵保持原设计待跑。当前 GLM API 无可用额度，恢复条件是同一 GLM 模型端点可完成 preflight 且额度足够覆盖固定矩阵；不得临时换模型并把结果并入原受控比较。
 - 🟨 **W3-7（部分）**：README 与 `cross_agent_report_v1.md` 已完成；开源状态核验、命名统一和完整 capability-gap/failure-atlas 文档未完成。
@@ -222,9 +222,11 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 - [x] P0：case-level/cluster bootstrap 置信区间 + Wilson 区间。
 - [x] P0：Task/Strict exact McNemar。
-- [ ] P0：成本配对 bootstrap/置换检验。
-- [ ] P0：按 difficulty/task_type/repo/language 分层，报告宏平均与样本数。
-- [ ] P0：token/cost/tool/time per successful trial 与预算约束成功率。
+- [x] P0：成本 case-cluster 配对 bootstrap；成本不完整时拒绝子集估计。
+- [x] P0（已有 schema）：按 difficulty/task_type/horizon 分层，报告 case 宏平均与样本数。
+- [ ] P0（schema 待补）：repo/language 分层；当前 suite/case schema 没有可审计字段，不从路径猜测。
+- [x] P0（成本）：完整覆盖下 cost per success；缺失/旧零成本为 unavailable。
+- [ ] P0：token/tool/time per successful trial；预算约束成功率已有实验数据但尚未统一成通用统计对象。
 - [ ] P1：first target/full-suite pass time、测试失败恢复率、case 区分度。
 - [ ] P2：多个模型/Agent、30+ case 后再研究项目—总分相关性。
 - **纪律**：同一 case 的 repeats 不当独立 case；同时报告 effect size、区间、样本数和预算；“不显著”不等于“相同”。
@@ -249,10 +251,10 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ## 当前推荐执行顺序
 
-V3 W1 全部完成，W2-1/3/4/6 完成，W3-3/6/7 部分完成。W3-6a 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
+V3 W1 全部完成，W2-1/3/4/6 完成，W3-3/4 完成，W3-5/6/7 部分完成。W3-6a 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
 
-1. 完成 W3-5 静态报告与 W3-3 分层/成本统计；复用历史 artifacts，不把缺失成本当成 0。
-2. 完成 W3-1 确定性 multi-turn，并用 scripted provider 离线验收；随后实现 run 内 ScratchPad。
+1. 完成 W3-1 确定性 multi-turn，并用 scripted provider 离线验收；随后实现 run 内 ScratchPad。
+2. 完成 W3-5b 专用 CrossAgent UI，直接消费 W3-5a 的同源报告数据或现有只读 API。
 3. 完成 W2-5 hackbait 基础设施与 suite；真实模型 hacking-rate 等额度恢复后再测。
 4. 额度恢复后执行 W3-6a：在当前 8-case 长程 suite 上按原模型、wall-clock、温度和 repeats 重跑受控矩阵。
 5. 再推进第二外部 Agent 与 B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。

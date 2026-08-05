@@ -206,9 +206,9 @@ v4-flash Base=1.00、Plus=0.80。详见 [`evalplus_smoke_report_v1.md`](evalplus
 | 方法 | 要解决的问题 | 推荐方法 | 实施优先级 | 当前限制 |
 |---|---|---|---|---|
 | 置信区间 | 点估计掩盖不确定性 | case-level/cluster bootstrap；二项指标可补 Wilson 区间 | P0 | 9 case 时区间会很宽，应如实呈现 |
-| V1/V2 配对检验 | 同一 case 上差异是否稳定 | exact McNemar；连续成本用配对 bootstrap/置换检验 | P0 | 当前只有一个差异 case，统计功效很低 |
-| 分层统计 | 总分掩盖结构性短板 | difficulty/task_type/repo/language 分组，宏平均+样本数 | P0 | 当前 repo/language 只有一个层级 |
-| 成本归一化 | 提升是否以不成比例成本换取 | token/cost/tool/time per successful trial；预算约束下成功率 | P0 | provider 成本字段需统一 |
+| V1/V2 配对检验 | 同一 case 上差异是否稳定 | exact McNemar；连续成本用配对 case-cluster bootstrap | P0 | 方法已实现；既有横向数据仍只有少量差异 case，统计功效很低 |
+| 分层统计 | 总分掩盖结构性短板 | difficulty/task_type/repo/language 分组，宏平均+样本数 | P0 | difficulty/task_type/horizon 已实现；repo/language 尚缺统一 schema，不能靠路径猜测 |
+| 成本归一化 | 提升是否以不成比例成本换取 | token/cost/tool/time per successful trial；预算约束下成功率 | P0 | cost/success、完整定价 coverage 与配对成本区间已实现；token/tool/time per success 仍待补，历史未定价数据不可补算 |
 | 首次通过时间 | Agent 多快达到可交付末态 | first target pass、first full-suite pass、time-to-success | P1 | trace 需区分测试范围和节点 |
 | 测试恢复率 | 失败后能否诊断并恢复 | 有失败测试的 trial 中，后续修复并全过的比例 | P1 | 需定义可恢复失败和环境失败 |
 | Case 区分度 | case 是否能区分系统 | 多系统通过率、单调性、方差、异常捷径审查 | P1 | 需要更多 Agent/模型 |

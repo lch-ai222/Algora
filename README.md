@@ -153,10 +153,10 @@ and was correct; only the enforcement path was unwired, so every artifact looked
 ## How it is built
 
 ```
-report        docs/*.md  ·  backend + frontend console over artifacts/
+report        report.py → offline JSON/Markdown/HTML · backend + frontend console
 ────────────────────────────────────────────────────────────────────────
 analysis      detectors/ (reward hacking · instruction drift · context amnesia · repro bundle)
-              stats/ (cluster bootstrap · exact McNemar · Wilson)
+              stats/ (cluster bootstrap · exact McNemar · paired cost · strata · Wilson)
               failure_taxonomy.py           compare.py
 ────────────────────────────────────────────────────────────────────────
 orchestration runner.py — process-pool parallelism, trial-level resume,
@@ -199,7 +199,7 @@ data          benchmark/ (case · materialize · swebench · evalplus)
 python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev,api]"
 cp .env.example .env          # fill in a provider key
-.venv/bin/python -m pytest -q # 360 passed, 1 skipped — offline, no API key needed
+.venv/bin/python -m pytest -q # 376 passed, 1 skipped — offline, no API key needed
 ```
 
 ```bash
@@ -226,6 +226,11 @@ python scripts/compare_experiments.py artifacts/runs/<a> artifacts/runs/<b>
 python scripts/build_repro_bundle.py build artifacts/runs/<run>/<case>/rep0 \
   --suite datasets/mini_store_long
 python scripts/build_repro_bundle.py replay artifacts/repro_bundles/<bundle-id>
+
+# Build an offline cross-agent report from existing experiments (no model call)
+python scripts/build_static_report.py artifacts/runs/<a> artifacts/runs/<b> \
+  --suite datasets/mini_store_long --out artifacts/reports/<report-id> \
+  --labels "Agent A" "Agent B"
 ```
 
 Each trial persists `config.json` (model, budgets, adapter version, pricing revision),
@@ -235,6 +240,9 @@ Failure bundles go to `artifacts/repro_bundles/` and are gitignored. They exclud
 code/details and native adapter logs; replay rematerializes the case, applies the patch, injects
 hidden tests at grade time, and checks the deterministic grade signature without a model call.
 Clean one generated bundle with `rm -rf artifacts/repro_bundles/<bundle-id>`.
+Static reports go to gitignored `artifacts/reports/<report-id>/` as one JSON fact source plus
+deterministically rendered Markdown and dependency-free HTML. Clean one with
+`rm -rf artifacts/reports/<report-id>`.
 
 Console: `uvicorn backend.app.main:app --port 8000` + `cd frontend && npm run dev`.
 
@@ -242,7 +250,7 @@ Console: `uvicorn backend.app.main:app --port 8000` + `cd frontend && npm run de
 
 ## Status and evidence levels
 
-`360 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short and 8/8 long · deterministic
+`376 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short and 8/8 long · deterministic
 bounds reference=1.00 / none=0.00 on both suites · CI green including a containerized
 `--network none` evaluation gate.
 
@@ -253,12 +261,13 @@ bounds reference=1.00 / none=0.00 on both suites · CI green including a contain
 | Reward-hacking detection | validated detector; 640 patches scanned, 16 of them unconstrained |
 | Instruction-drift detection | trajectory replay; 364 trials scanned, 16 of them unconstrained |
 | Context-amnesia detection | passive canary checks; 808 edits over 117 trials |
+| Offline reports | JSON + Markdown + dependency-free HTML; case-cluster CI, strata, paired tests/cost |
 | HumanEval+/EvalPlus | official smoke slice, 5 pinned tasks — [report](docs/evalplus_smoke_report_v1.md) |
 | SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
 | Terminal-Bench / OctoBench | protocol study only |
 
-Not done: run/cross-run memory, multi-turn, a second external-agent adapter, static report export,
-and SWE-bench official instances. The long suite now has 8 cases,
+Not done: run/cross-run memory, multi-turn, a second external-agent adapter, the dedicated
+CrossAgent console view, and SWE-bench official instances. The long suite now has 8 cases,
 meeting `MIN_USEFUL_CLUSTERS`; however, the headline cross-agent and ablation tables above still
 come from the original 4-case matrix. With case as the clustering unit, only rerunning on the
 expanded suite can strengthen those claims—extra repeats on the old four cases cannot.
