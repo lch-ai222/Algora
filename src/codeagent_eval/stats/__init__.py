@@ -21,9 +21,17 @@ from codeagent_eval.stats.mcnemar import (
     exact_mcnemar_p,
     paired_comparison,
 )
+from codeagent_eval.stats.multiplicity import (
+    AdjustedComparison,
+    family_wise_error_rate,
+    holm_adjust,
+)
 from codeagent_eval.stats.strata import StratumResult, stratified_macro_average
 
 __all__ = [
+    "holm_adjust",
+    "family_wise_error_rate",
+    "AdjustedComparison",
     "MIN_USEFUL_CLUSTERS",
     "BootstrapResult",
     "Cluster",

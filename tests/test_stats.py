@@ -16,6 +16,8 @@ from codeagent_eval.stats import (
     UnpairedSamples,
     cluster_bootstrap_ci,
     exact_mcnemar_p,
+    family_wise_error_rate,
+    holm_adjust,
     paired_comparison,
     paired_cost_comparison,
     stratified_macro_average,
@@ -262,3 +264,51 @@ def test_cost_comparison_requires_the_same_grid_and_non_negative_values():
 def test_a_zero_is_bounded_rather_than_declared_absent():
     assert wilson_interval(0, 640)[1] < 0.01
     assert wilson_interval(0, 16)[1] > 0.15
+
+
+# --------------------------------------------------------------------------- #
+# Multiplicity
+# --------------------------------------------------------------------------- #
+def test_a_single_comparison_is_left_alone():
+    """There is no family to correct for, and inflating a lone p-value is its own error."""
+    adjusted = holm_adjust({"a|b": 0.03})
+    assert adjusted["a|b"].p_adjusted == 0.03
+    assert adjusted["a|b"].significant()
+
+
+def test_a_borderline_result_does_not_survive_a_family_of_six():
+    """Four arms make six pairs; p=0.031 read alone is not p=0.031 read among six."""
+    raw = {"a|b": 0.0078, "a|c": 0.031, "a|d": 0.0312, "b|c": 0.25, "b|d": 0.5, "c|d": 1.0}
+    adjusted = holm_adjust(raw)
+
+    assert adjusted["a|b"].significant(), "the strongest result should survive"
+    assert not adjusted["a|c"].significant()
+    assert adjusted["a|c"].p_adjusted == pytest.approx(0.155, abs=1e-6)
+
+
+def test_adjusted_values_never_decrease_as_raw_p_rises():
+    """Without the step-down, a reader comparing two rows would see the ordering invert."""
+    raw = {"p1": 0.01, "p2": 0.02, "p3": 0.021, "p4": 0.9}
+    adjusted = holm_adjust(raw)
+    by_rank = sorted(adjusted.values(), key=lambda item: item.rank)
+
+    assert [item.p_value for item in by_rank] == sorted(raw.values())
+    assert all(
+        earlier.p_adjusted <= later.p_adjusted
+        for earlier, later in zip(by_rank, by_rank[1:], strict=False)
+    )
+
+
+def test_adjustment_is_capped_at_one():
+    assert holm_adjust({"a|b": 0.9, "a|c": 0.95})["a|c"].p_adjusted == 1.0
+
+
+def test_the_uncorrected_error_rate_is_reported_as_a_number():
+    """The reason for correcting should be arithmetic in the report, not an assertion."""
+    assert family_wise_error_rate(1) == pytest.approx(0.05)
+    assert family_wise_error_rate(6) == pytest.approx(0.2649, abs=1e-4)
+
+
+def test_an_impossible_p_value_is_refused():
+    with pytest.raises(ValueError, match="outside"):
+        holm_adjust({"a|b": 1.5})

@@ -19,6 +19,8 @@ from codeagent_eval.stats import (
     CostObservation,
     UnpairedSamples,
     cluster_bootstrap_ci,
+    family_wise_error_rate,
+    holm_adjust,
     paired_comparison,
     paired_cost_comparison,
     stratified_macro_average,
@@ -330,10 +332,17 @@ def build_report_data(
             "strict_success": _paired_metric(a, b, "strict_success"),
             "cost": _paired_cost(a, b, resamples),
         })
+    _apply_multiplicity_correction(comparisons_data)
 
     suite_order = [case.case_id for case in suite.cases if case.case_id in observed_cases]
+    n_pairs = len(comparisons_data)
     return {
         "schema": REPORT_SCHEMA,
+        "multiplicity": {
+            "comparisons": n_pairs,
+            "method": "holm" if n_pairs > 1 else "none",
+            "uncorrected_family_wise_error_rate": round(family_wise_error_rate(n_pairs), 4),
+        },
         "created_at": utc_now_iso(),
         "suite": {"name": suite.name, "case_count": len(suite_order), "cases": suite_order},
         "arms": arms,
@@ -343,8 +352,39 @@ def build_report_data(
             "Infrastructure-invalid trials are excluded from capability and cost denominators.",
             "Missing or ambiguous historical cost is unavailable, never zero; cost per success requires full coverage.",
             "This report describes only the selected artifacts and is not a public leaderboard result.",
+            "With more than two arms, every pairwise p-value carries a Holm-adjusted twin; "
+            "a claim about the family should be read against the adjusted one.",
         ],
     }
+
+
+def _fmt_pair(metric: dict[str, Any]) -> str:
+    """Raw p stays visible next to the adjusted one; only the latter answers a family claim."""
+    text = f"{metric['difference']:+.3f}; p={metric['p_value']:.4f}"
+    if metric.get("p_adjusted") is not None and metric.get("n_comparisons", 1) > 1:
+        text += f" (Holm {metric['p_adjusted']:.4f})"
+    return text
+
+
+def _apply_multiplicity_correction(comparisons: list[dict[str, Any]]) -> None:
+    """Attach a Holm-adjusted p-value to every available pairwise test, per metric.
+
+    Six pairwise tests read against 0.05 each is not one test at 0.05 — under a global null
+    the chance of at least one crossing is about 26%. Each metric is its own family: Task and
+    Strict answer different questions, and pooling them would over-correct both.
+    """
+    for metric in ("task_success", "strict_success"):
+        raw = {
+            f"{item['a']}|{item['b']}": item[metric]["p_value"]
+            for item in comparisons
+            if item[metric].get("available") and item[metric].get("p_value") is not None
+        }
+        adjusted = holm_adjust(raw)
+        for item in comparisons:
+            key = f"{item['a']}|{item['b']}"
+            if key in adjusted:
+                item[metric]["p_adjusted"] = round(adjusted[key].p_adjusted, 6)
+                item[metric]["n_comparisons"] = adjusted[key].n_comparisons
 
 
 def _fmt_rate(value: float | None) -> str:
@@ -457,10 +497,8 @@ def render_markdown(report: dict[str, Any], title: str) -> str:
             task, strict, cost = item["task_success"], item["strict_success"], item["cost"]
             rows.append([
                 f"{item['a']} − {item['b']}",
-                (f"{task['difference']:+.3f}; p={task['p_value']:.4f}" if task["available"]
-                 else f"unavailable: {task['reason']}"),
-                (f"{strict['difference']:+.3f}; p={strict['p_value']:.4f}" if strict["available"]
-                 else f"unavailable: {strict['reason']}"),
+                (_fmt_pair(task) if task["available"] else f"unavailable: {task['reason']}"),
+                (_fmt_pair(strict) if strict["available"] else f"unavailable: {strict['reason']}"),
                 _fmt_cost_delta(cost),
             ])
         lines += [_md_table(["Pair", "Task delta", "Strict delta", "Case-macro cost delta"], rows), ""]
