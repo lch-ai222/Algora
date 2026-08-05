@@ -103,6 +103,7 @@ class TraceEventType(StrEnum):
     # Emitted when context management drops earlier turns. Without it, a failure that follows
     # a compaction can only be guessed at rather than attributed to the information loss.
     COMPACTION = "compaction"
+    CONTEXT_PRESSURE = "context_pressure"
     # An explicit revision of model-authored, run-scoped working memory. The trajectory keeps
     # only keys and sizes; values remain in the final result/scratchpad artifacts.
     MEMORY_UPDATE = "memory_update"

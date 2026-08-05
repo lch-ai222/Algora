@@ -600,6 +600,43 @@ rep0/rep1 完全一致，rep2 只有 3 次编辑、低于 `MIN_EDITS_FOR_SPLIT=4
 - 已用真实 `mini_store` 与 `mini_store_long` artifacts 做浏览器验收；长程同网格 pair 正常显示 25.0pp delta、McNemar p 值和 unavailable 成本，控制台无 error/warning。W3-5 至此完成；更广的 B3 仍缺 repo/language 分层与 token/tool/time per success。
 - 本轮新增/扩展 API 测试覆盖异构 adapter 发现、共享事实模型、跨 suite/重复/非法 ID 拒绝；该里程碑验收时为 **393 passed / 1 skipped**，当前总门禁见 §1。
 
+### V3 校准修复 · 多轮步数预算与 ScratchPad 触发信号（2026-08-05）
+
+两项都是"能力已实现但测不出东西"的校准缺陷，都在花 GLM 额度**之前**修掉。
+
+#### 1. 多轮 case 步数被饿死
+
+实测（DeepSeek，默认预算）：3 条里 2 条 `stop_reason=max_steps`，却仍记 Task/Strict 1.00 —— **headline 说满分，多轮诊断说协议没走完**。放开上限（`--max-steps 80`）测自然消耗：
+
+| case | 轮数 | 实测步数 | 最大 | 原预算 |
+|---|---|---|---|---|
+| pricing-revision | 1 | 15, 16, 15 | 16 | 18 |
+| inventory-recovery | 1 | 14, 15, 15 | 15 | 20 |
+| cart-constraint | 2 | 20, **29**, 17 | 29 | 20 |
+
+预算按**最大值**而非中位数设定（偶发超出会伪造"多轮未完成"），定为 `16 × (轮数+1)` → 32/32/48。wall-clock 实测 25–63s vs 300s 预算，不构成约束。
+
+修后默认预算下 **9/9 trial、三条 case 的 `multi_turn_completion_rate` 全为 1.0**。
+
+新增契约测试钉住这条规则：**这个 suite 测的是交互质量，步数不应成为约束**；预算压力是长程 suite 在统一 wall-clock 下的主题，两者混在一起就无法事后分离。
+
+#### 2. ScratchPad 有工具却没有触发信号
+
+先修正一个我自己的错误结论：不是"从未使用"。跨 24 个 trial 是 **3 次使用，全部在多轮 suite**（把第一轮的决定带进第二轮，正是设计意图），单轮长程 0/15。
+
+真正没被触发的是它声明的另一半用途——"熬过 context compaction"。把预算收到 8k 强制压缩：
+
+| 配置 | compaction | scratchpad 使用 |
+|---|---|---|
+| 8k 预算，无预警 | **9/9 触发**（每 trial 2–10 次） | **0/9** |
+| 8k 预算，**加预压缩预警** | 9/9 触发 | **9/9** |
+
+**根因**：`[context compacted]` 这条消息是在**丢失之后**才注入的。要靠 scratchpad 保住信息必须在压缩**之前**写，而模型对"上下文正在逼近上限"没有任何信号——它只知道刚刚丢过一次。
+
+**修法**：`ContextManager.pressure_notice()`，在 `warn_threshold=0.55` 与 `compaction_threshold=0.75` 之间发一次预警，**只在上升沿触发**（每步都发会消耗它正要保护的预算），每次压缩后重新武装。仅在 scratchpad 启用时挂载——没有地方可写时这条建议无法执行，且这样 `−scratchpad` 消融会把工具和驱动它的提示一起去掉，保持干净。
+
+**必须同时陈述的边界**：采用率 0/9 → 9/9 是无重叠的阶跃，属机制事实；但成功率 0.444 → 0.556 **不显著**（exact McNemar p=1.0，不一致 trial 3 个且方向 1:2 分裂）。**预警让能力被使用，是否让结果变好尚未测出**——这需要在 8 case 上以足够 repeats 做正式消融。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：

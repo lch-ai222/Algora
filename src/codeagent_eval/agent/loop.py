@@ -398,6 +398,21 @@ class MiniAgent:
                     stop_reason = "repeated_action"
                     break
 
+                if session.context is not None and session.scratchpad is not None:
+                    # Only meaningful when there is somewhere to write: the notice asks the
+                    # agent to save state, and without a scratchpad that is advice it cannot
+                    # take. Gating it here also keeps the -scratchpad ablation clean — the
+                    # ablated arm loses the tool and the prompt that drives it together.
+                    notice = session.context.pressure_notice(session.messages)
+                    if notice is not None:
+                        session.messages.append({"role": "user", "content": notice})
+                        state.emit(
+                            TraceEventType.CONTEXT_PRESSURE,
+                            name=f"pressure_{session.context.stats.pressure_notices}",
+                            prompt_tokens=session.context.stats.last_prompt_tokens,
+                            budget_tokens=session.context.budget_tokens,
+                        )
+
                 if session.context is not None and session.context.should_compact(session.messages):
                     session.messages, record = session.context.compact(
                         session.messages, step, _progress_digest(state)

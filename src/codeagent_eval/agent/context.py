@@ -55,6 +55,7 @@ class CompactionRecord:
 @dataclass
 class ContextStats:
     compactions: int = 0
+    pressure_notices: int = 0
     truncated_outputs: int = 0
     truncated_chars: int = 0
     peak_prompt_tokens: int = 0
@@ -65,6 +66,7 @@ class ContextStats:
         return {
             "context_budget_tokens": budget_tokens,
             "context_compactions": self.compactions,
+            "context_pressure_notices": self.pressure_notices,
             "context_truncated_outputs": self.truncated_outputs,
             "context_truncated_chars": self.truncated_chars,
             "context_peak_prompt_tokens": self.peak_prompt_tokens,
@@ -109,6 +111,7 @@ class ContextManager:
         budget_tokens: int,
         *,
         compaction_threshold: float = 0.75,
+        warn_threshold: float = 0.55,
         keep_recent_messages: int = 6,
         tool_output_limits: dict[str, int] | None = None,
     ) -> None:
@@ -116,10 +119,16 @@ class ContextManager:
             raise ValueError("budget_tokens must be positive")
         if not 0 < compaction_threshold <= 1:
             raise ValueError("compaction_threshold must be in (0, 1]")
+        if not 0 < warn_threshold < compaction_threshold:
+            # A warning at or above the compaction point could never fire before the drop,
+            # which is the only moment at which it is useful.
+            raise ValueError("warn_threshold must be in (0, compaction_threshold)")
         if keep_recent_messages < 2:
             raise ValueError("keep_recent_messages must be at least 2")
         self.budget_tokens = budget_tokens
         self.compaction_threshold = compaction_threshold
+        self.warn_threshold = warn_threshold
+        self._warned = False
         self.keep_recent_messages = keep_recent_messages
         self.tool_output_limits = tool_output_limits or DEFAULT_TOOL_OUTPUT_LIMITS
         self.stats = ContextStats()
@@ -144,6 +153,35 @@ class ContextManager:
     def should_compact(self, messages: list[dict[str, Any]]) -> bool:
         measured = self.stats.last_prompt_tokens or estimate_tokens(messages)
         return measured >= self.budget_tokens * self.compaction_threshold
+
+    def pressure_notice(self, messages: list[dict[str, Any]]) -> str | None:
+        """Warn once per approach that context is about to be compacted.
+
+        The ``[context compacted]`` message the digest carries arrives *after* the drop, which
+        is too late to act on: anything worth keeping is already gone. Measured, that is what
+        happens — with the budget tightened to 8k, compaction fired in 9 of 9 trials, two to
+        nine times each, and the scratchpad was written in none of them. The agent had no cue
+        that a loss was coming, only that one had happened.
+
+        So the cue is issued while there is still room to record something, and only on the
+        rising edge: repeating it every step would spend the very budget it is warning about,
+        and re-arming after each compaction keeps it honest for the next approach.
+        """
+        measured = self.stats.last_prompt_tokens or estimate_tokens(messages)
+        if measured < self.budget_tokens * self.warn_threshold:
+            self._warned = False
+            return None
+        if self._warned or self.should_compact(messages):
+            return None
+        self._warned = True
+        self.stats.pressure_notices += 1
+        used = round(measured / self.budget_tokens * 100)
+        return (
+            f"[context pressure] The conversation is at ~{used}% of its context budget and "
+            "will be compacted soon; earlier turns will be replaced by a short digest. "
+            "Record anything you must not lose — decisions taken, constraints you were given, "
+            "what you have already verified — before that happens."
+        )
 
     # -- compaction --------------------------------------------------------- #
     def compact(
@@ -179,6 +217,7 @@ class ContextManager:
             digest_chars=len(digest),
         )
         self.stats.compactions += 1
+        self._warned = False  # re-arm for the next approach
         self.stats.records.append(record)
         # The next turn's measurement supersedes this; clearing it prevents an immediate
         # re-trigger on a stale reading.

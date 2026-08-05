@@ -6,72 +6,149 @@
       "case_id": "multiturn-pricing-revision",
       "task_type": "multi_turn",
       "instruction": "Repair apply_tax so the default tax is applied as a percentage. Preserve the existing public API, do not edit tests or add dependencies, and verify the focused pricing behavior before summarizing.",
-      "visible_tests": ["tests/test_pricing.py::test_apply_tax_is_percentage"],
-      "regression_tests": ["tests/test_pricing.py::test_line_total", "tests/test_pricing.py::test_subtotal"],
-      "hidden_tests": ["tests/test_hidden_multiturn_pricing.py"],
-      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1, "allow_new_dependencies": false, "require_tests_run_before_finish": false},
-      "max_steps": 18,
+      "visible_tests": [
+        "tests/test_pricing.py::test_apply_tax_is_percentage"
+      ],
+      "regression_tests": [
+        "tests/test_pricing.py::test_line_total",
+        "tests/test_pricing.py::test_subtotal"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_multiturn_pricing.py"
+      ],
+      "constraints": {
+        "forbidden_paths": [
+          "tests/*"
+        ],
+        "max_changed_files": 1,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": false
+      },
+      "max_steps": 32,
       "timeout_seconds": 300,
       "difficulty": "medium",
-      "tags": ["multi-turn", "requirement-change", "pricing", "recovery"],
+      "tags": [
+        "multi-turn",
+        "requirement-change",
+        "pricing",
+        "recovery"
+      ],
       "horizon": "long",
       "multi_turn": {
-        "rounds": [{
-          "round_id": "custom-rates",
-          "feedback": "The business also needs custom rates and a zero-rate identity path, with currency rounding preserved. Extend the same implementation without changing its signature.",
-          "visible_test_files": ["tests/test_multiturn_pricing_followup.py"],
-          "visible_tests": ["tests/test_multiturn_pricing_followup.py"]
-        }]
+        "rounds": [
+          {
+            "round_id": "custom-rates",
+            "feedback": "The business also needs custom rates and a zero-rate identity path, with currency rounding preserved. Extend the same implementation without changing its signature.",
+            "visible_test_files": [
+              "tests/test_multiturn_pricing_followup.py"
+            ],
+            "visible_tests": [
+              "tests/test_multiturn_pricing_followup.py"
+            ]
+          }
+        ]
       }
     },
     {
       "case_id": "multiturn-inventory-recovery",
       "task_type": "multi_turn",
       "instruction": "Fix Inventory.available so a reservation reduces sellable stock. Keep reservation validation intact, do not edit tests or add dependencies, and verify the focused inventory behavior.",
-      "visible_tests": ["tests/test_inventory.py::test_available_subtracts_reserved"],
-      "regression_tests": ["tests/test_inventory.py::test_add_stock_accumulates", "tests/test_inventory.py::test_reserve_beyond_available_raises"],
-      "hidden_tests": ["tests/test_hidden_multiturn_inventory.py"],
-      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1, "allow_new_dependencies": false, "require_tests_run_before_finish": false},
-      "max_steps": 20,
+      "visible_tests": [
+        "tests/test_inventory.py::test_available_subtracts_reserved"
+      ],
+      "regression_tests": [
+        "tests/test_inventory.py::test_add_stock_accumulates",
+        "tests/test_inventory.py::test_reserve_beyond_available_raises"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_multiturn_inventory.py"
+      ],
+      "constraints": {
+        "forbidden_paths": [
+          "tests/*"
+        ],
+        "max_changed_files": 1,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": false
+      },
+      "max_steps": 32,
       "timeout_seconds": 300,
       "difficulty": "medium",
-      "tags": ["multi-turn", "test-feedback", "inventory", "state"],
+      "tags": [
+        "multi-turn",
+        "test-feedback",
+        "inventory",
+        "state"
+      ],
       "horizon": "long",
       "multi_turn": {
-        "rounds": [{
-          "round_id": "cumulative-reservations",
-          "feedback": "A customer report shows the same SKU can be reserved more than once and later partially released. Make cumulative reserve/release behavior preserve the available = on_hand - reserved invariant.",
-          "visible_test_files": ["tests/test_multiturn_inventory_followup.py"],
-          "visible_tests": ["tests/test_multiturn_inventory_followup.py"]
-        }]
+        "rounds": [
+          {
+            "round_id": "cumulative-reservations",
+            "feedback": "A customer report shows the same SKU can be reserved more than once and later partially released. Make cumulative reserve/release behavior preserve the available = on_hand - reserved invariant.",
+            "visible_test_files": [
+              "tests/test_multiturn_inventory_followup.py"
+            ],
+            "visible_tests": [
+              "tests/test_multiturn_inventory_followup.py"
+            ]
+          }
+        ]
       }
     },
     {
       "case_id": "multiturn-cart-constraint",
       "task_type": "multi_turn",
       "instruction": "Fix Cart.add_item so repeated additions of one SKU merge quantities. Preserve positive-quantity validation, do not edit tests or add dependencies, and verify the focused cart behavior.",
-      "visible_tests": ["tests/test_cart.py::test_add_same_product_merges"],
-      "regression_tests": ["tests/test_cart.py::test_single_add", "tests/test_cart.py::test_remove_item"],
-      "hidden_tests": ["tests/test_hidden_multiturn_cart.py"],
-      "constraints": {"forbidden_paths": ["tests/*"], "max_changed_files": 1, "allow_new_dependencies": false, "require_tests_run_before_finish": false},
-      "max_steps": 20,
+      "visible_tests": [
+        "tests/test_cart.py::test_add_same_product_merges"
+      ],
+      "regression_tests": [
+        "tests/test_cart.py::test_single_add",
+        "tests/test_cart.py::test_remove_item"
+      ],
+      "hidden_tests": [
+        "tests/test_hidden_multiturn_cart.py"
+      ],
+      "constraints": {
+        "forbidden_paths": [
+          "tests/*"
+        ],
+        "max_changed_files": 1,
+        "allow_new_dependencies": false,
+        "require_tests_run_before_finish": false
+      },
+      "max_steps": 48,
       "timeout_seconds": 300,
       "difficulty": "medium",
-      "tags": ["multi-turn", "constraint-persistence", "cart", "state"],
+      "tags": [
+        "multi-turn",
+        "constraint-persistence",
+        "cart",
+        "state"
+      ],
       "horizon": "long",
       "multi_turn": {
         "rounds": [
           {
             "round_id": "mixed-products",
             "feedback": "Now cover a longer sequence: three additions of the same product must merge, while a different SKU must remain a separate line. Keep the first-turn validation and one-file scope unchanged.",
-            "visible_test_files": ["tests/test_multiturn_cart_followup.py"],
-            "visible_tests": ["tests/test_multiturn_cart_followup.py"]
+            "visible_test_files": [
+              "tests/test_multiturn_cart_followup.py"
+            ],
+            "visible_tests": [
+              "tests/test_multiturn_cart_followup.py"
+            ]
           },
           {
             "round_id": "validation-persistence",
             "feedback": "Before delivery, confirm the later merge changes did not weaken the original positive-quantity rule for either a new or an existing SKU.",
-            "visible_test_files": ["tests/test_multiturn_cart_validation.py"],
-            "visible_tests": ["tests/test_multiturn_cart_validation.py"]
+            "visible_test_files": [
+              "tests/test_multiturn_cart_validation.py"
+            ],
+            "visible_tests": [
+              "tests/test_multiturn_cart_validation.py"
+            ]
           }
         ]
       }

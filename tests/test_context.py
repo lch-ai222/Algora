@@ -403,3 +403,63 @@ def test_the_adapter_accepts_a_token_ceiling_it_can_now_enforce(git_repo):
     assert result.native_stop_reason == "context_overflow"
     assert result.env_manifest["context_ceiling_tokens"] == 1000
     assert result.to_trial_result().stop_reason == "context_overflow"
+
+
+# --------------------------------------------------------------------------- #
+# Pre-compaction pressure notice
+# --------------------------------------------------------------------------- #
+def _at(manager: ContextManager, tokens: int) -> None:
+    manager.observe(tokens)
+
+
+def test_no_notice_while_there_is_room():
+    manager = ContextManager(budget_tokens=1000, warn_threshold=0.55)
+    _at(manager, 400)
+    assert manager.pressure_notice([]) is None
+
+
+def test_the_notice_fires_before_compaction_not_after():
+    """A warning that only arrives once the drop has happened cannot be acted on."""
+    manager = ContextManager(budget_tokens=1000, warn_threshold=0.55, compaction_threshold=0.75)
+    _at(manager, 600)
+    notice = manager.pressure_notice([])
+    assert notice is not None
+    assert "will be compacted soon" in notice
+    assert not manager.should_compact([])
+
+
+def test_no_notice_once_compaction_is_already_due():
+    """At that point the digest's own message is the accurate thing to say."""
+    manager = ContextManager(budget_tokens=1000, warn_threshold=0.55, compaction_threshold=0.75)
+    _at(manager, 800)
+    assert manager.pressure_notice([]) is None
+
+
+def test_the_notice_fires_once_per_approach():
+    """Repeating it every step would spend the budget it exists to protect."""
+    manager = ContextManager(budget_tokens=1000, warn_threshold=0.55)
+    _at(manager, 600)
+    assert manager.pressure_notice([]) is not None
+    _at(manager, 650)
+    assert manager.pressure_notice([]) is None
+    assert manager.stats.pressure_notices == 1
+
+
+def test_the_notice_re_arms_after_a_compaction():
+    manager = ContextManager(budget_tokens=1000, warn_threshold=0.55, keep_recent_messages=2)
+    _at(manager, 600)
+    assert manager.pressure_notice([]) is not None
+
+    messages = [{"role": "user", "content": "task"}] + [
+        {"role": "assistant", "content": f"step {i}"} for i in range(6)
+    ]
+    manager.compact(messages, step=5, digest="did things")
+    _at(manager, 600)
+    assert manager.pressure_notice([]) is not None, "the next approach deserves its own warning"
+    assert manager.stats.pressure_notices == 2
+
+
+def test_a_warn_threshold_at_or_above_compaction_is_refused():
+    """Such a warning could never fire before the drop, which is its only useful moment."""
+    with pytest.raises(ValueError, match="warn_threshold"):
+        ContextManager(budget_tokens=1000, warn_threshold=0.75, compaction_threshold=0.75)

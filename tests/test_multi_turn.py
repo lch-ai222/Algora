@@ -58,6 +58,14 @@ def make_case(suite_dir: Path) -> EvalCase:
     )
 
 
+#: Steps granted per turn, where a case's turns are its opening request plus its feedback
+#: rounds. Measured rather than guessed: unconstrained, these cases spend 7-10 steps per turn
+#: with a worst observed trial at 29 steps over three turns. The original budgets of 18-20 sat
+#: below that, and two of three trials stopped on ``max_steps`` while still grading Task 1.00 —
+#: so the headline said success and the multi-turn diagnostic said the protocol never finished.
+STEPS_PER_TURN = 16
+
+
 def test_committed_multiturn_suite_has_three_isolated_staged_cases():
     suite = load_suite(MULTI_SUITE)
 
@@ -69,6 +77,23 @@ def test_committed_multiturn_suite_has_three_isolated_staged_cases():
         for round_ in case.multi_turn.rounds:
             for path in round_.visible_test_files:
                 assert not (suite.repo / path).exists(), "future-turn tests must not start visible"
+
+
+def test_every_multiturn_case_budgets_steps_by_its_turn_count():
+    """Steps must not be the binding constraint on a suite that measures interaction.
+
+    Budget pressure is the long suite's subject, under a wall clock every framework enforces
+    identically. Here a step cap that bites turns "did the agent handle the follow-up" into
+    "did the agent have steps left when the follow-up arrived", and the two are not separable
+    after the fact. The wall clock stays at 300s against 25-63s observed, so this is the only
+    budget that could bind.
+    """
+    for case in load_suite(MULTI_SUITE).cases:
+        turns = len(case.multi_turn.rounds) + 1
+        assert case.max_steps == STEPS_PER_TURN * turns, (
+            f"{case.case_id} has {turns} turns and must budget "
+            f"{STEPS_PER_TURN * turns} steps, not {case.max_steps}"
+        )
 
 
 def test_feedback_reveals_only_visible_tests_and_advances_patch_baseline(
