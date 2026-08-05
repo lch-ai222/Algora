@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeagent_eval.agent.context import ContextManager
+from codeagent_eval.agent.memory import ScratchPad
 from codeagent_eval.agent.planner import PlanTracker, parse_plan_items
 from codeagent_eval.agent.prompts import build_system_prompt
 from codeagent_eval.llm import LlmCallRecord, LlmProvider, llm_trace_scope
@@ -45,6 +46,9 @@ class AgentConfig:
     # V3-only: tiered tool-output truncation plus compaction against a measured token budget.
     # Separable from the planner so each can be ablated on its own.
     enable_context_management: bool = False
+    # V3-only run-scoped working memory. It remains available when conversation turns are
+    # compacted, while its rendered contents still consume the measured prompt budget.
+    enable_scratchpad: bool = False
     context_budget_tokens: int = 32_000
     compaction_threshold: float = 0.75
     #: Hard context-window ceiling, applied to EVERY harness version. It stands in for a
@@ -67,6 +71,7 @@ class AgentConfig:
             "enforce_completion_checks": disciplined,
             "enable_planner": version == "v3" and "planner" not in ablate,
             "enable_context_management": version == "v3" and "context" not in ablate,
+            "enable_scratchpad": version == "v3" and "scratchpad" not in ablate,
         }
         return cls(version=version, **{**defaults, **overrides})
 
@@ -95,6 +100,7 @@ class TrialResult(BaseModel):
     cost_source: str = "unavailable"
     completion_checks: dict[str, Any] = Field(default_factory=dict)
     plan: dict[str, Any] = Field(default_factory=dict)
+    memory: dict[str, Any] = Field(default_factory=dict)
     started_at: str = ""
     finished_at: str = ""
     duration_ms: int = 0
@@ -144,6 +150,7 @@ class _AgentSession:
     messages: list[dict[str, Any]]
     state: _RunState
     context: ContextManager | None
+    scratchpad: ScratchPad | None
     deadline: float
     started_at: str
     started: float
@@ -165,18 +172,27 @@ class MiniAgent:
         self.provider = provider
         self.config = config or AgentConfig()
         self.registry = registry or ToolRegistry(
-            default_tools(planning=self.config.enable_planner)
+            default_tools(
+                planning=self.config.enable_planner,
+                memory=self.config.enable_scratchpad,
+            )
         )
         self._session: _AgentSession | None = None
 
     def run(self, task: AgentTask, sandbox: WorktreeSandbox, *, case_id: str | None = None) -> TrialResult:
         """Start a fresh session and run until the agent yields one final response."""
-        system_prompt = build_system_prompt(self.config.version, task.project_instructions)
+        system_prompt = build_system_prompt(
+            self.config.version,
+            task.project_instructions,
+            scratchpad=self.config.enable_scratchpad,
+        )
         ctx = ToolContext(
             sandbox=sandbox,
             forbidden_paths=_forbidden_from_task(task),
             default_timeout=min(task.timeout_seconds, 120),
         )
+        scratchpad = ScratchPad() if self.config.enable_scratchpad else None
+        ctx.scratchpad = scratchpad
         tools = self.registry.openai_tools()
         messages: list[dict[str, Any]] = [{"role": "user", "content": _initial_user_message(task, sandbox)}]
         context = (
@@ -198,6 +214,7 @@ class MiniAgent:
             messages=messages,
             state=_RunState(),
             context=context,
+            scratchpad=scratchpad,
             deadline=started + task.timeout_seconds,
             started_at=utc_now_iso(),
             started=started,
@@ -255,13 +272,18 @@ class MiniAgent:
                     stop_reason = "timeout"
                     break
 
+                request_payload: dict[str, Any] = {"message_count": len(session.messages)}
+                if session.scratchpad is not None:
+                    request_payload["scratchpad_notes"] = len(session.scratchpad.notes)
                 state.emit(
                     TraceEventType.MODEL_REQUEST,
                     name=f"step_{step}",
-                    message_count=len(session.messages),
+                    **request_payload,
                 )
                 turn = self.provider.tool_completion(
-                    system_prompt=session.system_prompt,
+                    system_prompt=_system_prompt_with_scratchpad(
+                        session.system_prompt, session.scratchpad
+                    ),
                     messages=session.messages,
                     tools=session.tools,
                     complexity=self.config.complexity,
@@ -334,8 +356,12 @@ class MiniAgent:
                 for call in turn.tool_calls:
                     state.tool_calls += 1
                     signature = f"{call.name}:{json.dumps(call.arguments, sort_keys=True)}"
-                    state.emit(TraceEventType.TOOL_CALL, name=call.name, arguments=call.arguments,
-                               arguments_error=call.arguments_error)
+                    state.emit(
+                        TraceEventType.TOOL_CALL,
+                        name=call.name,
+                        arguments=_trace_arguments(call.name, call.arguments),
+                        arguments_error=call.arguments_error,
+                    )
 
                     if call.arguments_error:
                         tool_content = f"argument error: {call.arguments_error}"
@@ -355,6 +381,8 @@ class MiniAgent:
                         if call.name == "update_plan" and result.ok
                         else None
                     )
+                    if call.name == "update_scratchpad" and result.ok:
+                        _record_scratchpad(state, result)
                     content = (
                         session.context.truncate_tool_output(call.name, result.content)
                         if session.context is not None
@@ -397,11 +425,13 @@ class MiniAgent:
             session.started_at,
             session.started + session.paused_seconds,
             session.context,
+            session.scratchpad,
         )
 
     def _finalize(
         self, task, sandbox, state, stop_reason, final_message, llm_records, started_at, started,
         context: ContextManager | None = None,
+        scratchpad: ScratchPad | None = None,
     ) -> TrialResult:
         patch = sandbox.export_patch()
         changed = sandbox.changed_files()
@@ -421,6 +451,7 @@ class MiniAgent:
         }
         plan_stats = state.planner.stats() if self.config.enable_planner else {}
         checks.update(context.stats.as_dict(context.budget_tokens) if context else {})
+        checks.update(scratchpad.stats.as_dict(scratchpad.notes) if scratchpad else {})
         return TrialResult(
             stop_reason=stop_reason,
             steps=state.step,
@@ -437,6 +468,7 @@ class MiniAgent:
                 if self.config.enable_planner
                 else {}
             ),
+            memory=scratchpad.snapshot() if scratchpad is not None else {},
             started_at=started_at,
             finished_at=utc_now_iso(),
             duration_ms=int((time.monotonic() - started) * 1000),
@@ -507,8 +539,24 @@ def _completion_feedback(reasons: list[str]) -> str:
     )
 
 
+def _system_prompt_with_scratchpad(base: str, scratchpad: ScratchPad | None) -> str:
+    rendered = scratchpad.render() if scratchpad is not None else ""
+    return f"{base}\n\n{rendered}" if rendered else base
+
+
 def _tool_message(call_id: str, content: str) -> dict[str, Any]:
     return {"role": "tool", "tool_call_id": call_id, "content": content}
+
+
+def _trace_arguments(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name != "update_scratchpad":
+        return arguments
+    notes = arguments.get("notes") or []
+    return {
+        "note_keys": [note.get("key") for note in notes if isinstance(note, dict)],
+        "delete_keys": arguments.get("delete_keys") or [],
+        "values_redacted": True,
+    }
 
 
 def _is_repeated(state: _RunState, signature: str, config: AgentConfig) -> bool:
@@ -567,6 +615,20 @@ def _record_plan(state: _RunState, result) -> str | None:
         f"\n\nWARNING: {len(unverified)} item(s) are marked done but no test has run since "
         f"they were opened: {listed}. Marking an item done is not evidence that it works. "
         "Run the tests that cover these changes before treating them as finished."
+    )
+
+
+def _record_scratchpad(state: _RunState, result) -> None:
+    snapshot = result.data["scratchpad"]
+    stats = snapshot["stats"]
+    state.emit(
+        TraceEventType.MEMORY_UPDATE,
+        name=f"revision_{stats['scratchpad_revisions']}",
+        updated_keys=result.data["updated_keys"],
+        deleted_keys=result.data["deleted_keys"],
+        note_count=stats["scratchpad_final_notes"],
+        chars=stats["scratchpad_final_chars"],
+        scope="run",
     )
 
 

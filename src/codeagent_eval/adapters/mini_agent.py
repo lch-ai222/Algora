@@ -20,7 +20,8 @@ from codeagent_eval.models import AgentTask
 from codeagent_eval.sandbox import WorktreeSandbox
 
 #: Capabilities V3 adds on top of V2, each removable on its own so an ablation isolates one.
-ABLATABLE = frozenset({"planner", "context"})
+ABLATABLE = frozenset({"planner", "context", "scratchpad"})
+_HARNESS_REVISIONS = {"v3": "v3.2"}
 
 _STOP_REASON_MAP = {
     "final": "final",
@@ -61,7 +62,8 @@ class MiniAgentAdapter:
         self.ablate = frozenset(ablate)
         self.context_budget_tokens = context_budget_tokens
         suffix = "".join(f"-no_{a}" for a in sorted(self.ablate))
-        self.adapter_version = f"{__version__}+{harness}{suffix}"
+        identity = _HARNESS_REVISIONS.get(harness, harness)
+        self.adapter_version = f"{__version__}+{identity}{suffix}"
         self._task: AgentTask | None = None
         self._budget: BudgetContract | None = None
         self._sandbox: WorktreeSandbox | None = None
@@ -79,14 +81,15 @@ class MiniAgentAdapter:
         )
 
     def capabilities(self) -> set[Capability]:
-        # V1/V2 inject repository instructions but have no explicit planner, memory or
-        # compaction subsystem. V3 adds planning and nothing else, which is what makes a
-        # V2/V3 comparison an ablation rather than a version bump.
+        # V1/V2 inject repository instructions but have no explicit planner, working memory,
+        # or compaction subsystem. V3 additions remain independently ablatable.
         caps: set[Capability] = set()
         if self.harness == "v3" and "planner" not in self.ablate:
             caps.add(Capability.PLANNING)
         if self.harness == "v3" and "context" not in self.ablate:
             caps.add(Capability.COMPACTION)
+        if self.harness == "v3" and "scratchpad" not in self.ablate:
+            caps.add(Capability.WORKING_MEMORY)
         if self.harness == "v3":
             caps.add(Capability.MULTI_TURN)
         return caps
@@ -185,6 +188,7 @@ class MiniAgentAdapter:
             llm_calls=trial.llm_calls,
             completion_checks=trial.completion_checks,
             plan=trial.plan,
+            memory=trial.memory,
             started_at=trial.started_at,
             finished_at=trial.finished_at,
         )

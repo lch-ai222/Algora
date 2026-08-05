@@ -48,13 +48,31 @@ a reason to stop: rule 4 still decides that, and only tests can. Mark an item do
 after running the tests that cover it — a checklist of green items over an unverified \
 change is worse than no plan, because it reads like verification without being it."""
 
+_SCRATCHPAD_GUIDANCE = """
+
+8. MAINTAIN WORKING MEMORY: use update_scratchpad for concise facts, decisions, constraints, \
+and open questions that must survive context compaction or a user follow-up. Update or delete \
+stale notes as understanding changes. Do not copy the transcript, tool output, or task plan into \
+the scratchpad; it is bounded and every note consumes context budget."""
+
 _PROMPTS = {"v1": _V1, "v2": _V2, "v3": _V3}
 
 
-def build_system_prompt(version: str = "v1", project_instructions: str | None = None) -> str:
+def build_system_prompt(
+    version: str = "v1",
+    project_instructions: str | None = None,
+    *,
+    scratchpad: bool | None = None,
+) -> str:
     if version not in PROMPT_VERSIONS:
         raise ValueError(f"unknown prompt version: {version!r}")
     base = _PROMPTS[version]
+    if scratchpad is None:
+        scratchpad = version == "v3"
+    if scratchpad:
+        if version != "v3":
+            raise ValueError("scratchpad prompt guidance is available only in v3")
+        base += _SCRATCHPAD_GUIDANCE
     if project_instructions:
         # V2 injects repo conventions (AGENTS.md); V1 may too if provided by the task.
         base = f"{base}\n\n--- Project instructions (AGENTS.md) ---\n{project_instructions.strip()}"

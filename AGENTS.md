@@ -50,8 +50,8 @@ src/codeagent_eval/
   settings.py       env 驱动的 frozen dataclass 配置。
   models.py         LlmCallRecord（观测）+ AgentTask / TraceEvent（coding 领域）。
   observability.py  token/cost JSONL 导出。拷贝自 ft_diag。
-  agent/            MiniAgent loop（loop.py）+ V1/V2 prompts（prompts.py）。【全新】
-  tools/            Tool 抽象 + Registry（base.py）+ 6 个 coding 工具（coding_tools.py）。【全新】
+  agent/            MiniAgent loop + prompts + planner/context + run-scoped ScratchPad。
+  tools/            Tool 抽象 + Registry + 6 个 coding 工具 + plan/scratchpad 工具。
   sandbox/          进程隔离沙箱：命令策略（policy.py）+ worktree（worktree.py）。【全新】
   benchmark/        case 模型（case.py）+ 现构/注入/参考修复（materialize.py）。【全新】
   graders/          pytest 执行（pytest_run.py）+ Test/Constraint/Patch grader + 合并（result.py）。【全新】

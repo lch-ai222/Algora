@@ -186,13 +186,19 @@ def test_capabilities_track_the_harness_and_its_ablations():
     a comparison table would show two rows both claiming to plan."""
     assert MiniAgentAdapter(None, harness="v2").capabilities() == set()
     assert MiniAgentAdapter(None, harness="v3").capabilities() == {
-        Capability.PLANNING, Capability.COMPACTION, Capability.MULTI_TURN
+        Capability.PLANNING,
+        Capability.WORKING_MEMORY,
+        Capability.COMPACTION,
+        Capability.MULTI_TURN,
     }
     assert MiniAgentAdapter(None, harness="v3", ablate=frozenset({"planner"})).capabilities() == {
-        Capability.COMPACTION, Capability.MULTI_TURN
+        Capability.WORKING_MEMORY, Capability.COMPACTION, Capability.MULTI_TURN
     }
     assert MiniAgentAdapter(None, harness="v3", ablate=frozenset({"context"})).capabilities() == {
-        Capability.PLANNING, Capability.MULTI_TURN
+        Capability.PLANNING, Capability.WORKING_MEMORY, Capability.MULTI_TURN
+    }
+    assert MiniAgentAdapter(None, harness="v3", ablate=frozenset({"scratchpad"})).capabilities() == {
+        Capability.PLANNING, Capability.COMPACTION, Capability.MULTI_TURN
     }
     with pytest.raises(ValueError, match="unsupported MiniAgent harness"):
         MiniAgentAdapter(None, harness="v4")
@@ -202,9 +208,9 @@ def test_capabilities_track_the_harness_and_its_ablations():
 
 def test_an_ablation_is_part_of_the_harness_identity():
     """Recording an ablated run as plain "v3" would make the artifact unreadable later."""
-    assert MiniAgentAdapter(None, harness="v3").adapter_version.endswith("+v3")
+    assert MiniAgentAdapter(None, harness="v3").adapter_version.endswith("+v3.2")
     ablated = MiniAgentAdapter(None, harness="v3", ablate=frozenset({"context", "planner"}))
-    assert ablated.adapter_version.endswith("+v3-no_context-no_planner")
+    assert ablated.adapter_version.endswith("+v3.2-no_context-no_planner")
 
 
 class _PlanningProvider:

@@ -6,11 +6,11 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ## 1. 当前总体状态
 
-闭环已跑通并用真实 LLM 验证。**原 7/7 里程碑 + B1 + V3 Week 1 全部完成；Week 2 完成 W2-1/3/4/6；Week 3 完成 W3-1/W3-3/W3-4，W3-5 完成静态报告部分，全量实验和开源收口仍为部分完成**。当前已有 8 条长程 case、3 条分阶段多轮 case、可扩展的 AgentAdapter、Claude Code headless adapter、三类失败模式检测器、失败复现包、离线静态对比报告，以及模型受控的 Claude Code / MiniAgent 横向实验。横向 headline 仍来自原 4-case 矩阵，8-case 扩展和多轮数据资产都尚未用真实模型完成受控复验，不能把数据资产升级写成结论升级。
+闭环已跑通并用真实 LLM 验证。**原 7/7 里程碑 + B1 + V3 Week 1 全部完成；Week 2 完成 W2-1/2/3/4/6；Week 3 完成 W3-1/W3-3/W3-4，W3-5 完成静态报告部分，全量实验和开源收口仍为部分完成**。当前已有 8 条长程 case、3 条分阶段多轮 case、可扩展的 AgentAdapter、Claude Code headless adapter、三类失败模式检测器、失败复现包、离线静态对比报告，以及模型受控的 Claude Code / MiniAgent 横向实验。横向 headline 仍来自原 4-case 矩阵，8-case 扩展和多轮数据资产都尚未用真实模型完成受控复验，不能把数据资产升级写成结论升级。
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**382 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- 测试：**391 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
 - Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long` + `datasets/mini_store_multiturn`）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
 - 确定性边界门禁：`scripts/check_bounds.py` 在短程、长程、多轮三个 suite 上 reference=1.00、none=0.00，逐 case 校验。
@@ -20,7 +20,7 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ### V3 迭代摘要
 
-- W1 地基阶段测试从 **94 → 252**；随后检测器、统计、8-case 扩充、repro bundle、静态报告和 multi-turn 把当前门禁推进到 **382 passed / 1 skipped**。已落地 Claude Code adapter、CI/容器门禁、并行续跑、模型费率、预算实验变量、planner、deterministic compaction 与真实会话续接。
+- W1 地基阶段测试从 **94 → 252**；随后检测器、统计、8-case 扩充、repro bundle、静态报告、multi-turn 和 ScratchPad 把当前门禁推进到 **391 passed / 1 skipped**。已落地 Claude Code adapter、CI/容器门禁、并行续跑、模型费率、预算实验变量、planner、deterministic compaction、run-scoped working memory 与真实会话续接。
 - H2：模型阶梯只在最弱的 `glm-4.7-flash` 上产生有限区分度（1.00→0.84）；H2 的强信号来自预算收紧，同一 suite 的模型差距由 0.00 放大到 0.85。
 - 首次成本测量：DeepSeek flash/pro 成功率相同，成本差 5.26×；缓存分档避免一次 trial 成本被高估 4.94×。
 - 修正后 H3：compaction 是全部成功效应（1.00→0.33），planner 对成功率中性但工具调用约 +18%。
@@ -31,10 +31,10 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 | 周 | 完成 | 部分完成 | 未完成 |
 |---|---|---|---|
 | W1 | W1-1～W1-7（7/7） | — | — |
-| W2 | W2-1 context、W2-3 context amnesia、W2-4 reward hacking、W2-6 instruction drift（4/8） | — | W2-2 ScratchPad、W2-5 hackbait、W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
+| W2 | W2-1 context、W2-2 ScratchPad、W2-3 context amnesia、W2-4 reward hacking、W2-6 instruction drift（5/8） | — | W2-5 hackbait、W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
 | W3 | W3-1 multi-turn、W3-3 统计收口、W3-4 repro bundle | W3-5 静态报告完成/CrossAgent UI 待做、W3-6 部分实验、W3-7 README/横向报告 | W3-2 RepoMemory |
 
-计划中“V3 后 JD 全覆盖”的原判断过于乐观。当前已形成强证据的是评测平台、隔离/并行/可观测、长程与多轮私有 benchmark、三个失败模式检测器、可复现缺陷诊断包、静态报告和受控实验；Agent 本体已补会话续接但仍缺 memory、subagent、语义级代码理解，多轮真实模型恢复率也未测；平台仍缺第二外部 Agent、官方 SWE-bench 实例与专用 CrossAgent UI。
+计划中“V3 后 JD 全覆盖”的原判断过于乐观。当前已形成强证据的是评测平台、隔离/并行/可观测、长程与多轮私有 benchmark、三个失败模式检测器、可复现缺陷诊断包、静态报告和受控实验；Agent 本体已补 run 内 working memory 与会话续接，但仍缺跨 run RepoMemory、subagent、语义级代码理解，ScratchPad 和多轮真实模型效果也未测；平台仍缺第二外部 Agent、官方 SWE-bench 实例与专用 CrossAgent UI。
 
 ### Claude live preflight 查证（2026-08-04）
 
@@ -274,7 +274,7 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 - 分级截断：read_file 6000 字符 > run_command 4000 > list_files 2000；保头尾（头部说明检查了什么，尾部通常是结果或报错）。
 - 每次 compaction 发 `COMPACTION` trace 事件（before_tokens / dropped_messages / digest_chars），否则 compaction 之后的失败只能靠猜。
 
-**消融支持**：`--ablate planner|context` 可单独关掉 V3 的任一新增能力，且写入 `adapter_version`（`0.1.0+v3-no_context`）与 resume 指纹——消融后的 V3 是另一个系统，记成同一个 "v3" 会让对比表无法阅读。`--context-budget-tokens` 与 `--max-steps` 一样是实验变量。
+**消融支持**：`--ablate planner|context|scratchpad` 可单独关掉 V3 的对应能力，且写入 `adapter_version`（如 `0.1.0+v3.2-no_scratchpad`）与 resume 指纹——消融后的 V3 是另一个系统，记成同一个 "v3" 会让对比表无法阅读。ScratchPad 改变默认 V3 的 prompt/tool surface，因此当前 harness identity 升为 `v3.2`，不能与旧 `+v3` artifacts 混写为同一系统。`--context-budget-tokens` 与 `--max-steps` 一样是实验变量。
 
 **实测**（DeepSeek v4-flash，`long-crossmodule-returns`，预算 16k）：
 
@@ -285,6 +285,16 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 | 峰值利用率 | 0.906（14,495 / 16,000） |
 | 摘要大小 | 316 → 869 → 1088 字符（随工作累积增长） |
 | 结果 | Task 1.00，plan adherence 1.00（6 项 / 3 次修订） |
+
+### V3 W2-2 · Run-scoped ScratchPad（2026-08-05）
+
+- `agent/memory.py` 提供有界 key/value working memory：最多 12 条、单条 1000 字符、总计 6000 字符；更新和删除原子执行，非法 revision 不会部分落地。
+- `update_scratchpad` 只用于需要跨 compaction 或用户 follow-up 保留的事实、决策、约束与开放问题。它与 planner 分工明确，不应复制 transcript、工具输出或任务清单。
+- ScratchPad 以动态 system context 注入，不重复写入 conversation；provider 实报的 prompt tokens 已包含这段内容，因此受统一 context ceiling 约束。compaction 删除历史消息时 notes 独立保留。
+- 生命周期严格绑定一次 MiniAgent session：确定性多轮续接沿用，同一 Agent 对象启动新 trial 也会新建空 ScratchPad；不写目标仓库，不产生 patch，更不会跨 repeats 传播答案。
+- `Capability.WORKING_MEMORY` 与跨 run `Capability.MEMORY` 分开；`--ablate scratchpad` 可单独关闭并进入 adapter identity、provenance 和 resume 指纹。W3-2 RepoMemory 仍未实现。
+- 每次 revision 发 `MEMORY_UPDATE`，trajectory 只保留 key/尺寸并遮蔽 value；最终 result snapshot 另写专用 `scratchpad.json`。summary 报使用率、平均 revision 和最终 note 数；trial schema 升到 v4，避免新旧 V3 续跑混合。
+- 离线验收覆盖容量、原子性、compaction/multi-turn 常驻、context ceiling、trial 隔离、无 patch 污染、artifact 与消融。尚未执行真实模型 ScratchPad 消融，因此不能宣称它提高任务成功率。
 
 ### V3 H3 消融实验：compaction 有效，planner 有害（2026-08-04）
 
@@ -548,7 +558,7 @@ rep0/rep1 完全一致，rep2 只有 3 次编辑、低于 `MIN_EDITS_FOR_SPLIT=4
 - 后续轮测试不是 Agent patch：沙箱用 path-limited harness commit 推进 diff baseline，同时保留 Agent 已有源码改动为未提交状态。若 Agent 在公开后篡改这些测试，后续 diff 仍会检出，避免“排除 harness 文件”顺带掩盖作弊。
 - MiniAgent V3 现在保存同一会话的 messages、planner、context、worktree 和全局 step/time/token 预算；每个 follow-up 必须重新运行测试，上一轮测试不能充当新需求的完成证据。反馈期间的 harness 测试时间不计入 Agent wall-clock。
 - Claude Code 继续复用原 session ID，后续 `--max-turns` 与 wall-clock 只拿剩余预算；多次 CLI 原始流追加到同一 native log，轨迹 step 累计。resume 的 native cost 是增量还是会话累计尚无可信契约，因此多轮成本主动降为 `null/unavailable`，不冒险重复求和。
-- runner 将首轮/末轮 visible 状态、交付轮数、恢复轮次、`multi_turn_completed` 与 `visible_recovery_rate` 写入 trial/summary；trial schema 升到 v3，旧目录不能无审计混入 `--resume`。
+- runner 将首轮/末轮 visible 状态、交付轮数、恢复轮次、`multi_turn_completed` 与 `visible_recovery_rate` 写入 trial/summary；W3-1 当时将 trial schema 升到 v3，W2-2 增加 ScratchPad artifact 后当前为 v4，旧目录不能无审计混入 `--resume`。
 - `datasets/mini_store_multiturn/` 含 pricing requirement change、inventory failure recovery、cart constraint persistence 三条 case，覆盖 2–3 个用户轮次。后续 visible 测试初始不可见；最终 hidden 仍只在捕获 patch 后注入。
 - 离线验收：suite selfcheck **3/3 valid**，reference Task/Strict **1.00/1.00**，none **0.00/0.00**；scripted MiniAgent 和 fake Claude CLI 覆盖上下文续接、累计预算、每轮重验与轨迹留档。尚未运行真实模型 E5，因此不能宣称实际恢复率提升。
 
@@ -610,9 +620,8 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **离线开发 W2-2 run 内 ScratchPad**：常驻结构化工作记忆必须服从 context ceiling，并与普通对话消息分开计量；真实消融留到模型额度恢复后。
-2. **接 W3-5b CrossAgent UI**：复用 `report.json` 事实模型，不在前端重算统计；静态报告已经完成。
-3. **建设 W2-5 hackbait suite**：先完成策略接线、reference/none 和 detector 自检，真实 hacking-rate 后补。
-4. **额度恢复后执行 W3-6a 与 E5**：保持原模型、wall-clock、温度、预算和 repeats 配对，在 8-case 长程 suite 上重跑，并在 3-case 多轮 suite 测真实恢复率。
-5. **再接第二外部 Agent 与官方 SWE-bench Smoke Slice**；两者可先搭离线协议，但 live 结果必须等各自运行环境有效后验收。
-6. **谨慎补 RepoMemory**：跨 run memory 必须证明 trial 隔离和无答案泄漏，否则宁可不做；正式 Golden Dataset/hidden/reference 不随开源框架公开。
+1. **接 W3-5b CrossAgent UI**：复用 `report.json` 事实模型，不在前端重算统计；静态报告已经完成。
+2. **建设 W2-5 hackbait suite**：先完成策略接线、reference/none 和 detector 自检，真实 hacking-rate 后补。
+3. **额度恢复后执行 W3-6a、ScratchPad live 消融与 E5**：保持原模型、wall-clock、温度、预算和 repeats 配对，在 8-case 长程 suite 上重跑，并在 3-case 多轮 suite 测真实恢复率。
+4. **再接第二外部 Agent 与官方 SWE-bench Smoke Slice**；两者可先搭离线协议，但 live 结果必须等各自运行环境有效后验收。
+5. **谨慎补 RepoMemory**：跨 run memory 必须证明 trial 隔离和无答案泄漏，否则宁可不做；正式 Golden Dataset/hidden/reference 不随开源框架公开。

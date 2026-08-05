@@ -30,7 +30,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W1-6 | 并行执行 + trial 级续跑 | P0 | ✅ 完成 |
 | V3 W1-7 | GLM provider + 模型阶梯 + 成本溯源 | P0 | ✅ 完成 |
 | V3 W2-1 | 分级截断 + 确定性 compaction | P0 | ✅ 完成 |
-| V3 W2-2 | run 内 ScratchPad | P1 | ⬜ 未开始 |
+| V3 W2-2 | run 内 ScratchPad | P1 | ✅ 离线工程闭环完成 |
 | V3 W2-3 | 上下文遗忘检测器 | P0 | ✅ 核心完成 |
 | V3 W2-4 | 测试投机检测器 | P0 | ✅ 完成 |
 | V3 W2-5 | hackbait 专用 suite | P1 | ⬜ 未开始 |
@@ -66,7 +66,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] provider/网络错误作为 infra-invalid 排除出能力分母；compare 拒绝基础设施无效 run。
 - [x] V2 拒绝截断、空回复、无改动、未测试和末次测试失败的假完成；V1 行为不变。
 - [x] 成本费率缺失时记录 `cost_usd=null`、`cost_source=unavailable`，不伪造零成本。
-- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（382 passed/1 skipped）。
+- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（391 passed/1 skipped）。
 
 ### W1-3 · ClaudeCodeAdapter ✅（代码 + live）
 
@@ -120,7 +120,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ### Week 2 其余任务
 
-- [ ] **W2-2 ScratchPad**：run 内显式工作记忆尚未实现；跨 run memory 不得先于 trial 隔离设计。
+- [x] **W2-2 ScratchPad**：有界 run-scoped key/value notes、动态 system context、`update_scratchpad` 工具、compaction/multi-turn 保留、context ceiling 计量、trial 隔离、独立消融和 artifact/summary 指标均完成。它不落目标仓库；跨 run RepoMemory 仍不得先于泄漏隔离设计。
 - [x] **W2-3 Context amnesia**：被动 canary 检测、early/late split、短轨迹拒绝给 decay、跨 adapter 路径归一化均已完成；正式曲线报告仍归 W3-5。
 - [x] **W2-4 Reward hacking**：8 类信号、evidence span、人工 hack 样本全命中、reference 零误报与历史回扫均已完成。
 - [ ] **W2-5 Hackbait suite**：未实现；当前只有 16 个未被沙箱强制拦截的 Claude Code trial，零检出上界仍宽。
@@ -251,10 +251,9 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ## 当前推荐执行顺序
 
-V3 W1 全部完成，W2-1/3/4/6 完成，W3-1/3/4 完成，W3-5/6/7 部分完成。W3-6a 与多轮 E5 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
+V3 W1 全部完成，W2-1/2/3/4/6 完成，W3-1/3/4 完成，W3-5/6/7 部分完成。W3-6a、ScratchPad live 消融与多轮 E5 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
 
-1. 完成 W2-2 run 内 ScratchPad，并用 scripted provider 验证常驻记忆、context budget 与 trial 隔离。
-2. 完成 W3-5b 专用 CrossAgent UI，直接消费 W3-5a 的同源报告数据或现有只读 API。
-3. 完成 W2-5 hackbait 基础设施与 suite；真实模型 hacking-rate 等额度恢复后再测。
-4. 额度恢复后执行 W3-6a 与 E5：长程 8-case 重跑受控矩阵，并在多轮 3-case 上测真实恢复率。
-5. 再推进第二外部 Agent 与 B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。
+1. 完成 W3-5b 专用 CrossAgent UI，直接消费 W3-5a 的同源报告数据或现有只读 API。
+2. 完成 W2-5 hackbait 基础设施与 suite；真实模型 hacking-rate 等额度恢复后再测。
+3. 额度恢复后执行 W3-6a、ScratchPad live 消融与 E5：长程 8-case 重跑受控矩阵，并在多轮 3-case 上测真实恢复率。
+4. 再推进第二外部 Agent 与 B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。

@@ -11,12 +11,12 @@
 | 周 | 已完成 | 部分完成 | 未完成 |
 |---|---|---|---|
 | **W1** | W1-1～W1-7（7/7）；长程 suite 后续从 4 扩到 8 case | — | — |
-| **W2** | W2-1 context、W2-3 context amnesia、W2-4 reward hacking、W2-6 instruction drift（4/8） | — | W2-2 ScratchPad、W2-5 hackbait、W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
+| **W2** | W2-1 context、W2-2 ScratchPad、W2-3 context amnesia、W2-4 reward hacking、W2-6 instruction drift（5/8） | — | W2-5 hackbait、W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
 | **W3** | W3-1 multi-turn、W3-3 统计收口、W3-4 repro bundle | W3-5 静态报告完成/CrossAgent UI 待做、W3-6 部分实验、W3-7 README/横向报告 | W3-2 RepoMemory |
 
-当前门禁：**382 passed / 1 skipped，Ruff 全绿，短/长/多轮 selfcheck 9/9 + 8/8 + 3/3；三套 reference/none=1.00/0.00；长程干净仓库 83 passed**。模型受控横向报告与 H3 消融仍基于原 4-case 矩阵；扩到 8 case 和新增 3-case 多轮 suite 只提升了下一轮实验设计，尚未自动提升既有真实模型结论的证据等级。
+当前门禁：**391 passed / 1 skipped，Ruff 全绿，短/长/多轮 selfcheck 9/9 + 8/8 + 3/3；三套 reference/none=1.00/0.00；长程干净仓库 83 passed**。模型受控横向报告与 H3 消融仍基于原 4-case 矩阵；扩到 8 case 和新增 3-case 多轮 suite 只提升了下一轮实验设计，尚未自动提升既有真实模型结论的证据等级。
 
-**执行约束更新（2026-08-05）**：W3-6 的 8-case 受控矩阵拆为 **W3-6a**，因 GLM API 无可用额度标记为外部阻塞。既有 4-case 结果不作废，也不以其他模型替跑后混入同一比较；原 GLM 端点恢复、preflight 通过且额度覆盖固定矩阵后继续。W3-1 multi-turn、W3-3 统计、W3-4 repro bundle 和 W3-5a 静态报告已沿离线路径完成；后续顺序为 W2-2 ScratchPad → W3-5b CrossAgent UI → W2-5 hackbait 基础设施。多轮真实模型 E5 与 W3-6a 一起等待额度恢复。
+**执行约束更新（2026-08-05）**：W3-6 的 8-case 受控矩阵拆为 **W3-6a**，因 GLM API 无可用额度标记为外部阻塞。既有 4-case 结果不作废，也不以其他模型替跑后混入同一比较；原 GLM 端点恢复、preflight 通过且额度覆盖固定矩阵后继续。W2-2 ScratchPad、W3-1 multi-turn、W3-3 统计、W3-4 repro bundle 和 W3-5a 静态报告已沿离线路径完成；后续顺序为 W3-5b CrossAgent UI → W2-5 hackbait 基础设施。ScratchPad live 消融、多轮真实模型 E5 与 W3-6a 一起等待额度恢复。
 
 #### 详细执行记录（保留历史时间点与假设修正）
 
@@ -41,6 +41,7 @@
 - **实测：给了 planner 不等于会规划。** DeepSeek v4-flash 在短程 case（7–17 动作）上完全不调用 `update_plan`；长程 case 上主动规划（3 项/3 修订 adherence 1.00；7 项/2 修订 adherence 0.71），且无计划表演。**推论：planner 的消融只能在长程上做**，短程上 V2/V3 必然无差异。
 - **W2-1 已完成**：`context.py` 分级截断 + 确定性 compaction。两条纪律——上下文大小取 provider 报告的 `prompt_tokens` 而非 char/4 估算（否则触发阈值对每个被测系统的真实大小都不同）；摘要由轨迹确定性构建而非 LLM 生成（评测 harness 不能在每个长 trial 中间插入不确定、计费的调用）。`--ablate planner|context` 可单独消融并写入 adapter_version 与 resume 指纹。239 passed/1 skipped。
 - **实测**（DeepSeek，`long-crossmodule-returns`，预算 16k）：compaction 触发 3 次、每次丢 21–23 条消息、峰值利用率 0.906，trial 仍 Task 1.00、plan adherence 1.00。
+- **W2-2 已完成（2026-08-05）**：有界 run-scoped ScratchPad 通过 `update_scratchpad` 显式维护事实/决策/约束/开放问题；动态 system context 跨 compaction 与多轮续接常驻，同时计入 provider 实报 prompt tokens 和统一 ceiling。新 trial 强制空实例、不落 workspace；`WORKING_MEMORY` 与跨 run `MEMORY` 分离，`--ablate scratchpad`、`MEMORY_UPDATE`、`scratchpad.json` 和 summary usage/revision/final-note 指标均落地。离线工程闭环完成，真实模型消融待额度。
 - **H3 已完成，结果一半证实一半推翻（2026-08-04）**。先补了一个前置缺陷：`--context-budget-tokens` 只是 V3 的旋钮，v2 从不承受上下文压力（峰值 14.5k vs 窗口 128k），所以 v2/v3 对比根本测不出 compaction 有没有用。改为实现 `BudgetContract.max_tokens` 为**对所有 harness 生效的硬上下文上限**（`--context-ceiling-tokens`），约束才对每一组都成立。
 - 长程 4 case × 3 repeats，上限 12k：**v2 0.50 / v3 0.75 / v3−context 0.33 / v3−planner 1.00**。
   - **compaction 有效**：拿掉它 −0.42，失败几乎全是 `CONTEXT_OVERFLOW`；有它的两组峰值稳定在上限下、溢出为 0。
@@ -70,7 +71,7 @@
 
 | # | JD 职责原文（要点） | 当前覆盖（2026-08-05） | 仍缺证据 | 状态 |
 |---|---|---|---|---|
-| 1 | Code Agent 框架开发与迭代：**代码理解、工具调用、多轮交互、记忆管理、任务规划** | 6 个 coding 工具、planner、确定性 compaction、完成守卫、真实会话续接和累计预算均已落地；context/planner 已做消融 | 代码理解仍是 grep/read；ScratchPad、跨 run memory、subagent 未实现；multi-turn 真实模型恢复率未测 | 🟨 部分覆盖 |
+| 1 | Code Agent 框架开发与迭代：**代码理解、工具调用、多轮交互、记忆管理、任务规划** | 6 个 coding 工具、planner、确定性 compaction、run 内 ScratchPad、完成守卫、真实会话续接和累计预算均已落地；context/planner 已做消融 | 代码理解仍是 grep/read；跨 run RepoMemory、subagent 未实现；ScratchPad/multi-turn 真实效果未测 | 🟨 部分覆盖 |
 | 2 | 面向**主流 Code Agent及自研框架**的系统化评测；覆盖真实开发任务、**长程多轮交互**、**完整工具链（构建/测试/部署）** | Claude Code + MiniAgent 的同模型横向实验；9 短程 + 8 长程 + 3 多轮；build/CLI case | 第二外部 Agent、deploy、官方 SWE-bench、多语言均缺；8-case 与多轮矩阵尚未实跑 | 🟨 部分覆盖 |
 | 3 | 自动化评测框架：**多 Agent 并行、环境隔离、过程可观测、结果自动化分析与可视化报告** | 进程池、trial 续跑、容器断网门禁、统一 TraceEvent、统计脚本、离线 JSON/MD/HTML 报告和只读控制台均完成 | 专用 CrossAgent UI 未实现；“并行 trial”不等于 Agent 内多智能体协作 | ✅ 主体完成 |
 | 4 | 自动识别**指令偏移、上下文遗忘、测试投机**；产出**可复现缺陷诊断包与回归用例** | 三个独立检测器均已实现并回扫真实 artifacts；repro bundle + 无模型 replay 已完成 | hackbait suite 未实现；不受约束的投机样本仅 16 个 | ✅ 工程闭环完成，行为样本待扩 |
@@ -83,7 +84,7 @@
 | **框架开发经验** | MiniAgent loop、工具、sandbox、planner、context、adapter 契约和真实消融 | ✅ 有直接代码与数据 |
 | **深度用户视角**（1 年+ AI 编程工具） | 仓库只能证明实际接入并分析过 Claude Code，不能证明一年时长 | ⚠️ 需由履历和案例补证，不应由项目文档代替 |
 | **Python + 系统级语言** | Python 主体扎实；TypeScript 控制台规模仍小 | 🟨 Python 强，第二语言深度证据弱 |
-| **软件工程素养** | 382 tests、Ruff、Protocol、CI/nightly、容器门禁、测量缺陷回归 | ✅ 强覆盖 |
+| **软件工程素养** | 391 tests、Ruff、Protocol、CI/nightly、容器门禁、测量缺陷回归 | ✅ 强覆盖 |
 | **评测与数据思维** | 私有 benchmark、kappa、cluster bootstrap、Wilson、McNemar、分层宏平均、成本覆盖/配对统计、预注册与变量控制 | ✅ 强覆盖；repo/language 与 token/tool/time per success 待补 |
 | 加分：**开源经历** | 当前仓库是否公开及外部采用情况不由代码内容证明 | ❌/待外部证据 |
 | 加分：**平台工程** | 并行调度、checkpoint、manifest 指纹、环境清单、CI | ✅ 强覆盖 |
@@ -103,22 +104,22 @@
 | 能力维度 | 主流产品可验证基线 | **Algora MiniAgent 当前** | 差距判断 |
 |---|---|---|---|
 | 上下文 | Claude Code 自动 compact；Cline 可拆新 task；Aider 按 token 预算裁剪 repo map | 分级截断 + 确定性 compaction + 全 harness ceiling | ✅ 核心机制已补，策略丰富度仍低 |
-| 记忆 | Claude Code 有 CLAUDE.md + auto memory；Cline 可恢复 task | AGENTS.md 注入；无 ScratchPad/跨 run memory | ❌ 明显缺口 |
+| 记忆 | Claude Code 有 CLAUDE.md + auto memory；Cline 可恢复 task | AGENTS.md 注入 + 有界 run-scoped ScratchPad；无跨 run RepoMemory | 🟨 工作记忆已补，持久记忆待做 |
 | 规划 | Claude/Cline 有 plan 工作流；Aider 有 architect/editor 双阶段 | `update_plan` + 动作验证，成功率中性、工具成本 +18% | 🟨 已实现但价值边界明确 |
 | 代码理解 | Claude/Cline 有并行只读探索；Aider 有 tree-sitter/图排序 repo map | `rg`/read/list，无 AST/LSP/repo map | ❌ 主要产品能力缺口 |
-| 多轮/恢复 | 主流产品均支持会话续接；Cline 有 checkpoint 回滚 | 单任务 loop；无用户反馈回合、无 checkpoint | ❌ JD 硬缺口 |
+| 多轮/恢复 | 主流产品均支持会话续接；Cline 有 checkpoint 回滚 | 3 条确定性 2–3 轮 case + session 续接；无 checkpoint 回滚 | 🟨 确定性闭环完成，live 指标待跑 |
 | 多 Agent | Claude Code 有 subagents/agent teams/worktrees；Cline 有只读并行 subagents | runner 可并行 trial，但 Agent 内无委派协作 | ❌ 不应把两类并行混为一谈 |
-| 工具扩展 | Claude/Cline 支持 MCP，Cline 另有 browser | 固定 6 coding 工具 + planner | 🟨 对评测足够，对产品型 Agent 不足 |
+| 工具扩展 | Claude/Cline 支持 MCP，Cline 另有 browser | 固定 6 coding 工具 + planner + ScratchPad | 🟨 对评测足够，对产品型 Agent 不足 |
 | 安全/可观测 | 主流产品有权限、checkpoint、usage 展示 | deny-by-default policy、worktree、TraceEvent、成本/环境溯源 | ✅ 项目优势，且更适合受控实验 |
 
-因此近期不应以“复刻主流 Agent 全功能”为目标。repro bundle 与静态报告已完成；剩余对 JD 产出价值最高的是 multi-turn、第二外部 adapter、CrossAgent UI 和官方实例。repo map/AST 可作为下一阶段 Agent 能力增强，MCP/browser 只有在形成可评测假设后再做。
+因此近期不应以“复刻主流 Agent 全功能”为目标。repro bundle、静态报告、确定性 multi-turn 与 run-scoped ScratchPad 已完成；剩余对 JD 产出价值最高的是第二外部 adapter、CrossAgent UI 和官方实例。repo map/AST 可作为下一阶段 Agent 能力增强，MCP/browser 只有在形成可评测假设后再做。
 
 ### 2.2 差距清单（按严重度排序）
 
 | ID | 差距 | 严重度 | 根因 |
 |---|---|---|---|
 | G1 | Claude Code 横向已完成；第二外部 adapter 未接，8-case 矩阵未重跑 | 🟠 高 | 现有 headline 仍是 4 case、单模型；无法形成三方结论 |
-| G2 | context、planner 与 multi-turn 已落地；memory 未做 | 🟡 中 | staged visible oracle、续接和预算隔离已完成；ScratchPad/RepoMemory 仍需独立隔离设计，真实多轮 E5 待额度 |
+| G2 | context、planner、ScratchPad 与 multi-turn 已落地；RepoMemory 未做 | 🟡 中 | run 内 working memory 已有隔离/预算/消融；跨 run 泄漏设计和 live 效果仍缺 |
 | G3 | 长程 suite 已扩到 8 case，但主要矩阵仍只跑过旧 4 case | 🟠 高 | 数据扩充与结论升级之间还差一次同配置复验 |
 | G4 | ~~三类检测器之后缺 repro bundle/回归 fixture~~ **已关闭** | ✅ | 脱敏 bundle、checksum/suite 指纹、无模型 grader replay 已完成 |
 | G5 | reward hacking 行为样本不足；无 hackbait suite | 🟡 中 | 640 patch 中只有 16 个不受沙箱强制，零事件上界仍为 19.4% |
@@ -177,7 +178,7 @@
 | `src/codeagent_eval/adapters/cost.py` | 🆕 | 跨 provider token→USD，含缓存命中口径 | 110 |
 | `src/codeagent_eval/adapters/registry.py` | 🆕 | 名称→adapter 装配 + `probe()` 健康检查 | 60 |
 | `src/codeagent_eval/agent/context.py` | 🆕 | token 预算、分级截断、compaction | 200 |
-| `src/codeagent_eval/agent/memory.py` | 🆕 | run 内 ScratchPad + 跨 run RepoMemory | 150 |
+| `src/codeagent_eval/agent/memory.py` | ✅/待扩 | run 内 ScratchPad 已完成；跨 run RepoMemory 未实现 | 135+ |
 | `src/codeagent_eval/agent/planner.py` | 🆕 | `update_plan` 工具 + plan 状态机 + 遵守率 | 140 |
 | `src/codeagent_eval/agent/loop.py` | ♻️ | 接入上述三者；发 `COMPACTION`/`PLAN_UPDATE` 事件 | +120 |
 | `src/codeagent_eval/agent/prompts.py` | ♻️ | 新增 v3 prompt | +40 |
@@ -207,6 +208,7 @@
 
 class Capability(StrEnum):
     PLANNING      = "planning"       # 有显式 plan/todo 机制
+    WORKING_MEMORY = "working_memory" # run/session 内显式工作记忆
     MEMORY        = "memory"         # 跨 run 持久化记忆
     COMPACTION    = "compaction"     # 上下文自动压缩
     MULTI_TURN    = "multi_turn"     # 支持续轮
@@ -377,7 +379,7 @@ class EvalCase(BaseModel):
 | ID | 任务 | 线 | 依赖 | 工时 | 验收标准 |
 |---|---|---|---|---|---|
 | **W2-1 ✅** | `context.py`：token 预算 + 分级截断 + compaction | 🟠 | W1-1 | 1.5d | H3 修正后 V3.1=1.00、V3.1−context=0.33；硬 ceiling 对所有 harness 生效 |
-| **W2-2 ⬜** | `memory.py`：ScratchPad（run 内） | 🟠 | W2-1 | 0.5d | 未开始；常驻 note 与隔离规则仍待实现 |
+| **W2-2 ✅** | `memory.py`：ScratchPad（run 内） | 🟠 | W2-1 | 0.5d | 有界 note、动态 system context、compaction/follow-up 常驻、ceiling 计量、trial 隔离、artifact/指标与独立消融完成；live 消融待额度 |
 | **W2-3 ✅** | `detectors/context_amnesia.py`（canary 被动召回曲线） | 🔵 | W1-1, W2-1 | 1d | checker、early/late decay、路径归一化和真实正例均已完成；正式曲线报告待 W3-5 |
 | **W2-4 ✅** | `detectors/reward_hacking.py`（8 类信号） | 🔵 | — | 1.5d | 8 类构造样本命中、reference 零误报；640 patch 回扫，行为样本仅 16 |
 | **W2-5 ⬜** | `mini_store_hackbait` suite（3 case，开放测试写权限） | 🟣 | W2-4 | 0.5d | 未开始 |
@@ -401,7 +403,7 @@ class EvalCase(BaseModel):
 | **W3-7 🟨** | 框架开源清理（密钥审计、命名统一、README 架构图）+ 洞察报告 | ⚫ | W3-6 | 0.5d | README 与横向报告已完成；开源核验、命名统一和独立洞察文档未闭环 |
 
 **当前可后置项**：W3-2（跨 run memory）→ W2-5（hackbait 专用 suite）→ B3 的 repo/language 与 token/tool/time 扩展。跨 run memory 风险高且不应只为“打勾”实现。
-**当前不可后置项**：W2-2 run 内 ScratchPad、W3-5b CrossAgent UI、W2-8 第二外部 adapter、W2-7 官方实例；它们直接对应尚未闭环的 JD 证据。W3-6a 与多轮 E5 同属高优先级，但在外部额度恢复前暂停，不以改变模型换取表面进度。
+**当前不可后置项**：W3-5b CrossAgent UI、W2-8 第二外部 adapter、W2-7 官方实例；它们直接对应尚未闭环的 JD 证据。W3-6a、ScratchPad live 消融与多轮 E5 同属高优先级，但在外部额度恢复前暂停，不以改变模型换取表面进度。
 
 ---
 
@@ -601,7 +603,7 @@ class EvalCase(BaseModel):
 | 交付物 | 当前状态 | 对应 JD |
 |---|---|---|
 | `adapters/` 异构 Agent 接入层 + 轨迹归一化 | ✅ MiniAgent + Claude Code；第二外部 Agent 未接 | 职责 2、3 |
-| MiniAgent v3（context + memory + planner + multi-turn） | 🟨 context/planner/multi-turn 完成；memory 未做，多轮 live 指标待跑 | 职责 1 |
+| MiniAgent v3（context + memory + planner + multi-turn） | 🟨 context/planner/run-scoped ScratchPad/multi-turn 完成；跨 run memory 未做，ScratchPad/多轮 live 指标待跑 | 职责 1 |
 | `detectors/` 三类失败模式检测器 + repro bundle | ✅ 检测、脱敏诊断、自动 fixture、无模型 replay 完成 | 职责 4 |
 | `stats/` + `report.py` + 跨 Agent 前端视图 | 🟨 统计与静态 JSON/MD/HTML 完成；专用 UI 未做 | 职责 3、5 |
 | 长程 / 多轮 / hackbait / SWE-bench 官方四类 suite | 🟨 长程 8-case、多轮 3-case 完成；后两类未做 | 职责 2 |

@@ -186,7 +186,7 @@ data          benchmark/ (case · materialize · swebench · evalplus)
 - **Budgets are experimental variables.** `--max-steps`, `--max-wall-clock`,
   `--context-ceiling-tokens` all override case defaults and land in the resume fingerprint, so
   two budgets can never be merged into one experiment.
-- **An ablation must isolate one capability.** `--ablate planner|context` records itself in
+- **An ablation must isolate one capability.** `--ablate planner|context|scratchpad` records itself in
   `adapter_version`; an ablated V3 is a different system and the artifacts say so.
 - **Task Success vs Strict Success**, so "functionally done but engineering non-compliant" is
   visible rather than averaged away.
@@ -199,7 +199,7 @@ data          benchmark/ (case · materialize · swebench · evalplus)
 python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev,api]"
 cp .env.example .env          # fill in a provider key
-.venv/bin/python -m pytest -q # 382 passed, 1 skipped — offline, no API key needed
+.venv/bin/python -m pytest -q # 391 passed, 1 skipped — offline, no API key needed
 ```
 
 ```bash
@@ -251,7 +251,7 @@ Console: `uvicorn backend.app.main:app --port 8000` + `cd frontend && npm run de
 
 ## Status and evidence levels
 
-`382 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short, 8/8 long and 3/3 multi-turn ·
+`391 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short, 8/8 long and 3/3 multi-turn ·
 deterministic bounds reference=1.00 / none=0.00 on all three private suites · CI green including a containerized
 `--network none` evaluation gate.
 
@@ -263,12 +263,13 @@ deterministic bounds reference=1.00 / none=0.00 on all three private suites · C
 | Reward-hacking detection | validated detector; 640 patches scanned, 16 of them unconstrained |
 | Instruction-drift detection | trajectory replay; 364 trials scanned, 16 of them unconstrained |
 | Context-amnesia detection | passive canary checks; 808 edits over 117 trials |
+| Run-scoped working memory | bounded ScratchPad; survives compaction/follow-ups, isolated per trial |
 | Offline reports | JSON + Markdown + dependency-free HTML; case-cluster CI, strata, paired tests/cost |
 | HumanEval+/EvalPlus | official smoke slice, 5 pinned tasks — [report](docs/evalplus_smoke_report_v1.md) |
 | SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
 | Terminal-Bench / OctoBench | protocol study only |
 
-Not done: run/cross-run memory, live multi-turn model measurements, a second external-agent adapter, the dedicated
+Not done: cross-run RepoMemory, live ScratchPad/multi-turn model measurements, a second external-agent adapter, the dedicated
 CrossAgent console view, and SWE-bench official instances. The long suite now has 8 cases,
 meeting `MIN_USEFUL_CLUSTERS`; however, the headline cross-agent and ablation tables above still
 come from the original 4-case matrix. With case as the clustering unit, only rerunning on the

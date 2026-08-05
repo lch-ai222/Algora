@@ -15,6 +15,7 @@ from codeagent_eval.models import AgentTask, LlmCallRecord, TraceEvent
 
 class Capability(StrEnum):
     PLANNING = "planning"
+    WORKING_MEMORY = "working_memory"
     MEMORY = "memory"
     COMPACTION = "compaction"
     MULTI_TURN = "multi_turn"
@@ -91,6 +92,9 @@ class AgentRunResult(BaseModel):
     #: Empty for frameworks without a planner, which is distinct from a planner that produced
     #: nothing — the capability set says which case applies.
     plan: dict[str, Any] = Field(default_factory=dict)
+    #: Run-scoped working-memory snapshot when the framework exposes one. This is separate
+    #: from Capability.MEMORY, which denotes persistence across runs/tasks.
+    memory: dict[str, Any] = Field(default_factory=dict)
     started_at: str = ""
     finished_at: str = ""
 
@@ -134,6 +138,7 @@ class AgentRunResult(BaseModel):
             cost_source=self.cost_source,
             completion_checks=self.completion_checks,
             plan=self.plan,
+            memory=self.memory,
             started_at=self.started_at,
             finished_at=self.finished_at,
             duration_ms=self.duration_ms,

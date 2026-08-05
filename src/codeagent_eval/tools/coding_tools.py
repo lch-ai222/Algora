@@ -235,11 +235,11 @@ class GitDiffTool(Tool):
         )
 
 
-def default_tools(*, planning: bool = False) -> list[Tool]:
+def default_tools(*, planning: bool = False, memory: bool = False) -> list[Tool]:
     """The MiniAgent's toolset.
 
-    ``planning`` is off by default so V1/V2 keep exactly the six tools their calibrated
-    baselines were measured with; V3 opts in, which is what makes the ablation clean.
+    Optional tools are off by default so V1/V2 keep exactly the six tools their calibrated
+    baselines were measured with; V3 opts in, and each addition can be ablated independently.
     """
     tools: list[Tool] = [
         ListFilesTool(),
@@ -253,6 +253,10 @@ def default_tools(*, planning: bool = False) -> list[Tool]:
         from codeagent_eval.tools.planning_tools import UpdatePlanTool
 
         tools.append(UpdatePlanTool())
+    if memory:
+        from codeagent_eval.tools.memory_tools import UpdateScratchpadTool
+
+        tools.append(UpdateScratchpadTool())
     return tools
 
 

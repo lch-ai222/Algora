@@ -77,7 +77,7 @@ HARNESS_KINDS = ("v1", "v2", "v3")
 
 #: Bumped when a persisted trial's on-disk shape changes, so `--resume` refuses to mix
 #: artifacts it cannot interpret rather than silently aggregating stale ones.
-TRIAL_SCHEMA_VERSION = 3
+TRIAL_SCHEMA_VERSION = 4
 
 
 # --------------------------------------------------------------------------- #
@@ -450,6 +450,8 @@ def _persist_trial(
     (trial_dir / "trial.json").write_text(trial.model_dump_json(indent=2, exclude={"events"}))
     if trial.plan:
         (trial_dir / "plan.json").write_text(json.dumps(trial.plan, indent=2))
+    if trial.memory:
+        (trial_dir / "scratchpad.json").write_text(json.dumps(trial.memory, indent=2))
     if adapter_result is not None:
         adapter_result = _relocate_native_trajectory(adapter_result, trial_dir)
         (trial_dir / "agent-result.json").write_text(adapter_result.model_dump_json(indent=2))
@@ -764,6 +766,7 @@ def _aggregate_case(
     ]
     costs = [t.cost_usd for t in valid_trials if t.cost_usd is not None]
     multi_turn_trials = [t for t in valid_trials if t.completion_checks.get("multi_turn")]
+    scratchpad_trials = [t for t in valid_trials if t.memory.get("scope") == "run"]
     initial_visible_failures = sum(
         not t.completion_checks.get("initial_visible_passed", False) for t in multi_turn_trials
     )
@@ -810,6 +813,35 @@ def _aggregate_case(
         # Items claimed done with no file write or test run in between: plan theatre.
         "plan_done_without_action_total": sum(
             t.plan["stats"]["plan_done_without_action"] for t in planned
+        ),
+        "scratchpad_trials": len(scratchpad_trials),
+        "scratchpad_usage_rate": (
+            round(
+                sum(bool(t.completion_checks.get("scratchpad_used")) for t in scratchpad_trials)
+                / len(scratchpad_trials),
+                4,
+            )
+            if scratchpad_trials else None
+        ),
+        "scratchpad_revisions_mean": (
+            round(
+                statistics.mean(
+                    t.completion_checks.get("scratchpad_revisions", 0)
+                    for t in scratchpad_trials
+                ),
+                2,
+            )
+            if scratchpad_trials else None
+        ),
+        "scratchpad_final_notes_mean": (
+            round(
+                statistics.mean(
+                    t.completion_checks.get("scratchpad_final_notes", 0)
+                    for t in scratchpad_trials
+                ),
+                2,
+            )
+            if scratchpad_trials else None
         ),
         "multi_turn_trials": len(multi_turn_trials),
         "multi_turn_completion_rate": (

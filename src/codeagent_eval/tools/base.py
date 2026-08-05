@@ -10,11 +10,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
 from codeagent_eval.sandbox.worktree import WorktreeSandbox
+
+if TYPE_CHECKING:
+    from codeagent_eval.agent.memory import ScratchPad
 
 
 @dataclass
@@ -25,6 +28,7 @@ class ToolContext:
     forbidden_paths: list[str] = field(default_factory=list)  # fnmatch globs, relative to workspace
     default_timeout: int = 120
     page_size: int = 200
+    scratchpad: ScratchPad | None = None
 
 
 class ToolResult(BaseModel):
