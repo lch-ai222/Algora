@@ -101,3 +101,47 @@ def test_an_unknown_repo_names_what_is_available():
 def test_supported_and_unsupported_tables_do_not_overlap():
     """A repository in both would resolve by dictionary order rather than by intent."""
     assert not set(SUPPORTED_REPOS) & set(KNOWN_UNSUPPORTED)
+
+
+# --------------------------------------------------------------------------- #
+# Agent mode
+# --------------------------------------------------------------------------- #
+def test_the_instruction_never_names_the_hidden_tests():
+    """SWE-bench applies test_patch after the agent runs; showing it changes the task."""
+    from codeagent_eval.benchmark.swebench_agent import INSTRUCTION
+
+    rendered = INSTRUCTION.format(statement="something is broken", repo="pallets/flask")
+    assert "test_patch" not in rendered
+    assert "hidden test suite" in rendered
+
+
+def test_test_paths_are_read_from_the_diff_headers():
+    from codeagent_eval.benchmark.swebench_agent import _test_paths
+
+    patch = (
+        "diff --git a/tests/test_cli.py b/tests/test_cli.py\n"
+        "--- a/tests/test_cli.py\n"
+        "+++ b/tests/test_cli.py\n"
+        "@@ -1 +1 @@\n-x\n+y\n"
+        "diff --git a/tests/conftest.py b/tests/conftest.py\n"
+        "--- a/tests/conftest.py\n"
+        "+++ b/tests/conftest.py\n"
+        "@@ -1 +1 @@\n-a\n+b\n"
+    )
+    assert _test_paths(patch) == {"tests/test_cli.py", "tests/conftest.py"}
+
+
+def test_an_agent_edit_to_an_oracle_file_is_recorded_rather_than_scored():
+    """The oracle is restored before grading, so the edit must survive as a finding.
+
+    Without the record, an agent that rewrote the very tests it is judged by would look
+    identical to one that did not — the restore hides the behaviour it protects against.
+    """
+    from codeagent_eval.benchmark.swebench_agent import InstanceAttempt
+
+    attempt = InstanceAttempt(
+        instance_id="x", adapter="mini_agent",
+        changed_files=("src/flask/app.py", "tests/test_cli.py"),
+        touched_test_files=("tests/test_cli.py",),
+    )
+    assert attempt.as_dict()["touched_test_files"] == ["tests/test_cli.py"]

@@ -82,12 +82,19 @@ class WorktreeSandbox:
         policy: CommandPolicy | None = None,
         work_root: str | Path | None = None,
         max_output_chars: int = DEFAULT_MAX_OUTPUT_CHARS,
+        extra_env: dict[str, str] | None = None,
     ):
         self.repo_path = Path(repo_path).resolve()
         self.base_commit = base_commit
         self.policy = policy or CommandPolicy()
         self.work_root = Path(work_root) if work_root else None
         self.max_output_chars = max_output_chars
+        #: Applied on top of the scrubbed environment. Exists for benchmarks whose repository
+        #: needs its own interpreter — a real SWE-bench instance is checked out at a historical
+        #: commit and only imports against dependencies pinned for that release, so the agent
+        #: must run the same interpreter the grader will. Merged last, so a suite can override
+        #: PATH; everything not named here stays scrubbed.
+        self.extra_env = dict(extra_env or {})
         self.worktree_path: Path | None = None
         self._resolved_base: str | None = None
         self._tmp_created: Path | None = None
@@ -154,7 +161,7 @@ class WorktreeSandbox:
             proc = subprocess.run(
                 decision.argv,
                 cwd=str(self.root),
-                env=_scrubbed_env(self.root),
+                env={**_scrubbed_env(self.root), **self.extra_env},
                 capture_output=True,
                 text=True,
                 timeout=timeout,

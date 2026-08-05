@@ -124,9 +124,50 @@ def run_gold(instance: SWEBenchInstance, cache: Path) -> dict[str, object]:
         shutil.rmtree(worktree, ignore_errors=True)
 
 
+def _agent_runner(args):
+    """Build the agent-mode callable, resolving provider and adapter config once."""
+    from codeagent_eval.adapters import ClaudeCodeConfig, ClineConfig  # noqa: PLC0415
+    from codeagent_eval.benchmark.swebench_agent import attempt_instance  # noqa: PLC0415
+
+    adapter_config = None
+    provider = None
+    if args.adapter == "cline":
+        adapter_config = ClineConfig(model=args.model)
+    elif args.adapter == "claude_code":
+        adapter_config = ClaudeCodeConfig(model=args.model)
+    else:
+        from codeagent_eval.llm import LlmProvider  # noqa: PLC0415
+        from codeagent_eval.settings import load_settings  # noqa: PLC0415
+
+        provider = LlmProvider(load_settings(), model_override=args.model)
+
+    def run(instance, cache):
+        attempt = attempt_instance(
+            instance, adapter_name=args.adapter, cache=cache,
+            wall_clock_s=args.wall_clock, max_steps=args.max_steps,
+            provider=provider, harness=args.harness, adapter_config=adapter_config,
+        )
+        data = attempt.as_dict()
+        if attempt.error:
+            data["status"] = "error"
+            data["detail"] = attempt.error
+        elif attempt.resolved:
+            data["status"] = "resolved_weak_oracle" if attempt.weak_oracle else "resolved"
+        else:
+            data["status"] = "unresolved"
+        return data
+
+    return run
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--mode", choices=["gold"], default="gold")
+    parser.add_argument("--mode", choices=["gold", "agent"], default="gold")
+    parser.add_argument("--adapter", default="mini_agent", help="agent mode: adapter name")
+    parser.add_argument("--harness", default="v3", help="agent mode: MiniAgent harness version")
+    parser.add_argument("--model", default=None, help="agent mode: model id for the adapter")
+    parser.add_argument("--wall-clock", type=int, default=600)
+    parser.add_argument("--max-steps", type=int, default=40)
     parser.add_argument("--instances", type=Path, default=DEFAULT_INSTANCES)
     parser.add_argument("--instance", action="append", default=[], help="filter by instance_id")
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
@@ -142,10 +183,12 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         instances = [i for i in instances if i.instance_id in wanted]
 
+    runner = _agent_runner(args) if args.mode == "agent" else run_gold
+
     results: list[dict[str, object]] = []
     for instance in instances:
         try:
-            result = run_gold(instance, args.cache)
+            result = runner(instance, args.cache)
         except UnsupportedInstance as exc:
             result = {"instance_id": instance.instance_id, "status": "unsupported", "detail": str(exc)}
         except (subprocess.TimeoutExpired, OSError) as exc:
@@ -167,18 +210,24 @@ def main(argv: list[str] | None = None) -> int:
                 detail += f" (UNMATCHED {miss} — oracle shortened)"
         elif status in ("unsupported", "error"):
             detail = str(result.get("detail", ""))[:90]
+        if args.mode == "agent" and status in ("resolved", "resolved_weak_oracle", "unresolved"):
+            detail = (f"F2P={result.get('fail_to_pass')} P2P={result.get('pass_to_pass')} "
+                      f"steps={result.get('steps')} tools={result.get('tool_call_count')} "
+                      f"stop={result.get('stop_reason')}")
+            if result.get("touched_test_files"):
+                detail += f" TOUCHED-TESTS={len(result['touched_test_files'])}"
         print(f"  [{colour}{status:<20}{RESET}] {instance.instance_id:<24} {DIM}{detail}{RESET}")
 
     resolved = sum(1 for r in results if r["status"] == "resolved")
     weak = sum(1 for r in results if r["status"] == "resolved_weak_oracle")
     buildable = sum(1 for r in results if r["status"] not in ("unsupported", "error"))
-    print(f"\ngold: {resolved}/{buildable} buildable instances resolved on the full oracle"
+    print(f"\n{args.mode}: {resolved}/{buildable} buildable instances resolved on the full oracle"
           f"{f', {weak} more only against a shortened one' if weak else ''} "
           f"({len(results) - buildable} unsupported or errored)")
     if weak:
         print("A shortened oracle makes resolution easier, so those are reported separately")
         print("rather than folded into the rate.")
-    if resolved < buildable:
+    if args.mode == "gold" and resolved + weak < buildable:
         print("An instance that does not resolve under gold cannot be scored against an agent:")
         print("a failure there is the environment, not the agent.")
 
