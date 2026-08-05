@@ -12,6 +12,10 @@ The benchmark is private and self-built, so nothing here is a public leaderboard
 it is instead: a harness careful enough that its own defects get caught before they become
 findings — see [Measurement defects found and fixed](#measurement-defects-found-and-fixed).
 
+**Start here: [docs/insight_report_v1.md](docs/insight_report_v1.md)** — what actually
+discriminates between coding agents, which failure modes reproduce, and why this project's own
+headline result did not.
+
 ---
 
 ## Headline results
@@ -23,7 +27,11 @@ sample size and its limits in the linked reports.
 
 `glm-5.2` on all three arms, wall clock as the primary budget (the only one every framework
 enforces identically). These headline numbers were measured on the original 4-case
-long-horizon suite; the suite now contains 8 cases and the matrix has not yet been rerun.
+long-horizon suite. **They did not reproduce.** Rerun at 8 cases, Claude Code scores 0.875 on
+the same four case ids where this table says 0.50 — and the difference cannot be attributed,
+because the shared benchmark repository gained 22 files between the two runs while both
+experiments recorded only the suite's name. Suites are now content-fingerprinted and
+`compare_experiments` refuses to span a change silently. See insight report §6.
 Full report: **[docs/cross_agent_report_v1.md](docs/cross_agent_report_v1.md)**
 
 | arm | budget | n | Task | Strict | tool calls | model turns |
@@ -131,8 +139,11 @@ refused by the sandbox before they can happen.
 
 ## Measurement defects found and fixed
 
-Thirteen defects were caught during this work. Five were ordinary bugs. **Eight would not have
-crashed anything — they would have produced a confident, wrong conclusion.**
+Twenty defects were caught during this work. **The great majority would not have crashed
+anything — they would have produced a confident, wrong conclusion, and almost all of them fail
+in the flattering direction.** None was found by a program erroring; they were found by gold
+validation, discrimination bounds, cross-framework contract tests, and suspicion of numbers
+that looked too clean. Full account: [insight report §7](docs/insight_report_v1.md).
 
 | defect | what the report would have said |
 |---|---|

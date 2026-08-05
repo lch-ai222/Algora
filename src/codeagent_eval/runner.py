@@ -60,6 +60,7 @@ from codeagent_eval.benchmark import (
     inject_hidden_tests,
     load_suite,
     materialize_case,
+    suite_fingerprint,
 )
 from codeagent_eval.detectors import RewardHackReport, detect_reward_hacking
 from codeagent_eval.failure_taxonomy import (
@@ -1051,6 +1052,10 @@ def run_experiment(
     # Recorded unconditionally: a warm run and a cold run are different configurations, and
     # resume refuses to blend them only if the difference is on the manifest.
     run_config["repo_memory_path"] = repo_memory_path
+    # The suite's content, not just its name. Two experiments both labelled "mini_store_long"
+    # were treated as comparable across a change that added four cases and twenty-two files to
+    # the shared repository, and the resulting disagreement could not be attributed.
+    run_config["suite_fingerprint"] = suite_fingerprint(suite_dir)
     # Unlike the V3-only budget, the ceiling constrains every harness, so it belongs to the
     # experiment rather than to one arm of it.
     run_config["context_ceiling_tokens"] = context_ceiling_tokens

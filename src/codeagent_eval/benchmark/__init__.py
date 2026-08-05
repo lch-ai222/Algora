@@ -10,6 +10,7 @@ from codeagent_eval.benchmark.case import (
     case_dir,
     load_suite,
 )
+from codeagent_eval.benchmark.fingerprint import suite_fingerprint
 from codeagent_eval.benchmark.materialize import (
     apply_reference_fix,
     defect_files,
@@ -24,6 +25,7 @@ from codeagent_eval.benchmark.multi_turn import (
 )
 
 __all__ = [
+    "suite_fingerprint",
     "CaseConstraints",
     "CanarySpec",
     "EvalCase",

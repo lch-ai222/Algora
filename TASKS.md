@@ -43,7 +43,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W3-4 | repro bundle + 回归 fixture | P0 | ✅ 完成 |
 | V3 W3-5 | 静态报告 + 跨 Agent UI | P0 | ✅ 完成 |
 | V3 W3-6 | 全量实验与假设回填 | P0 | 🟨 4-case 矩阵完成；W3-6a 因 GLM 额度暂停 |
-| V3 W3-7 | 开源清理 + 洞察报告 | P1 | 🟨 README/横向报告部分完成 |
+| V3 W3-7 | 开源清理 + 洞察报告 | P1 | ✅ `docs/insight_report_v1.md` |
 
 ---
 

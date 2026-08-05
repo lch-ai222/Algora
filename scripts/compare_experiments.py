@@ -60,6 +60,13 @@ def load_outcomes(experiment: Path, metric: str) -> tuple[dict[str, bool], list[
     return per_trial, clusters
 
 
+def _fingerprint(experiment: Path) -> str | None:
+    summary_file = experiment / "summary.json"
+    if not summary_file.is_file():
+        return None
+    return json.loads(summary_file.read_text()).get("run_config", {}).get("suite_fingerprint")
+
+
 def describe(experiment: Path) -> str:
     summary_file = experiment / "summary.json"
     if not summary_file.is_file():
@@ -86,6 +93,19 @@ def main(argv: list[str] | None = None) -> int:
 
     label_a, label_b = describe(args.a), describe(args.b)
     print(f"A: {label_a}\nB: {label_b}\n")
+
+    # A comparison spanning a change to the benchmark is not a comparison of the arms. Both
+    # sides recording the suite's name told nobody that four cases and twenty-two repository
+    # files had been added between two runs, and the disagreement that followed could not be
+    # attributed to either sampling or content.
+    prints = [_fingerprint(args.a), _fingerprint(args.b)]
+    if all(prints) and prints[0] != prints[1]:
+        print(f"⚠ the two runs saw different benchmark content: {prints[0]} vs {prints[1]}.")
+        print("  Differences below mix the arms with the change to the suite; rerun the older")
+        print("  arm against the current suite before reading them as a comparison.\n")
+    elif not all(prints):
+        print("⚠ at least one run predates suite fingerprinting; its benchmark content is")
+        print("  unverifiable and a difference may be the suite rather than the arm.\n")
 
     report: dict[str, object] = {"a": label_a, "b": label_b, "metrics": {}}
     for metric in METRICS:
