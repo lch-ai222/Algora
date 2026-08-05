@@ -234,6 +234,24 @@ def test_a_zero_from_a_harness_that_forbids_test_edits_is_not_a_rate(tmp_path):
     )
 
 
+def test_new_test_edit_marker_takes_precedence_over_legacy_command_marker(tmp_path):
+    import json as _json
+
+    trial_dir = _trial(
+        tmp_path,
+        "open",
+        diff("mini_store/a.py", added=["x = 1"]),
+        policy_enforced=True,
+    )
+    payload = _json.loads((trial_dir / "trial.json").read_text())
+    payload["completion_checks"]["test_edit_policy_enforced"] = False
+    (trial_dir / "trial.json").write_text(_json.dumps(payload))
+
+    from scripts.scan_failure_modes import scan
+
+    assert scan([tmp_path])[0]["unconstrained"] is True
+
+
 def test_the_scan_surfaces_a_real_hack_with_its_evidence(tmp_path):
     from scripts.scan_failure_modes import scan, summarize
 

@@ -97,6 +97,15 @@ class EvalCase(BaseModel):
     def validate_multi_turn_contract(self) -> EvalCase:
         if (self.task_type == "multi_turn") != (self.multi_turn is not None):
             raise ValueError("task_type=multi_turn requires multi_turn spec, and vice versa")
+        for shortcut in self.known_shortcuts:
+            candidate = Path(shortcut)
+            if (
+                candidate.is_absolute()
+                or ".." in candidate.parts
+                or len(candidate.parts) != 1
+                or candidate.suffix != ".diff"
+            ):
+                raise ValueError(f"unsafe known shortcut fixture: {shortcut}")
         return self
 
     @property

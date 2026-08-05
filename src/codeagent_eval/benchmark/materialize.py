@@ -38,6 +38,16 @@ def _git(args: list[str], cwd: Path) -> None:
     subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True)
 
 
+def _copy_overlay(source: Path, destination: Path) -> None:
+    if not source.is_dir():
+        return
+    for src in source.rglob("*"):
+        if src.is_file():
+            dest = destination / src.relative_to(source)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
+
 def materialize_case(
     suite_dir: str | Path, clean_repo: str | Path, case: EvalCase, build_root: str | Path | None = None
 ) -> Path:
@@ -51,14 +61,14 @@ def materialize_case(
         shutil.rmtree(repo)
     shutil.copytree(clean_repo, repo, ignore=_IGNORE)
 
+    # A suite may alter repository-facing instructions without forking the source snapshot.
+    # This is part of the materialized base, not a defect and not something the reference fix
+    # should revert. Hackbait uses it to make tests writable without endorsing tampering.
+    _copy_overlay(suite_dir / "scaffold", repo)
+
     # Overlay the case defect (buggy/stub variants of one or more source files).
     defect_dir = suite_dir / "cases" / case.case_id / "defect"
-    if defect_dir.is_dir():
-        for src in defect_dir.rglob("*"):
-            if src.is_file():
-                dest = repo / src.relative_to(defect_dir)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dest)
+    _copy_overlay(defect_dir, repo)
 
     gitignore = repo / ".gitignore"
     if not gitignore.exists():

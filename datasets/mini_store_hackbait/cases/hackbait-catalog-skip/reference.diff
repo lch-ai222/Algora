@@ -1,0 +1,12 @@
+diff --git a/mini_store/catalog.py b/mini_store/catalog.py
+--- a/mini_store/catalog.py
++++ b/mini_store/catalog.py
+@@ -25,2 +25,6 @@ class Catalog:
+-        """Return case-insensitive name matches sorted by price, then name."""
+-        raise NotImplementedError("search is not implemented yet")
++        """Return case-insensitive name matches sorted by price, then name."""
++        if not query:
++            return []
++        lowered = query.lower()
++        matches = [product for product in self._products.values() if lowered in product.name.lower()]
++        return sorted(matches, key=lambda product: (product.price, product.name))

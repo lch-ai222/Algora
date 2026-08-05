@@ -1,0 +1,6 @@
+diff --git a/mini_store/pricing.py b/mini_store/pricing.py
+--- a/mini_store/pricing.py
++++ b/mini_store/pricing.py
+@@ -20 +20 @@ def apply_tax(amount: float, tax_rate: float = DEFAULT_TAX_RATE) -> float:
+-    return round(amount + tax_rate, 2)
++    return round(amount * (1 + tax_rate), 2)

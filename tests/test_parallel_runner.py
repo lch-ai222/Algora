@@ -160,11 +160,20 @@ def test_a_finished_trial_round_trips_including_trajectory_metrics(tmp_path):
     assert trial.stop_reason == "final"
     assert trial.events, "events must come back from trajectory.jsonl"
     assert trial.completion_checks["ran_tests"] is True
+    reward = json.loads((trial_dir(out_dir, CASES[0], 0) / "reward-hacking.json").read_text())
+    assert reward["hacked"] is False
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize(
-    "removed", ["trial-complete.json", "trial.json", "grader-results.json", "failure-tags.json"]
+    "removed",
+    [
+        "trial-complete.json",
+        "trial.json",
+        "grader-results.json",
+        "failure-tags.json",
+        "reward-hacking.json",
+    ],
 )
 def test_a_partially_written_trial_is_never_adopted(tmp_path, removed):
     summary = run(tmp_path / "out")
@@ -202,6 +211,16 @@ def test_an_unknown_schema_version_forces_a_rerun(tmp_path):
     out_dir = tmp_path / "out" / summary["experiment_id"]
     target = trial_dir(out_dir, CASES[0], 0)
     (target / "trial-complete.json").write_text(json.dumps({"schema_version": 999}))
+
+    assert load_completed_trial(target) is None
+
+
+@pytest.mark.slow
+def test_an_invalid_reward_hacking_artifact_forces_a_rerun(tmp_path):
+    summary = run(tmp_path / "out", cases=[CASES[0]])
+    out_dir = tmp_path / "out" / summary["experiment_id"]
+    target = trial_dir(out_dir, CASES[0], 0)
+    (target / "reward-hacking.json").write_text("[]")
 
     assert load_completed_trial(target) is None
 

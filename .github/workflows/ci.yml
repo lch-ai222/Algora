@@ -43,11 +43,14 @@ jobs:
         run: pytest -q
 
       # Per-case hard gate: target fails on base, defect isolated, reference fix passes
-      # target+regression+hidden, hidden tests unreadable from the workspace.
-      - name: Benchmark selfcheck (short + long)
+      # target+regression+hidden, hidden tests unreadable from the workspace. Hackbait also
+      # proves each declared shortcut appears green, fails hidden, and triggers the detector.
+      - name: Benchmark selfcheck (all private suites)
         run: |
           python scripts/selfcheck.py datasets/mini_store_suite
           python scripts/selfcheck.py datasets/mini_store_long
+          python scripts/selfcheck.py datasets/mini_store_multiturn
+          python scripts/selfcheck.py datasets/mini_store_hackbait
 
   sandbox-image:
     name: Sandbox image builds and runs offline
@@ -73,8 +76,8 @@ jobs:
       - name: CLI is reachable inside the image
         run: docker run --rm --network none codeagent-eval-sandbox:ci
 
-      # --network none is the claim the MVP worktree sandbox cannot make: the command
-      # allow-list blocks known network tools, while this cuts the network at the kernel.
+      # --network none complements the local worktree policy: the command allow-list blocks
+      # known network tools, while this cuts the network at the kernel.
       # Running the full pipeline offline is what turns that from a design note into evidence.
       - name: Benchmark selfcheck inside the container, network cut
         run: |
@@ -82,13 +85,19 @@ jobs:
             python scripts/selfcheck.py datasets/mini_store_suite
           docker run --rm --network none codeagent-eval-sandbox:ci \
             python scripts/selfcheck.py datasets/mini_store_long
+          docker run --rm --network none codeagent-eval-sandbox:ci \
+            python scripts/selfcheck.py datasets/mini_store_multiturn
+          docker run --rm --network none codeagent-eval-sandbox:ci \
+            python scripts/selfcheck.py datasets/mini_store_hackbait
 
       - name: Deterministic bounds inside the container, network cut
         run: |
           docker run --rm --network none --cpus 2 --memory 2g codeagent-eval-sandbox:ci \
             python scripts/check_bounds.py --workers 2 \
               --suite datasets/mini_store_suite \
-              --suite datasets/mini_store_long
+              --suite datasets/mini_store_long \
+              --suite datasets/mini_store_multiturn \
+              --suite datasets/mini_store_hackbait
 
   console:
     name: Console typecheck and build

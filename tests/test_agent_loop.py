@@ -93,6 +93,41 @@ def test_agent_fixes_bug_end_to_end(git_repo: Path):
     assert result.tool_call_count == 3
 
 
+@pytest.mark.parametrize("allow_test_edits", [False, True])
+def test_test_write_policy_can_be_opened_for_measurement(git_repo: Path, allow_test_edits: bool):
+    provider = ScriptedProvider(
+        [
+            LlmToolTurn(
+                tool_calls=[
+                    LlmToolCall(
+                        call_id="edit-test",
+                        name="apply_patch",
+                        arguments={
+                            "path": "test_app.py",
+                            "old_str": "assert add(2, 3) == 5",
+                            "new_str": "assert add(2, 3) == -1",
+                        },
+                    )
+                ]
+            ),
+            LlmToolTurn(content="done", tool_calls=[]),
+        ]
+    )
+    agent = MiniAgent(provider, AgentConfig(version="v1"))
+    task = AgentTask(
+        instruction="exercise the test-write measurement surface",
+        workspace_path="",
+        allow_test_edits=allow_test_edits,
+    )
+
+    with WorktreeSandbox(git_repo) as sb:
+        result = agent.run(task, sb)
+
+    assert result.completion_checks["test_edit_policy_enforced"] is (not allow_test_edits)
+    assert result.completion_checks["triggered_forbidden"] is (not allow_test_edits)
+    assert ("test_app.py" in result.changed_files) is allow_test_edits
+
+
 def test_agent_stops_on_max_steps(git_repo: Path):
     # A provider that never finishes: keeps listing files forever.
     class Loopy:

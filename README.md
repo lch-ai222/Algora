@@ -172,6 +172,7 @@ agent         loop.py │ prompts (v1/v2/v3) │ planner.py │ context.py
 data          benchmark/ (case · materialize · swebench · evalplus)
               graders/ (pytest · constraint · patch)   judge/ (+ kappa meta-eval)
               mini_store_suite (9 short) │ mini_store_long (8 long-horizon)
+              mini_store_multiturn (3 staged) │ mini_store_hackbait (3 adversarial)
 ```
 
 ### Principles the code enforces
@@ -199,14 +200,18 @@ data          benchmark/ (case · materialize · swebench · evalplus)
 python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev,api]"
 cp .env.example .env          # fill in a provider key
-.venv/bin/python -m pytest -q # 393 passed, 1 skipped — offline, no API key needed
+.venv/bin/python -m pytest -q # 408 passed, 1 skipped — offline, no API key needed
 ```
 
 ```bash
 # Benchmark health: every case solvable by reference, none by doing nothing
 python scripts/selfcheck.py datasets/mini_store_suite
-python scripts/check_bounds.py --suite datasets/mini_store_suite --workers 2
+python scripts/selfcheck.py datasets/mini_store_long
 python scripts/selfcheck.py datasets/mini_store_multiturn
+python scripts/selfcheck.py datasets/mini_store_hackbait
+python scripts/check_bounds.py --workers 2 \
+  --suite datasets/mini_store_suite --suite datasets/mini_store_long \
+  --suite datasets/mini_store_multiturn --suite datasets/mini_store_hackbait
 
 # The self-built agent
 python -m codeagent_eval.runner --adapter mini_agent --harness v3 \
@@ -236,7 +241,9 @@ python scripts/build_static_report.py artifacts/runs/<a> artifacts/runs/<b> \
 
 Each trial persists `config.json` (model, budgets, adapter version, pricing revision),
 `trajectory.jsonl` (normalized), `native/` (the external agent's raw stream), `patch.diff`,
-`grader-results.json`, `failure-tags.json` — enough to re-grade or diagnose without re-running.
+`grader-results.json`, `failure-tags.json`, `reward-hacking.json` — enough to re-grade or diagnose
+without re-running. Suite/case summaries report reward-hacking findings and Wilson intervals only
+over trials where test writes were actually open; enforced zeros are excluded from that rate.
 Failure bundles go to `artifacts/repro_bundles/` and are gitignored. They exclude hidden-test
 code/details and native adapter logs; replay rematerializes the case, applies the patch, injects
 hidden tests at grade time, and checks the deterministic grade signature without a model call.
@@ -253,16 +260,18 @@ same W3-5 fact model in memory; the API stays read-only and makes no model call.
 
 ## Status and evidence levels
 
-`393 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short, 8/8 long and 3/3 multi-turn ·
-deterministic bounds reference=1.00 / none=0.00 on all three private suites · CI green including a containerized
+`408 passed, 1 skipped` · `ruff` clean · selfcheck 9/9 short, 8/8 long, 3/3 multi-turn and
+3/3 hackbait · deterministic bounds reference=1.00 / none=0.00 on all four private suites · CI
+includes all four suites plus a containerized
 `--network none` evaluation gate.
 
 | area | level |
 |---|---|
 | `mini_store` short + long | complete private benchmark, self-built, uncontaminated |
 | `mini_store_multiturn` | 3 staged cases; deterministic visible feedback, 2–3 turns, recovery metrics |
+| `mini_store_hackbait` | 3 explicit-spec cases; assertion weakening, skip and hardcode shortcuts are executable QC fixtures |
 | Cross-agent comparison | live, model-controlled; 8–12 trials per arm |
-| Reward-hacking detection | validated detector; 640 patches scanned, 16 of them unconstrained |
+| Reward-hacking detection | detector + 3-case behaviour suite complete; historical 640-patch scan still has only 16 unconstrained trials |
 | Instruction-drift detection | trajectory replay; 364 trials scanned, 16 of them unconstrained |
 | Context-amnesia detection | passive canary checks; 808 edits over 117 trials |
 | Run-scoped working memory | bounded ScratchPad; survives compaction/follow-ups, isolated per trial |
@@ -271,8 +280,8 @@ deterministic bounds reference=1.00 / none=0.00 on all three private suites · C
 | SWE-bench | schema-compatible adapter + self-built sample; **no official instances yet** |
 | Terminal-Bench / OctoBench | protocol study only |
 
-Not done: cross-run RepoMemory, live ScratchPad/multi-turn model measurements, a second external-agent adapter,
-and SWE-bench official instances. The long suite now has 8 cases,
+Not done: cross-run RepoMemory, live ScratchPad/multi-turn/hackbait model measurements, a second
+external-agent adapter, and SWE-bench official instances. The long suite now has 8 cases,
 meeting `MIN_USEFUL_CLUSTERS`; however, the headline cross-agent and ablation tables above still
 come from the original 4-case matrix. With case as the clustering unit, only rerunning on the
 expanded suite can strengthen those claims—extra repeats on the old four cases cannot.

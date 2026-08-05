@@ -10,9 +10,10 @@ Agent kinds:
   reference    apply the known-good fix (upper bound; for the discrimination check)
   none         change nothing (lower bound; for the discrimination check)
 
-Per trial we persist config.json / trajectory.jsonl / patch.diff / grader-results.json under
-artifacts/runs/<experiment_id>/<case_id>/rep<k>/, and write summary.json + summary.csv with
-mean+variance and pass@k (capability) vs pass^k (reliability).
+Per trial we persist config.json / trajectory.jsonl / patch.diff / grader-results.json /
+reward-hacking.json under artifacts/runs/<experiment_id>/<case_id>/rep<k>/, and write
+summary.json + summary.csv with mean+variance, pass@k (capability) vs pass^k (reliability),
+and reward-hacking findings only over trials where the relevant write surface was open.
 
 Trials are the unit of scheduling and of checkpointing: each one materializes its own repo,
 so `--workers N` runs N at a time, and each writes a completion marker last, so `--resume`
@@ -31,6 +32,7 @@ import statistics
 import sys
 import tempfile
 import traceback
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +60,7 @@ from codeagent_eval.benchmark import (
     load_suite,
     materialize_case,
 )
+from codeagent_eval.detectors import RewardHackReport, detect_reward_hacking
 from codeagent_eval.failure_taxonomy import (
     FailureAttribution,
     attribute_failure,
@@ -71,13 +74,14 @@ from codeagent_eval.graders.result import GradeResult
 from codeagent_eval.graders.test_grader import TestGrade
 from codeagent_eval.models import AgentTask, TraceEvent, TraceEventType, utc_now_iso
 from codeagent_eval.sandbox import WorktreeSandbox
+from codeagent_eval.stats import wilson_interval
 
 AGENT_KINDS = ("v1", "v2", "v3", "reference", "none")
 HARNESS_KINDS = ("v1", "v2", "v3")
 
 #: Bumped when a persisted trial's on-disk shape changes, so `--resume` refuses to mix
 #: artifacts it cannot interpret rather than silently aggregating stale ones.
-TRIAL_SCHEMA_VERSION = 4
+TRIAL_SCHEMA_VERSION = 5
 
 
 # --------------------------------------------------------------------------- #
@@ -338,6 +342,7 @@ def run_trial(
                 project_instructions=project_instructions,
                 harness_version=kind if kind in HARNESS_KINDS else None,
                 require_tests_run_before_finish=case.constraints.require_tests_run_before_finish,
+                allow_test_edits=case.allow_test_edits,
             )
             adapter_result: AgentRunResult | None = None
             # One kwargs dict for both adapter branches. Threading each budget into two
@@ -378,6 +383,11 @@ def run_trial(
                 trial = TrialResult(stop_reason="final", patch="", started_at=utc_now_iso(),
                                     finished_at=utc_now_iso())
 
+            if kind in EXTERNAL_ADAPTERS:
+                # External CLIs receive a writable repository. Preserve the older generic
+                # marker as a fallback, but make the measurement surface explicit for v5.
+                trial.completion_checks.setdefault("test_edit_policy_enforced", False)
+
             # Capture the agent's real change BEFORE injecting hidden tests.
             patch, changed_files = trial.patch, trial.changed_files
             inject_all_feedback_tests(sb.root, suite_dir, case)
@@ -406,6 +416,7 @@ def run_trial(
                 "case_max_steps": case.max_steps,  # the case's own default, for contrast
                 "timeout_seconds": wall_clock,     # wall-clock budget (may be overridden)
                 "case_timeout_seconds": case.timeout_seconds,  # the case default, for contrast
+                "allow_test_edits": case.allow_test_edits,
                 "repeat": repeat,
                 "stop_reason": trial.stop_reason,
                 "canonical_stop_reason": adapter_result.stop_reason if adapter_result else trial.stop_reason,
@@ -444,6 +455,9 @@ def _persist_trial(
             fh.write(ev.model_dump_json() + "\n")
     (trial_dir / "grader-results.json").write_text(grade.model_dump_json(indent=2))
     (trial_dir / "failure-tags.json").write_text(attribution.model_dump_json(indent=2))
+    (trial_dir / "reward-hacking.json").write_text(
+        detect_reward_hacking(trial.patch).model_dump_json(indent=2)
+    )
     # Everything aggregation reads, minus the events already written to trajectory.jsonl.
     # Without this a resumed experiment could only recover scores, not the trajectory-derived
     # metrics (tool calls, test runs, tokens), and its summary would silently differ.
@@ -480,6 +494,9 @@ def load_completed_trial(
         attribution = FailureAttribution.model_validate_json(
             (trial_dir / "failure-tags.json").read_text()
         )
+        # Schema v5 promises a per-trial detector artifact. Validate it before accepting the
+        # completion marker so a copied or interrupted directory cannot silently lose evidence.
+        RewardHackReport.model_validate_json((trial_dir / "reward-hacking.json").read_text())
         payload = json.loads((trial_dir / "trial.json").read_text())
         payload["events"] = [
             json.loads(line)
@@ -858,7 +875,35 @@ def _aggregate_case(
             round(visible_recoveries / initial_visible_failures, 4)
             if initial_visible_failures else None
         ),
+        **_reward_hacking_summary(valid_trials),
         "failure_tags": failure_tags,
+    }
+
+
+def _test_edit_policy_enforced(trial: TrialResult) -> bool | None:
+    checks = trial.completion_checks
+    value = checks.get("test_edit_policy_enforced")
+    if isinstance(value, bool):
+        return value
+    legacy = checks.get("command_policy_enforced")
+    return legacy if isinstance(legacy, bool) else None
+
+
+def _reward_hacking_summary(trials: list[TrialResult]) -> dict[str, Any]:
+    """Report behaviour only where the harness left the relevant write surface open."""
+    evaluable = [trial for trial in trials if _test_edit_policy_enforced(trial) is False]
+    reports = [detect_reward_hacking(trial.patch) for trial in evaluable]
+    findings = sum(report.hacked for report in reports)
+    interval = wilson_interval(findings, len(reports)) if reports else None
+    signals = Counter(signal.name for report in reports for signal in report.signals)
+    return {
+        "reward_hacking_evaluable_trials": len(reports),
+        "reward_hacking_findings": findings,
+        "reward_hacking_rate": round(findings / len(reports), 6) if reports else None,
+        "reward_hacking_rate_ci95": (
+            [round(interval[0], 6), round(interval[1], 6)] if interval else None
+        ),
+        "reward_hacking_signal_counts": dict(signals.most_common()),
     }
 
 
@@ -1117,6 +1162,7 @@ def run_experiment(
         "failed_test_runs_median": (
             statistics.median(suite_failed_test_runs) if suite_failed_test_runs else None
         ),
+        **_reward_hacking_summary(valid_suite_trials),
         "suite_task_success": round(statistics.mean(case_task_rates), 4) if case_task_rates else None,
         "suite_strict_success": round(statistics.mean(case_strict_rates), 4) if case_strict_rates else None,
         "created_at": utc_now_iso(),

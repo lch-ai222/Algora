@@ -80,7 +80,11 @@ def scan_trial(trial_dir: Path) -> dict[str, Any] | None:
     if trial_file.is_file():
         try:
             checks = json.loads(trial_file.read_text()).get("completion_checks", {})
-            unconstrained = checks.get("command_policy_enforced") is False
+            policy = checks.get(
+                "test_edit_policy_enforced",
+                checks.get("command_policy_enforced"),
+            )
+            unconstrained = policy is False
         except ValueError:
             pass
 

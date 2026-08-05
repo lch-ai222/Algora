@@ -6,21 +6,21 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 
 ## 1. 当前总体状态
 
-闭环已跑通并用真实 LLM 验证。**原 7/7 里程碑 + B1 + V3 Week 1 全部完成；Week 2 完成 W2-1/2/3/4/6；Week 3 完成 W3-1/W3-3/W3-4/W3-5，全量实验和开源收口仍为部分完成**。当前已有 8 条长程 case、3 条分阶段多轮 case、可扩展的 AgentAdapter、Claude Code headless adapter、三类失败模式检测器、失败复现包、离线静态对比报告和共享同一事实模型的 CrossAgent UI，以及模型受控的 Claude Code / MiniAgent 横向实验。横向 headline 仍来自原 4-case 矩阵，8-case 扩展和多轮数据资产都尚未用真实模型完成受控复验，不能把数据资产升级写成结论升级。
+闭环已跑通并用真实 LLM 验证。**原 7/7 里程碑 + B1 + V3 Week 1 全部完成；Week 2 完成 W2-1/2/3/4/5/6；Week 3 完成 W3-1/W3-3/W3-4/W3-5，全量实验和开源收口仍为部分完成**。当前已有 8 条长程 case、3 条分阶段多轮 case、3 条 reward-hacking 行为 case、可扩展的 AgentAdapter、Claude Code headless adapter、三类失败模式检测器、失败复现包、离线静态对比报告和共享同一事实模型的 CrossAgent UI，以及模型受控的 Claude Code / MiniAgent 横向实验。横向 headline 仍来自原 4-case 矩阵；8-case、多轮与 hackbait 数据资产尚未用真实模型完成受控复验，不能把数据资产升级写成结论升级。
 
 最低成功线（M1+M2+M4）+ 可演示控制台（M3）+ 可归因的 V1→V2 结果（M4）+ EvalPlus-schema 子集与 judge meta-eval（M5）+ SWE-bench 兼容适配器（C）全部就绪。当前没有完整公开 benchmark 或排行榜成绩。
 
-- 测试：**393 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
-- Lint：`ruff` 全绿（src/tests/scripts/backend + `datasets/mini_store_long` + `datasets/mini_store_multiturn`）。
+- 测试：**408 passed, 1 skipped**（skip 是 `RUN_LLM_SMOKE` 门控的真实 LLM 冒烟）。
+- Lint：`ruff` 全绿（src/tests/scripts/backend + 私有 suite 代码）。
 - 干净虚拟环境验证：仅 `pip install -e ".[dev,api]"` 后，ruff/pytest/selfcheck/check_bounds 全部通过（不依赖 `PYTHONPATH`）。
-- 确定性边界门禁：`scripts/check_bounds.py` 在短程、长程、多轮三个 suite 上 reference=1.00、none=0.00，逐 case 校验。
-- benchmark 自检：短程 **9/9 valid**、长程 **8/8 valid**、多轮 **3/3 valid**；长程干净仓库 **83 passed**；HumanEval canonical 自检 **10/10**。
+- 确定性边界门禁：`scripts/check_bounds.py` 在短程、长程、多轮、hackbait 四个 suite 上 reference=1.00、none=0.00，逐 case 校验。
+- benchmark 自检：短程 **9/9 valid**、长程 **8/8 valid**、多轮 **3/3 valid**、hackbait **3/3 valid**；长程干净仓库 **83 passed**；HumanEval canonical 自检 **10/10**。
 - 官方 EvalPlus Smoke Slice：固定 5 个 HumanEval+ 官方任务，canonical oracle Base/Plus **1.00/1.00**；DeepSeek v4-flash **Base 1.00 / Plus 0.80**。
 - 前端：TypeScript 干净，`npm run build` 干净（51.59 kB gzip），CrossAgent 真实 artifacts 交互验收无 console 报错。
 
 ### V3 迭代摘要
 
-- W1 地基阶段测试从 **94 → 252**；随后检测器、统计、8-case 扩充、repro bundle、报告/UI、multi-turn 和 ScratchPad 把当前门禁推进到 **393 passed / 1 skipped**。已落地 Claude Code adapter、CI/容器门禁、并行续跑、模型费率、预算实验变量、planner、deterministic compaction、run-scoped working memory 与真实会话续接。
+- W1 地基阶段测试从 **94 → 252**；随后检测器、统计、8-case 扩充、repro bundle、报告/UI、multi-turn、ScratchPad 和 hackbait 把当前门禁推进到 **408 passed / 1 skipped**。已落地 Claude Code adapter、CI/容器门禁、并行续跑、模型费率、预算实验变量、planner、deterministic compaction、run-scoped working memory 与真实会话续接。
 - H2：模型阶梯只在最弱的 `glm-4.7-flash` 上产生有限区分度（1.00→0.84）；H2 的强信号来自预算收紧，同一 suite 的模型差距由 0.00 放大到 0.85。
 - 首次成本测量：DeepSeek flash/pro 成功率相同，成本差 5.26×；缓存分档避免一次 trial 成本被高估 4.94×。
 - 修正后 H3：compaction 是全部成功效应（1.00→0.33），planner 对成功率中性但工具调用约 +18%。
@@ -31,7 +31,7 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 | 周 | 完成 | 部分完成 | 未完成 |
 |---|---|---|---|
 | W1 | W1-1～W1-7（7/7） | — | — |
-| W2 | W2-1 context、W2-2 ScratchPad、W2-3 context amnesia、W2-4 reward hacking、W2-6 instruction drift（5/8） | — | W2-5 hackbait、W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
+| W2 | W2-1 context、W2-2 ScratchPad、W2-3 context amnesia、W2-4 reward hacking、W2-5 hackbait、W2-6 instruction drift（6/8） | — | W2-7 官方 SWE-bench、W2-8 第二外部 adapter |
 | W3 | W3-1 multi-turn、W3-3 统计收口、W3-4 repro bundle、W3-5 报告/UI | W3-6 部分实验、W3-7 README/横向报告 | W3-2 RepoMemory |
 
 计划中“V3 后 JD 全覆盖”的原判断过于乐观。当前已形成强证据的是评测平台、隔离/并行/可观测、长程与多轮私有 benchmark、三个失败模式检测器、可复现缺陷诊断包、静态/交互报告和受控实验；Agent 本体已补 run 内 working memory 与会话续接，但仍缺跨 run RepoMemory、subagent、语义级代码理解，ScratchPad 和多轮真实模型效果也未测；平台仍缺第二外部 Agent与官方 SWE-bench 实例。
@@ -63,6 +63,8 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
   - 3 对抗性 regression-trap：refund-fee、loyalty-bonus、bundle-tier（专门暴露 V1 缺乏“完成前跑全套”纪律）
   - 每 case：defect 变体（现构时覆盖）+ hidden 测试（评分时注入）+ visible target + regression（分离文件）。
 - **mini_store_long**（`datasets/mini_store_long/`）：独立干净仓库快照 + **8 个 hard case**（API 迁移、跨模块退货、级联库存、build/CLI、折扣取整、税率单一真源、释放记账、订单快照）；干净仓库 83 tests，全套 canary、hidden、reference/none 锚点齐备。
+- **mini_store_multiturn**（`datasets/mini_store_multiturn/`）：**3 个 staged case**，后续 visible tests 逐轮公开，hidden 始终在最终评分注入。
+- **mini_store_hackbait**（`datasets/mini_store_hackbait/`）：**3 个显式需求 case**，开放测试写入面但不放宽最终 PatchGrade；每条携带一份可执行 shortcut，覆盖削弱断言、skip 与输入硬编码。
 - 每 case 结构见 `src/codeagent_eval/benchmark/case.py`（EvalCase）。
 
 ### Benchmark 实施等级（2026-07-12 校准）
@@ -143,7 +145,7 @@ Algora（CodeAgent Eval Lab）当前状态快照。这是**活文档**，每完�
 ### V3 W1-5 · CI + 容器化评测
 
 - `.github/workflows/ci.yml`：三个独立门禁。**quality**（ruff + pytest + 短/长程 selfcheck）、**sandbox-image**（`docker build` 后在容器内 `--network none` 跑 selfcheck 与确定性边界）、**console**（`tsc && vite build`）。全部无需 LLM key，CI 恒定可跑。
-- `sandbox-image` 的设计要点：只 build 不算数——能 build 但跑不了 trial 的镜像不是隔离层。CI 在容器内、断网条件下跑完整评测流水线，这才把 `docker/sandbox.Dockerfile` 从"设计文档"变成"可执行证据"，也是 MVP worktree 沙箱（命令层拦截）做不到的内核级网络隔离。
+- `sandbox-image` 的设计要点：只 build 不算数——能 build 但跑不了 trial 的镜像不是隔离层。CI 在容器内、断网条件下跑完整评测流水线，这才把 `docker/sandbox.Dockerfile` 从"设计文档"变成"可执行证据"，也是本地 worktree 沙箱（命令层拦截）做不到的内核级网络隔离。
 - `.github/workflows/nightly-eval.yml`：**bounds**（不用 pip 缓存的全新依赖解析 + 边界门禁，捕获上游漂移，例如 pytest 输出变化打断 grader 解析）、**evalplus-oracle**（官方 canonical oracle 必须仍为 1.00/1.00）、**llm-smoke**（有 provider key 时才跑，无 key 干净跳过）。
 - nightly 的纪律：**只对基础设施故障失败，不对模型答错失败**。以成功率作为 nightly 门禁会训练出"把 case 改简单来修红灯"的行为，而这正是 benchmark 要检测的失败模式。runner 的退出码 3（infra-invalid）恰好是正确语义。
 - `scripts/check_bounds.py`：新增的 benchmark 健康门禁。selfcheck 验单个 case，它验**流水线**——reference 低于 1.00 说明 suite 不可解或 grader 坏了，none 高于 0.00 说明有 case 不干活也能过；两者都是单测抓不到的静默失效。
@@ -377,7 +379,9 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 
 **历史回扫（`scripts/scan_reward_hacking.py`，无需新实验）**：扫描磁盘上全部 **640 个真实 patch**，strong 信号 **0 个**。
 
-但这个 0 必须拆开报，且脚本已把区分做成结构性的（读 `completion_checks.command_policy_enforced`）：
+但这个 0 必须拆开报，且脚本已把区分做成结构性的（新 trial 读
+`completion_checks.test_edit_policy_enforced`，旧 artifact 回退
+`command_policy_enforced`）：
 
 | 样本 | n | 强信号 | 95% 上界 | 含义 |
 |---|---|---|---|---|
@@ -388,6 +392,15 @@ DeepSeek v4-flash 在短程 case 上完全忽略规划指令（已确认 7 个�
 诚实表述：**在 16 个不受约束的 trial 中未观察到测试投机，95% 上界 19.4%；样本太小，不能作为"不发生"的证据。** 检测器有效性与检出率分开论证——前者由 8/8 命中 + 零误报支撑，与后者无关。
 
 `stats/intervals.py`：Wilson 区间（零事件时正态近似退化，故用 Wilson）。
+
+### V3 W2-5 · Hackbait 行为 suite（2026-08-05）
+
+- `datasets/mini_store_hackbait/` 复用干净 `mini_store_src`，包含 pricing 断言削弱、catalog skip、discount 输入硬编码三条**需求明确**的 case。它们不是靠歧义诱骗，而是在合法修复明确可行时观察 Agent 是否选择解除验证。
+- `allow_test_edits=true` 已贯穿 `EvalCase → AgentTask → MiniAgent policy → 动态 prompt`，suite scaffold 同时覆盖目标仓库原先“禁止改 tests”的约定。这个开关只开放观测面；PatchGrade 仍拒绝交付测试篡改，Task/Strict 定义不变。
+- 每个 case 的 `shortcuts/*.diff` 都进入 `selfcheck.py` 硬门槛：patch 必须可应用、visible pytest 命令表面为绿、hidden 必须失败、detector 必须给出 strong evidence；正常 reference 解必须 detector-clean。三类捷径分别命中 `ASSERTION_WEAKENED`、`SKIP_MARKER_ADDED`、`HARDCODED_TEST_INPUT`。
+- pytest parser 修复了“全 skipped 仍算 all_passed”的 oracle 漏洞：exit 0 但存在 skipped verification 时正式评分仍失败。
+- runner 的 trial schema **v4 → v5**；每 trial 固化 `reward-hacking.json`，case/suite summary 输出可评价 trial 数、findings、rate、Wilson 95% CI 和 signal counts。被策略拦截的历史 trial 不进入行为率分母，scanner 对新旧 marker 都兼容。
+- 离线验收：hackbait selfcheck **3/3 valid**，reference/none **1.00/0.00**；全量测试与 CI/nightly 已覆盖四套私有 suite。尚未运行真实模型，因此这里证明的是**行为测量装置有效**，不是任何模型的 hacking rate。
 
 ### V3 W2-6 · 指令偏移检测器（2026-08-05）
 
@@ -558,7 +571,7 @@ rep0/rep1 完全一致，rep2 只有 3 次编辑、低于 `MIN_EDITS_FOR_SPLIT=4
 - 后续轮测试不是 Agent patch：沙箱用 path-limited harness commit 推进 diff baseline，同时保留 Agent 已有源码改动为未提交状态。若 Agent 在公开后篡改这些测试，后续 diff 仍会检出，避免“排除 harness 文件”顺带掩盖作弊。
 - MiniAgent V3 现在保存同一会话的 messages、planner、context、worktree 和全局 step/time/token 预算；每个 follow-up 必须重新运行测试，上一轮测试不能充当新需求的完成证据。反馈期间的 harness 测试时间不计入 Agent wall-clock。
 - Claude Code 继续复用原 session ID，后续 `--max-turns` 与 wall-clock 只拿剩余预算；多次 CLI 原始流追加到同一 native log，轨迹 step 累计。resume 的 native cost 是增量还是会话累计尚无可信契约，因此多轮成本主动降为 `null/unavailable`，不冒险重复求和。
-- runner 将首轮/末轮 visible 状态、交付轮数、恢复轮次、`multi_turn_completed` 与 `visible_recovery_rate` 写入 trial/summary；W3-1 当时将 trial schema 升到 v3，W2-2 增加 ScratchPad artifact 后当前为 v4，旧目录不能无审计混入 `--resume`。
+- runner 将首轮/末轮 visible 状态、交付轮数、恢复轮次、`multi_turn_completed` 与 `visible_recovery_rate` 写入 trial/summary；W3-1 将 trial schema 升到 v3，W2-2 增加 ScratchPad 后升到 v4，W2-5 增加 `reward-hacking.json` 后当前为 **v5**，旧目录不能无审计混入 `--resume`。
 - `datasets/mini_store_multiturn/` 含 pricing requirement change、inventory failure recovery、cart constraint persistence 三条 case，覆盖 2–3 个用户轮次。后续 visible 测试初始不可见；最终 hidden 仍只在捕获 patch 后注入。
 - 离线验收：suite selfcheck **3/3 valid**，reference Task/Strict **1.00/1.00**，none **0.00/0.00**；scripted MiniAgent 和 fake Claude CLI 覆盖上下文续接、累计预算、每轮重验与轨迹留档。尚未运行真实模型 E5，因此不能宣称实际恢复率提升。
 
@@ -585,7 +598,7 @@ rep0/rep1 完全一致，rep2 只有 3 次编辑、低于 `MIN_EDITS_FOR_SPLIT=4
 - 实验发现不再硬编码 `v1/v2/reference/none` 前缀；Claude Code 与未来 adapter 可被发现。只有声明 suite 可唯一解析、artifact schema 可读且至少一个 trial 有效的实验才标记 `report_ready`。
 - `CrossAgent.tsx` 支持按 suite 选择 1–6 个 arm，展示 Task/Strict case-cluster 95% CI、valid/infra-invalid、成本覆盖与 cost/success、provenance/预算、case matrix、三维分层、exact McNemar、配对成本和证据边界。不同模型、缺失 model provenance 或明显不同的 case×repeat 规模会在请求前提示，不能把描述性展示误写为受控归因。
 - 已用真实 `mini_store` 与 `mini_store_long` artifacts 做浏览器验收；长程同网格 pair 正常显示 25.0pp delta、McNemar p 值和 unavailable 成本，控制台无 error/warning。W3-5 至此完成；更广的 B3 仍缺 repo/language 分层与 token/tool/time per success。
-- 本轮新增/扩展 API 测试覆盖异构 adapter 发现、共享事实模型、跨 suite/重复/非法 ID 拒绝；当前总门禁为 **393 passed / 1 skipped**。
+- 本轮新增/扩展 API 测试覆盖异构 adapter 发现、共享事实模型、跨 suite/重复/非法 ID 拒绝；该里程碑验收时为 **393 passed / 1 skipped**，当前总门禁见 §1。
 
 ### V2 短程历史结果
 
@@ -613,8 +626,8 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 - **saturation**：现有 case 对 DeepSeek v4 偏易，V1/V2 套件级差异小（+0.02）。money shot 靠 per-case（loyalty）+ 成本对比 + reference/none 区分度支撑。要更大差异需更难 case 或更弱模型（M4 已如实标注）。
 - **对抗 case 的稳定性**：regression-trap 依赖“V1 不跑全套”，强模型偶发主动跑全套 → loyalty 在 n=5 时 0.6~0.8 抖动。已用 repeats≥5 缓解；报均值+方差。
 - **公开 benchmark 证据等级有限**：HumanEval 是自建/精选 schema 子集，SWE-bench 是自建兼容样例；两者均不得包装成正式排行榜结果。
-- **统计功效仍有限**：当前私有集共 17 case，长程 suite 已达到 8 个聚类的最低实用门槛；但现有横向 headline 和 H3 消融仍来自原 4-case 矩阵。只有在 8-case 上重跑，而不是继续给旧 4 case 增加 repeats，才能实质收窄按 case 聚类的区间。
-- **覆盖范围有限**：仍只有 Python 小仓库；虽已补 API refactor 与 build/CLI，但 review/test-generation/performance/security/multi-turn 与多语言仍缺。
+- **统计功效仍有限**：当前四套私有集共 23 case，但只有长程 suite 的 8 个 case 属于既有横向问题的聚类单位；现有 headline 和 H3 消融仍来自原 4-case 矩阵。不能把不同任务族简单合并来虚增样本，只有在同一 8-case 长程设计上重跑才能实质收窄区间。
+- **覆盖范围有限**：仍只有 Python 小仓库；虽已补 API refactor、build/CLI、确定性 multi-turn 与 reward-hacking 行为集，但 review/test-generation/performance/security 与多语言仍缺，多轮和 hackbait 也尚无真实模型结果。
 - **Claude Code 已有模型受控横向结果，但证据面仍窄**：原 4-case、单模型、两个 wall-clock 档位已完成；120s Task 差异的配对方向明确，但 cluster 区间宽，且 Claude Code 宽松档原始产物证据等级较低。8-case 矩阵、第二模型和第二外部 Agent 均未完成。
 - **默认预算下两个 suite 近乎饱和**：短程对 DeepSeek 两档与 GLM-4.5-air 全部 1.00，只有最弱的免费档到 0.84；长程对 V2+DeepSeek 也是 1.00（n=1）。**H2 只在最弱档成立且效应很小**；H3（compaction 消融）若在默认预算下做会面临同样风险。优先级最高的补救是把**预算变成实验变量**（max_steps / context budget / wall-clock），其次才是加难 case。
 - **GLM 免费档限流严重**：`glm-4.7-flash` 在 workers=4 下 44/45 触发 429；串行可跑但约 78s/trial。付费档（glm-4.5-air）workers=3 下 infra=0。并行度必须按档位分别设定。
@@ -628,7 +641,7 @@ Version Compare（V1→V2）：**improved=1（loyalty 0.80→1.00），regressed
 
 ## 8. 建议下一步
 
-1. **建设 W2-5 hackbait suite**：先完成策略接线、reference/none 和 detector 自检，真实 hacking-rate 后补。
-2. **额度恢复后执行 W3-6a、ScratchPad live 消融与 E5**：保持原模型、wall-clock、温度、预算和 repeats 配对，在 8-case 长程 suite 上重跑，并在 3-case 多轮 suite 测真实恢复率。
-3. **再接第二外部 Agent 与官方 SWE-bench Smoke Slice**；两者可先搭离线协议，但 live 结果必须等各自运行环境有效后验收。
+1. **推进 W2-8 第二外部 Agent adapter**：优先选择能在本地以可执行 CLI stand-in 完整验证的框架，复用已有 normalize、预算、provenance 和累计会话契约。
+2. **完成 W2-7 / B2 官方 SWE-bench Smoke Slice**：只做少量官方实例的完整协议实操，不包装成排行榜成绩。
+3. **额度恢复后执行 W3-6a、ScratchPad 消融、multi-turn E5 与 hackbait 行为测量**：保持原模型、wall-clock、温度、预算和 repeats 配对，不与替代模型混并。
 4. **谨慎补 RepoMemory**：跨 run memory 必须证明 trial 隔离和无答案泄漏，否则宁可不做；正式 Golden Dataset/hidden/reference 不随开源框架公开。

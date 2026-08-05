@@ -219,9 +219,10 @@ SQLite（`datasets/dataset_versions/eval_cases/agents/agent_versions/experiments
 2. Compatibility/Smoke Slice：少量官方实例、完整官方流程，用于验证会不会正确评。
 3. Benchmark Evaluation：按官方规模与规则运行，才可报告正式 benchmark 结果。
 
-当前事实口径：mini_store 是 9 case 的私有 Golden Dataset；HumanEval 部分是 10 题
-EvalPlus-schema 自建/精选子集；SWE-bench 部分是官方 schema + 自建 Compatibility Sample。
-三者都不能包装成完整公开排行榜成绩。
+当前事实口径：mini_store 基础短程是 9 case 的私有 Golden Dataset，另已扩出长程 8 case、
+多轮 3 case 与 hackbait 3 case；HumanEval 部分是 10 题 EvalPlus-schema 自建/精选子集；
+SWE-bench 部分是官方 schema + 自建 Compatibility Sample。这些私有集和兼容样例都不能包装成
+完整公开排行榜成绩。
 
 实施顺序：
 

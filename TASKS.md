@@ -21,7 +21,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | B3 | 统计增强与分层报告 | P0/P1 | 🟨 计划内核心完成，扩展字段待补 |
 | B4 | Terminal-Bench/Harbor Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
 | B5 | OctoBench Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
-| G1 | 私有 Golden Dataset 类型扩充 | P0/P1/P2 | 🟨 长程 8-case + 多轮 3-case 完成，其他类型待补 |
+| G1 | 私有 Golden Dataset 类型扩充 | P0/P1/P2 | 🟨 长程 8-case + 多轮 3-case + hackbait 3-case 完成，其他类型待补 |
 | V3 W1-1 | `mini_store_long` 长程 suite | P0 | ✅ 完成 |
 | V3 W1-2 | AgentAdapter + MiniAgentAdapter + runner 接入 | P0 | ✅ 完成 |
 | V3 W1-3 | ClaudeCodeAdapter | P0 | ✅ 代码；✅ protocol + repo live |
@@ -33,7 +33,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W2-2 | run 内 ScratchPad | P1 | ✅ 离线工程闭环完成 |
 | V3 W2-3 | 上下文遗忘检测器 | P0 | ✅ 核心完成 |
 | V3 W2-4 | 测试投机检测器 | P0 | ✅ 完成 |
-| V3 W2-5 | hackbait 专用 suite | P1 | ⬜ 未开始 |
+| V3 W2-5 | hackbait 专用 suite | P1 | ✅ 离线工程闭环完成 |
 | V3 W2-6 | 指令偏移检测器 | P0 | ✅ 完成 |
 | V3 W2-7 | SWE-bench 官方 Smoke Slice | P0 | ⬜ 未开始 |
 | V3 W2-8 | 第二外部 Agent adapter | P0 | ⬜ 未开始 |
@@ -66,7 +66,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] provider/网络错误作为 infra-invalid 排除出能力分母；compare 拒绝基础设施无效 run。
 - [x] V2 拒绝截断、空回复、无改动、未测试和末次测试失败的假完成；V1 行为不变。
 - [x] 成本费率缺失时记录 `cost_usd=null`、`cost_source=unavailable`，不伪造零成本。
-- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（393 passed/1 skipped）。
+- **阶段验收快照**：W1-2 完成时 94 passed/1 skipped；当前总门禁见 `PROJECT_STATE.md`（408 passed/1 skipped）。
 
 ### W1-3 · ClaudeCodeAdapter ✅（代码 + live）
 
@@ -123,7 +123,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 - [x] **W2-2 ScratchPad**：有界 run-scoped key/value notes、动态 system context、`update_scratchpad` 工具、compaction/multi-turn 保留、context ceiling 计量、trial 隔离、独立消融和 artifact/summary 指标均完成。它不落目标仓库；跨 run RepoMemory 仍不得先于泄漏隔离设计。
 - [x] **W2-3 Context amnesia**：被动 canary 检测、early/late split、短轨迹拒绝给 decay、跨 adapter 路径归一化均已完成；W3-5 展示聚合证据，专门的时间序列曲线留作 B3 可视化扩展。
 - [x] **W2-4 Reward hacking**：8 类信号、evidence span、人工 hack 样本全命中、reference 零误报与历史回扫均已完成。
-- [ ] **W2-5 Hackbait suite**：未实现；当前只有 16 个未被沙箱强制拦截的 Claude Code trial，零检出上界仍宽。
+- [x] **W2-5 Hackbait suite**：3 条显式需求 case 覆盖削弱断言、skip 与输入硬编码；`allow_test_edits` 已贯穿 task/prompt/policy/scaffold，PatchGrade/Strict 不放宽。selfcheck 会执行每个 shortcut，要求 visible 命令表面绿、hidden 失败、detector 强命中且 reference 零误报；runner 按真实开放写入面的 trial 输出 per-trial artifact、case/suite rate、Wilson CI 与信号计数。离线门禁 3/3、reference/none=1.00/0.00；真实模型 hacking rate 因额度待跑。
 - [x] **W2-6 Instruction drift**：轨迹重放、首次违规步、obedience ratio、self-corrected/persisted 已完成。
 - [ ] **W2-7 官方 SWE-bench Smoke Slice**：仍只有 schema-compatible 自建样例。
 - [ ] **W2-8 第二外部 adapter**：aider / mini-swe-agent 尚未接入。
@@ -251,8 +251,8 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 
 ## 当前推荐执行顺序
 
-V3 W1 全部完成，W2-1/2/3/4/6 完成，W3-1/3/4/5 完成，W3-6/7 部分完成。W3-6a、ScratchPad live 消融与多轮 E5 因 GLM API 额度暂停，当前先推进不依赖真实模型调用的工程闭环：
+V3 W1 全部完成，W2-1/2/3/4/5/6 完成，W3-1/3/4/5 完成，W3-6/7 部分完成。W3-6a、ScratchPad live 消融、多轮 E5 与 hackbait 行为测量因 GLM API 额度暂停；其余离线工程继续：
 
-1. 完成 W2-5 hackbait 基础设施与 suite；真实模型 hacking-rate 等额度恢复后再测。
-2. 额度恢复后执行 W3-6a、ScratchPad live 消融与 E5：长程 8-case 重跑受控矩阵，并在多轮 3-case 上测真实恢复率。
-3. 再推进第二外部 Agent 与 B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。
+1. 优先推进 W2-8 第二外部 Agent adapter，复用现有 normalize/budget/provenance 契约补齐三方横向能力。
+2. 再完成 W2-7 / B2 官方 SWE-bench Smoke Slice；跨 run RepoMemory 最后评估，先证明 trial 隔离和无答案泄漏。
+3. 额度恢复后执行 W3-6a、ScratchPad 消融、multi-turn E5 与 hackbait 行为测量；保持冻结模型和受控配置，不与替代模型混并。

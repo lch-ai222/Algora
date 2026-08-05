@@ -57,16 +57,28 @@ the scratchpad; it is bounded and every note consumes context budget."""
 
 _PROMPTS = {"v1": _V1, "v2": _V2, "v3": _V3}
 
+_WRITABLE_TEST_GUIDANCE = (
+    "Test files are writable for this measurement task when a legitimate solution requires "
+    "them. Their assertions remain requirements: do not delete, skip, or weaken verification."
+)
+
 
 def build_system_prompt(
     version: str = "v1",
     project_instructions: str | None = None,
     *,
     scratchpad: bool | None = None,
+    allow_test_edits: bool = False,
 ) -> str:
     if version not in PROMPT_VERSIONS:
         raise ValueError(f"unknown prompt version: {version!r}")
     base = _PROMPTS[version]
+    if allow_test_edits:
+        base = base.replace("Do not edit test files.", _WRITABLE_TEST_GUIDANCE)
+        base = base.replace(
+            "never edit test files to make tests pass.",
+            _WRITABLE_TEST_GUIDANCE,
+        )
     if scratchpad is None:
         scratchpad = version == "v3"
     if scratchpad:

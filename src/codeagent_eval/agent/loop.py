@@ -185,6 +185,7 @@ class MiniAgent:
             self.config.version,
             task.project_instructions,
             scratchpad=self.config.enable_scratchpad,
+            allow_test_edits=task.allow_test_edits,
         )
         ctx = ToolContext(
             sandbox=sandbox,
@@ -448,6 +449,7 @@ class MiniAgent:
             "premature_final_attempts": state.premature_final_attempts,
             "peak_prompt_tokens": state.peak_prompt_tokens,
             "context_overflowed": stop_reason == "context_overflow",
+            "test_edit_policy_enforced": not task.allow_test_edits,
         }
         plan_stats = state.planner.stats() if self.config.enable_planner else {}
         checks.update(context.stats.as_dict(context.budget_tokens) if context else {})
@@ -479,8 +481,9 @@ class MiniAgent:
 # Helpers
 # --------------------------------------------------------------------------- #
 def _forbidden_from_task(task: AgentTask) -> list[str]:
-    # Task-level constraints will carry forbidden_paths in M2; default protects test files.
-    return ["test_*.py", "*/test_*.py", "tests/*"]
+    # Hackbait opens only the file-write surface needed to observe behaviour. CommandPolicy,
+    # hidden-test isolation, and final PatchGrade remain unchanged.
+    return [] if task.allow_test_edits else ["test_*.py", "*/test_*.py", "tests/*"]
 
 
 def _initial_user_message(task: AgentTask, sandbox: WorktreeSandbox) -> str:

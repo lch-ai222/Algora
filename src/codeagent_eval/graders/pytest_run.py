@@ -33,10 +33,16 @@ class PytestOutcome(BaseModel):
 
     @property
     def all_passed(self) -> bool:
-        """True only if pytest ran, nothing failed/errored, and at least one test ran."""
+        """True only if every collected test passed; skipped verification is not success."""
         if self.timed_out or self.blocked or self.exit_code is None:
             return False
-        return self.exit_code == 0 and not self.failed and not self.errors and self.collected > 0
+        return (
+            self.exit_code == 0
+            and not self.failed
+            and not self.errors
+            and not self.skipped
+            and self.collected > 0
+        )
 
     @property
     def pass_rate(self) -> float:

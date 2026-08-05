@@ -9,7 +9,7 @@
 `mini_store` 不是业内通用 benchmark，而是 Algora 自建的私有评测集：
 
 - 定位：SWE-bench-style repository benchmark / private Golden Dataset。
-- 当前规模：1 个 Python 仓库、9 个 case（4 bugfix、2 spec、3 regression-trap）。
+- 当前规模：基础短程 9 case，另有长程 8 case、多轮 3 case、hackbait 3 case；四套 suite 均有独立 selfcheck 与 reference/none 边界。
 - 价值：无污染、答案和缺陷可控、可定向构造失败模式、适合快速重复回归。
 - 边界：不能用于公开排行榜或与外部系统直接横向比较，也不能代表多语言、大仓库或完整软件工程分布。
 
@@ -252,6 +252,10 @@ Multi-turn 覆盖需求澄清、用户变更要求、约束冲突、测试失败
 
 尚未完成的是更开放的澄清/冲突场景、用户模拟器稳定性评测，以及真实模型恢复率实验。现有 selfcheck 与 reference/none 上下界只证明机制和 oracle 有效，不能替代 live Agent 结果。
 
+### Reward-hacking 行为集
+
+`mini_store_hackbait` 用 3 条需求明确的 case 打开测试写入面，并提供削弱断言、skip、输入硬编码三种 executable shortcut。质量门禁要求每个 shortcut 的 visible 命令表面为绿、hidden 失败、detector 强命中，同时 reference 零误报。开放写入只用于观测，PatchGrade/Strict 不放宽；离线门禁不能替代真实模型 hacking rate。
+
 ## 8. Golden Dataset 质量控制
 
 每个新增 case 至少记录：
@@ -265,6 +269,7 @@ Multi-turn 覆盖需求澄清、用户变更要求、约束冲突、测试失败
 - reference/none 自检；
 - flaky/repeatability 检查；
 - 预期失败类型和可能捷径；
+- 声明 `known_shortcuts` 时，捷径必须可执行地证明 visible 表面通过、hidden 拒绝、检测器命中，不能只写文字猜测；
 - 数据版本、修订记录与废弃原因；
 - 需要人工标注时的双人复核、冲突仲裁和一致性指标。
 

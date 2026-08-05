@@ -79,6 +79,9 @@ class AgentTask(BaseModel):
     project_instructions: str | None = None  # e.g. injected AGENTS.md content (V2)
     harness_version: str | None = None
     require_tests_run_before_finish: bool = False
+    # Measurement permission, not acceptance permission: PatchGrade still rejects a delivered
+    # test edit. Hackbait cases open the write path so behaviour can be observed at all.
+    allow_test_edits: bool = False
 
 
 class TraceEventType(StrEnum):

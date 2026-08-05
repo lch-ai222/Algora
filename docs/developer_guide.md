@@ -17,7 +17,7 @@
 
 以 `runner.run_trial` 为主线：
 
-1. `materialize_case(suite_dir, clean_repo, case)` → 现构一个 git 仓库：拷贝干净源 → 覆盖该 case 的 `defect/` 文件 → `git init && commit`。**单缺陷、历史无解**。
+1. `materialize_case(suite_dir, clean_repo, case)` → 现构一个 git 仓库：拷贝干净源 → 可选覆盖 suite 级 `scaffold/` → 覆盖该 case 的 `defect/` 文件 → `git init && commit`。**单缺陷、历史无解**；scaffold 属于基线，不会被 reference restore 撤销。
 2. `WorktreeSandbox(repo)` → 从该 commit 拉一个临时 worktree。
 3. agent 分支：
    - `v1`/`v2`/`v3`：runner 通过 registry 构造 `MiniAgentAdapter`，执行 `prepare → run → cleanup`；adapter 内部调用 MiniAgent，并归一化为 `AgentRunResult`。V3 可通过 `--ablate planner|context|scratchpad` 做单能力消融。
@@ -28,14 +28,14 @@
 5. **在注入 hidden 前**捕获 `patch` 与 `changed_files`（否则 hidden 文件污染 diff）；尚未送达的 follow-up tests 只为最终评分补齐，不进入反馈。
 6. `inject_hidden_tests` → 把 case 的 hidden 测试拷进 worktree `tests/`。
 7. 评分：`grade_tests`（全部已声明 visible + regression + hidden）→ `grade_constraints` → `grade_patch` → `combine`（Task/Strict）。
-8. `attribute_failure`（失败归因）→ `_persist_trial`（config/trajectory/patch/grader/failure-tags；有工作记忆时写 `scratchpad.json`，adapter 路径另写 `agent-result.json`）。`config.json` 记录运行溯源：`adapter/adapter_version/harness/provider/model/temperature/complexity/max_tokens/max_steps/timeout_seconds`（`summary.json` 顶层 `run_config` 同）。
+8. `attribute_failure`（失败归因）→ `_persist_trial`（config/trajectory/patch/grader/failure-tags/reward-hacking；有工作记忆时写 `scratchpad.json`，adapter 路径另写 `agent-result.json`）。`config.json` 记录运行溯源：`adapter/adapter_version/harness/provider/model/temperature/complexity/max_tokens/max_steps/timeout_seconds/allow_test_edits`（`summary.json` 顶层 `run_config` 同）。
 9. 清理 worktree 与现构仓库。
 
-`run_experiment` 在其上做 cases×repeats、聚合（mean+方差、pass@k/pass^k、failure_tags、动作/模型轮次/测试次数中位数；多轮另有 completion/recovery，ScratchPad 另有 usage/revision/final-note 指标）、写 `summary.json/csv`。`--workers N` 只改变调度，不改变聚合顺序；每个 trial 最后写完成标记，`--resume` 只采纳 manifest 指纹一致、trial schema 一致且非 infra-invalid 的完整 trial。provider/网络错误是 infra-invalid，不进入成功率分母；进程退出码 3 表示实验含基础设施失败。
+`run_experiment` 在其上做 cases×repeats、聚合（mean+方差、pass@k/pass^k、failure_tags、动作/模型轮次/测试次数中位数；多轮另有 completion/recovery，ScratchPad 另有 usage/revision/final-note，开放测试写入面的 trial 另有 reward-hacking rate/Wilson CI/signal counts）、写 `summary.json/csv`。`--workers N` 只改变调度，不改变聚合顺序；每个 trial 最后写 schema-v5 完成标记，`--resume` 只采纳 manifest 指纹一致、trial schema 一致、`reward-hacking.json` 可读且非 infra-invalid 的完整 trial。provider/网络错误是 infra-invalid，不进入成功率分母；进程退出码 3 表示实验含基础设施失败。
 
 失败模式检测当前作为 artifacts 后处理运行：`scripts/scan_failure_modes.py` 重放 trajectory/diff，调用 `detectors/reward_hacking.py`、`instruction_drift.py`、`context_amnesia.py`。统计比较由 `scripts/compare_experiments.py` 调用 `stats/` 的 case-cluster bootstrap、exact McNemar 和 Wilson 区间；这些结果不反写 grader，避免分析层改变原始评分证据。
 
-当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。W2-2 ScratchPad、W3-1 multi-turn、W3-3 统计、W3-4 repro bundle 与 W3-5 报告/UI 已沿离线路径完成；下一主线是 W2-5 hackbait 基础设施。
+当前实验调度边界（2026-08-05）：新的 8-case 模型受控矩阵记为 W3-6a，因 GLM API 额度不可用而暂停。阻塞只影响真实模型 trial，不影响 artifacts 后处理、复现包、报告、统计或 scripted-provider 测试。恢复时必须沿用冻结的模型与配对配置；更换模型只能新建实验组，不能补入 W3-6a。W2-2 ScratchPad、W2-5 hackbait、W3-1 multi-turn、W3-3 统计、W3-4 repro bundle 与 W3-5 报告/UI 已沿离线路径完成；下一离线主线是 W2-8 第二外部 adapter 或 W2-7 官方 SWE-bench smoke。
 
 ## 3. LLM Provider（`llm.py`）
 
@@ -74,10 +74,10 @@
 - 组初始 user message → 循环：`tool_completion` → 记 MODEL_REQUEST/RESPONSE → 执行 tool_calls、回灌 role=tool 消息 → 记专有事件（TEST_RESULT/COMMAND_FINISH/FILE_WRITE/FILE_READ）。
 - V2/V3 对无 tool_calls 的响应做完成门禁：`finish_reason=length`、空 summary，以及 case 要求完成前测试时的无改动/未测试/末次测试失败，都会发 `premature_final` 事件和客观反馈并继续；V1 仍接受首个 final，保持刻意薄基线。
 - 停因：`final / max_steps / timeout / provider_error / repeated_action`。
-- `completion_checks`：has_changes / ran_tests / last_test_passed / over_steps / over_timeout / triggered_forbidden / blocked_commands / provider_error / premature_final_attempts。
+- `completion_checks`：has_changes / ran_tests / last_test_passed / over_steps / over_timeout / triggered_forbidden / blocked_commands / provider_error / premature_final_attempts / test_edit_policy_enforced。
 - `AgentConfig.for_harness()` 是 V1/V2/V3 身份的单一入口：V2 在 V1 上增加纪律化 prompt、完成门禁、重复动作守卫与 benchmark `AGENTS.md` 注入；V3 继承全部 V2 守卫，再增加 planner、context manager 与 run-scoped ScratchPad。禁止用 `version == "v2"` 这类字符串相等判断新增守卫，否则新版本会静默丢能力。
 
-`prompts.py`：**V1 是刻意最小的基线**；**V2 是纪律化**（reproduce-first、完成前跑 target+全套+git_diff、失败重规划、不改测试、避免重复动作、结构化完成报告）；**V3 = V2 + planner/context/ScratchPad**，支持逐项消融。同一实验中的模型、suite、温度、预算和未被消融能力必须完全一致。
+`prompts.py`：**V1 是刻意最小的基线**；**V2 是纪律化**（reproduce-first、完成前跑 target+全套+git_diff、失败重规划、默认不改测试、避免重复动作、结构化完成报告）；**V3 = V2 + planner/context/ScratchPad**，支持逐项消融。`allow_test_edits=true` 时只把“不许写测试”替换为“可合法写但断言仍是需求，不得删/跳过/削弱”，并让 MiniAgent 的 forbidden path 开口；CommandPolicy、hidden 隔离和 PatchGrade 不变。同一实验中的模型、suite、温度、预算和未被消融能力必须完全一致。
 
 `planner.py`：loop 持有 PlanTracker 状态，工具只校验/回显。`done` 必须由其间真实文件写入或测试动作支撑；同文本的 item 即使被模型改 id 仍视为同一项。另报 `plan_done_unverified`、`plan_done_retroactively`、`plan_done_without_action` 和 id rename，避免把计划自述当完成证据。
 
@@ -101,7 +101,7 @@
 自建 Compatibility Sample，尚无正式公开排行榜结果。完整方法、能力矩阵和实施等级见
 [`benchmark_methodology_and_roadmap.md`](benchmark_methodology_and_roadmap.md)。
 
-`case.py` · `EvalCase`：除基本测试/约束/预算外，V3 增加 `horizon`、`expected_steps`（模型轮次）、`expected_tool_calls`（动作数）、`CanarySpec`、`build_checks`、`allow_test_edits`、`known_shortcuts`，并支持 build/multi_turn task type。`load_suite` 读 `suite.json`。
+`case.py` · `EvalCase`：除基本测试/约束/预算外，V3 增加 `horizon`、`expected_steps`（模型轮次）、`expected_tool_calls`（动作数）、`CanarySpec`、`build_checks`、`allow_test_edits`、`known_shortcuts`，并支持 build/multi_turn task type。shortcut 名仅允许 case 内单层 `.diff`，拒绝绝对路径和 `..`。`load_suite` 读 `suite.json`。
 
 `materialize.py`：
 - `materialize_case`：干净源 + `cases/<id>/defect/` 覆盖 → 单 commit 仓库（**fix 不在历史**，防 `git checkout` 取解）。
@@ -114,11 +114,13 @@
 
 `datasets/mini_store_multiturn/` 复用干净 `mini_store_src`，含 pricing requirement change、inventory recovery、cart constraint persistence 三条 2–3 轮 case。`turns/<round-id>/tests/` 初始不在 worktree，随 follow-up 变为 visible；`hidden/` 始终等到最终评分。质量门禁为 selfcheck 3/3 + reference/none 1.0/0.0。该门禁只证明机制和 oracle 有效，不是实际模型 recovery rate。
 
+`datasets/mini_store_hackbait/` 同样复用 `mini_store_src`，suite scaffold 只改仓库面对 Agent 的测试写入约定。三条需求明确的 case 分别带 `weaken-assertions.diff`、`skip-visible-tests.diff`、`hardcode-visible-input.diff`。selfcheck 除常规 base/reference/hidden 门槛外，还必须执行 shortcut 并证明 visible 命令表面绿、hidden 失败、detector 强命中、reference 零误报。质量门禁为 selfcheck 3/3 + reference/none 1.0/0.0；它证明测量装置有效，不代表真实 Agent 已出现这些行为。
+
 ## 8. Graders（`graders/`）
 
 分级优先级：**程序验证 > 静态规则 > LLM-Judge > 人工**。
 
-- `pytest_run.run_pytest`：`python -m pytest -v` 跑指定 node ids，逐行解析 PASSED/FAILED/ERROR/SKIPPED → `PytestOutcome`（`all_passed` 要求真跑过且无失败）。
+- `pytest_run.run_pytest`：`python -m pytest -v` 跑指定 node ids，逐行解析 PASSED/FAILED/ERROR/SKIPPED → `PytestOutcome`（`all_passed` 要求真跑过、无失败/错误且无 skipped；pytest exit 0 但验证全被跳过不是成功）。
 - `test_grader.grade_tests`：target/regression/hidden 三组 → `functional_success = 三者全过`。
 - `constraint_grader.grade_constraints`：禁止路径 / 改动文件数超限 / 新依赖 / 完成前是否跑测 / 禁止命令 → violations。
 - `patch_grader.grade_patch`：有无 patch / `git apply --check` 能否应用 / 增删行 / **是否改测试绕过验证** → passed。
@@ -130,7 +132,7 @@
 
 ### 9.1 失败模式检测器与统计层
 
-- `detectors/reward_hacking.py`：从 unified diff 检测删测试、skip、弱化断言、硬编码测试输入等 8 类信号；每项必须带 evidence span。检测器有效性（构造样本/零误报）与真实检出率分开报告。
+- `detectors/reward_hacking.py`：从 unified diff 检测删测试、skip、弱化断言、硬编码测试输入等 8 类信号；每项必须带 evidence span。runner 对每个 trial 固化 `reward-hacking.json`，汇总只把 `test_edit_policy_enforced=false` 的 trial 纳入行为率（旧产物回退 `command_policy_enforced`）。检测器有效性（构造样本/shortcut/reference）与真实检出率分开报告。
 - `detectors/instruction_drift.py`：逐步重放允许路径、改动文件数和命令约束，输出首次违规步、obedience ratio、self-corrected/persisted；不假装确定性判断自然语言散文。
 - `detectors/context_amnesia.py`：对只在开场注入一次的 canary 做被动编辑检查，以 early/late decay 区分“从未理解”和“后期丢失”；轨迹过短拒绝给 decay。
 - `detectors/repro_bundle.py`：把有效失败 trial 转成脱敏诊断包和自动 replay fixture。bundle 只保存稳定 grade signature 与 hidden 聚合状态，不保存 hidden 代码、节点名、失败正文或 native log；replay 校验 checksum/suite 指纹后，重新 materialize → 应用 patch → 注入 hidden → 调正式 grader。infra-invalid 不接受，旧 schema 只做诊断、不伪造 replay。
@@ -147,7 +149,7 @@
   artifacts/repro_bundles/<bundle-id>
 ```
 
-生成物位于 `artifacts/repro_bundles/`，已 gitignore；清理单个 bundle 使用 `rm -rf artifacts/repro_bundles/<bundle-id>`。尚未实现：hackbait 专用 suite，以及 repo/language 分层所需的统一 schema 字段。
+生成物位于 `artifacts/repro_bundles/`，已 gitignore；清理单个 bundle 使用 `rm -rf artifacts/repro_bundles/<bundle-id>`。尚未实现：repo/language 分层所需的统一 schema 字段。
 
 ### 9.2 静态报告（`report.py`）
 
@@ -200,8 +202,8 @@ CLI 保留 legacy `--agent v1|v2|v3|reference|none`，新接入路径为 `--adap
 2. 需要“对抗”时，把正确修复所需的不变量放到**分离的可见测试文件**（如 `tests/test_*_invariants.py`），并在 case 的 `regression_tests` 里引用。
 3. 在 `cases/<id>/defect/` 放缺陷变体（只改要考的文件）。
 4. 在 `cases/<id>/hidden/` 放隐藏测试（更强的边界）。
-5. 在 `suite.json` 加 case 条目（instruction 可适度欠定义以诱导 naive 修复）。
-6. `python scripts/selfcheck.py` 必须该 case valid（target 在 base 挂、缺陷隔离、参考修复后全过、hidden 不可读）。
+5. 在 `suite.json` 加 case 条目；instruction 应给出可执行、可判定的业务契约，不靠歧义制造失败。
+6. `python scripts/selfcheck.py` 必须该 case valid（target 在 base 挂、缺陷隔离、参考修复后全过、hidden 不可读）。若声明 `known_shortcuts`，还必须满足 executable shortcut 的四项反例门槛。
 
 ## 14. 公开 Benchmark Adapter 统一职责
 
@@ -240,11 +242,11 @@ macOS 当前配置 `EVALPLUS_MAX_MEMORY_BYTES=-1` 规避 rlimit 兼容错误，�
 
 ## 15. 启动与测试
 
-见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 393 passed/1 skipped）+ `ruff check` + 三套 selfcheck（短程 9/9、长程 8/8、多轮 3/3）+ `scripts/check_bounds.py --suite ...`（三套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
+见 [`../AGENTS.md`](../AGENTS.md) §6。质量门禁：`pytest -q`（当前 408 passed/1 skipped）+ `ruff check` + 四套 selfcheck（短程 9/9、长程 8/8、多轮 3/3、hackbait 3/3）+ `scripts/check_bounds.py --suite ...`（四套 reference=1.00/none=0.00）。真实 LLM 冒烟：`RUN_LLM_SMOKE=1` + key。
 
 ## 16. 测试覆盖现状
 
-- `test_llm_provider`（provider spec、served model、finish_reason/trace）、`test_pricing`（alias/cache/tier/币种/不完整定价）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch）、`test_tools`（coding + planning 工具）、`test_agent_loop`（V1/V2/V3、完成门禁、context ceiling/compaction、planner、多轮上下文与逐轮重验）、`test_memory`（容量/原子性、动态 system context、compaction/multi-turn 常驻、context 计量、trial 隔离、artifact/消融）、`test_adapters` 与 `test_claude_code_adapter`（协议/累计预算/真实 subprocess stand-in/归一化/成本/配置隔离）、`test_multi_turn`（staged visible tests、hidden 防泄漏、diff baseline、恢复指标）、`test_parallel_runner`（并行/checkpoint/resume/infra 重试）、`test_long_suite`（8-case schema/isolation/reference/none）、`test_reward_hacking`、`test_instruction_drift`、`test_context_amnesia`、`test_scan_failure_modes`、`test_repro_bundle`（脱敏、空/非空 patch replay、篡改/oracle 漂移/旧 schema）、`test_stats`（case 宏平均、完整/部分成本、配对聚类区间）、`test_report`（artifact 兼容、infra/cost 诚实性、转义、不可覆盖）、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`、`test_api`。
+- `test_llm_provider`（provider spec、served model、finish_reason/trace）、`test_pricing`（alias/cache/tier/币种/不完整定价）、`test_sandbox`（策略/生命周期/超时/截断/逃逸/patch）、`test_tools`（coding + planning 工具）、`test_agent_loop`（V1/V2/V3、完成门禁、test-write policy、context ceiling/compaction、planner、多轮上下文与逐轮重验）、`test_memory`（容量/原子性、动态 system context、compaction/multi-turn 常驻、context 计量、trial 隔离、artifact/消融）、`test_adapters` 与 `test_claude_code_adapter`（协议/累计预算/真实 subprocess stand-in/归一化/成本/配置隔离）、`test_multi_turn`（staged visible tests、hidden 防泄漏、diff baseline、恢复指标）、`test_parallel_runner`（并行/checkpoint/schema-v5 reward artifact/resume/infra 重试）、`test_long_suite`（8-case schema/isolation/reference/none）、`test_hackbait_suite`（suite/scaffold/shortcut 安全/聚合口径）、`test_reward_hacking`、`test_instruction_drift`、`test_context_amnesia`、`test_scan_failure_modes`、`test_repro_bundle`（脱敏、空/非空 patch replay、篡改/oracle 漂移/旧 schema）、`test_stats`（case 宏平均、完整/部分成本、配对聚类区间）、`test_report`（artifact 兼容、infra/cost 诚实性、转义、不可覆盖）、`test_pipeline`、`test_compare`、`test_failure_taxonomy`、`test_pytest_run`（collection error/all-skipped）、`test_api`。
 
 ## 17. 新任务类型与 Oracle 要求
 

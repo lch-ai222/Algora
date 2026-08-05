@@ -37,11 +37,13 @@ jobs:
       - name: Tests
         run: pytest -q
 
-      - name: Bounds (short + long)
+      - name: Bounds (all private suites)
         run: |
           python scripts/check_bounds.py --workers 2 \
             --suite datasets/mini_store_suite \
             --suite datasets/mini_store_long \
+            --suite datasets/mini_store_multiturn \
+            --suite datasets/mini_store_hackbait \
             --out artifacts/nightly --keep
 
       - uses: actions/upload-artifact@v4

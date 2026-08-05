@@ -1,0 +1,5 @@
+diff --git a/mini_store/discounts.py b/mini_store/discounts.py
+--- a/mini_store/discounts.py
++++ b/mini_store/discounts.py
+@@ -14,0 +15 @@ def bulk_discount(subtotal: float, item_count: int) -> float:
++    if item_count == 10: return 10.0
