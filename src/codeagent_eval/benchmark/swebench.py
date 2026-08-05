@@ -44,6 +44,9 @@ class SWEBenchInstance(BaseModel):
     fail_to_pass: list[str] = Field(default_factory=list, alias="FAIL_TO_PASS")
     pass_to_pass: list[str] = Field(default_factory=list, alias="PASS_TO_PASS")
     environment_setup_commit: str | None = None
+    #: The repository release an instance belongs to. The official harness keys its install
+    #: recipes on this, and instances sharing a version can share one built environment.
+    version: str = "unknown"
     # NON-official: path (relative to the suite dir) to a bundled base repo for compatibility
     # samples. Real instances leave this None and are fetched by repo@base_commit.
     repo_local: str | None = None

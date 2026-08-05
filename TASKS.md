@@ -17,7 +17,7 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | C | SWE-bench 兼容样例 + Docker 设计 | P2 | ✅ 完成（兼容验证） |
 | DOC | 长期文档（本批） | — | ✅ 完成 |
 | B1 | HumanEval+/EvalPlus 官方 Smoke Slice | P0 | ✅ 完成 |
-| B2 | SWE-bench 官方实例 Smoke Slice | P0 | ⬜ 待开发 |
+| B2 | SWE-bench 官方实例 Smoke Slice | P0 | ✅ 3 实例金标通过（flask） |
 | B3 | 统计增强与分层报告 | P0/P1 | 🟨 计划内核心完成，扩展字段待补 |
 | B4 | Terminal-Bench/Harbor Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
 | B5 | OctoBench Protocol Study → Smoke Slice | P1 | 📝 文档阶段 |
@@ -35,8 +35,8 @@ Algora 里程碑与任务追踪。活文档，随进度更新。设计源 [`codi
 | V3 W2-4 | 测试投机检测器 | P0 | ✅ 完成 |
 | V3 W2-5 | hackbait 专用 suite | P1 | ✅ 离线工程闭环完成 |
 | V3 W2-6 | 指令偏移检测器 | P0 | ✅ 完成 |
-| V3 W2-7 | SWE-bench 官方 Smoke Slice | P0 | ⬜ 未开始 |
-| V3 W2-8 | 第二外部 Agent adapter | P0 | ⬜ 未开始 |
+| V3 W2-7 | SWE-bench 官方 Smoke Slice | P0 | ✅ flask 3/3 金标通过；requests 记为不可本地构建 |
+| V3 W2-8 | 第二外部 Agent adapter | P0 | ✅ Cline CLI 3.0.49 |
 | V3 W3-1 | 确定性 multi-turn + 3 case | P0 | ✅ 离线工程闭环完成 |
 | V3 W3-2 | 跨 run RepoMemory | P1 | ⬜ 未开始 |
 | V3 W3-3 | 统计增强 | P0/P1 | ✅ 计划内统计完成 |

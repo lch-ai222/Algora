@@ -764,6 +764,37 @@ Suite: Task 0.50 / Strict 0.25，工具调用 15–31。
 
 `v3 −context` 首跑有 1 个 provider_error，配对检验**正确拒绝**了这组比较（而非把不相干 trial 硬凑成对）。`--resume` 补跑后 16/16 有效，分数由 0.875 修正为 **0.8125**——infra 失败重跑而非冻结进结果，且它确实改变了数字。
 
+### V3 W2-7 · 真实 SWE-bench Lite 实例（2026-08-05）
+
+此前全部结果都跑在自建 benchmark 上，而 JD 明写"覆盖真实开发任务"。现在能在本地跑**官方 SWE-bench Lite 实例**并通过金标验证。
+
+**范围诚实划定**：从 Lite 的 300 条里取 `pallets/flask`(3) + `psf/requests`(6) 共 9 条。最终：
+
+| 结果 | 数量 | 说明 |
+|---|---|---|
+| resolved（完整 oracle） | **2** | flask-4045、flask-4992 |
+| resolved_weak_oracle | **1** | flask-5063，2 条 P2P id 无法匹配，**单独计不并入比率** |
+| unsupported | 6 | 全部 requests，原因写在代码里 |
+
+`gold` 模式不调模型——**它测的是环境不是 agent**。金标跑不通的实例不能拿来给 agent 打分，因为那时"失败"分不清是能力还是依赖装不上。
+
+#### 四个都会让分数虚高的缺陷（全部实测踩到并修复）
+
+| 缺陷 | 不修的后果 |
+|---|---|
+| editable 安装的 `.pth` **压过 PYTHONPATH** | 测试 import 的是共享 setup 树而非本 trial 的 worktree，**金标补丁与 agent 补丁一律不生效**，全部实例报 unresolved。改为只装依赖再卸载项目本身，worktree 经 PYTHONPATH 提供（venv 因此只读，可并发） |
+| `PYTHONPATH` 传了相对路径，而子进程 cwd 是 worktree | 相对路径按 cwd 解析 → 指向 worktree 内不存在的目录 → conftest import 失败 → 读起来像"实例未解决"而非 harness bug |
+| **SWE-bench Lite 数据自带截断 id** | `test_locate_app[cliapp.factory-create_app2("foo",` ——发布时被 pytest 换行输出截断。**丢掉匹配不上的 P2P id 会让 resolved 更容易达成**，即虚高。改为前缀唯一匹配复原、记录修复、匹配不上则单独标状态 |
+| pytest 的 usage error（exit 4）被当成"测试失败" | 未匹配 id 导致整批 0 个测试运行，却读作 agent 失败 |
+
+#### 依赖固定：金标验证的价值直接体现
+
+这些项目的运行时依赖只有下界没有上界，pip 会装最新版：Flask 2.3 装到 Werkzeug 3（删了 `url_quote`，包直接 import 不了），Flask 2.0 的 conftest 用了 pytest 7 已移除的私有 API。**金标验证把两个都抓出来了**，按版本固定后 3/3 通过。
+
+#### 为什么 requests 标为 unsupported 而不是半支持
+
+Lite 里的 requests 是 2012–2016 年的版本，把 urllib3/chardet/idna **vendor 进 `requests/packages/` 且不声明依赖**，测试链还要 `pytest-httpbin` → `httpbin` → 老版 flask。这条年代敏感的依赖链正是官方用 Docker 镜像的原因。理由写进 `KNOWN_UNSUPPORTED`，**报 unsupported 而非 unresolved**——环境缺口不能混进 agent 的失败率。
+
 ### V2 短程历史结果
 
 mini_store，DeepSeek v4-flash，9 个 case × 5 repeats，同配置：

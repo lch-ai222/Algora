@@ -41,3 +41,6 @@ tmp.md
 
 # Locally installed third-party agent CLIs (see docs: adapters are probed from PATH)
 .agents/
+
+# Cloned repositories, per-version interpreters and worktrees for real SWE-bench instances
+.swebench_cache/
